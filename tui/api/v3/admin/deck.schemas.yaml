@@ -1,0 +1,376 @@
+---
+components:
+  schemas:
+    InstanceID:
+      type: string
+      pattern: "^ins_[0-9a-f]{32}$"
+    SnapshotGeneration:
+      type: integer
+      format: int64
+      minimum: 1
+    ExpectedUpdatedAt:
+      "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+    WorkspacePath:
+      type: string
+      minLength: 1
+      maxLength: 4096
+      pattern: '^/[^\u0000]*$'
+      x-utf8-bytes-maximum: 4096
+      x-agent-harbor-workspace-policy:
+        create: realpath_once_then_componentwise_openat_O_DIRECTORY_O_NOFOLLOW_and_persist_canonical_absolute_path
+        operation_preflight: before_launch_or_resume_transaction_reopen_canonical_path_freeze_device_inode_and_directory_FD
+        handoff: send_exact_directory_FD_once_with_SCM_RIGHTS_then_helper_fstat_matches_and_fchdir_before_exec
+        final_predicate: process_cwd_device_and_inode_equal_the_frozen_workspace_identity
+        failures:
+          create_or_pretransaction: validation_error_without_state_change
+          after_launching_commit: native_launch_failed_HTTP_200
+    PublishConfigCommand:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_generation, config_revision, graph]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        expected_generation:
+          "$ref": "#/components/schemas/SnapshotGeneration"
+        config_revision:
+          type: string
+          minLength: 1
+        graph:
+          "$ref": "./config-core.schemas.yaml#/components/schemas/ConfigGraph"
+    CreateAgentSessionCommand:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_snapshot_generation, label, client_profile_id, workspace]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        expected_snapshot_generation:
+          "$ref": "#/components/schemas/SnapshotGeneration"
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        client_profile_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        workspace:
+          "$ref": "#/components/schemas/WorkspacePath"
+        route_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+    SessionCredentialView:
+      type: object
+      additionalProperties: false
+      required: [status, generation]
+      properties:
+        status:
+          type: string
+          enum: [none, active, revoked]
+        generation:
+          type: integer
+          minimum: 0
+      x-agent-harbor-semantic-schema-dialect: "http://json-schema.org/draft-07/schema#"
+      x-agent-harbor-semantic-one-of:
+        - properties:
+            status: {type: string, enum: [none]}
+            generation: {type: integer, enum: [0]}
+        - properties:
+            status: {type: string, enum: [active]}
+            generation: {type: integer, minimum: 1}
+        - properties:
+            status: {type: string, enum: [revoked]}
+            generation: {type: integer, minimum: 1}
+      x-agent-harbor-state-rules:
+        none: {status: none, generation: 0}
+        active: {status: active, generation: integer_greater_than_or_equal_to_1}
+        revoked: {status: revoked, generation: integer_greater_than_or_equal_to_1}
+        enforcement: Core_constructs_and_validates_the_complete_tuple_before_serialization
+    SessionVersionCommand:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_updated_at]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        expected_updated_at:
+          "$ref": "#/components/schemas/ExpectedUpdatedAt"
+    SessionCredentialCommand:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_updated_at, expected_credential_generation]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        expected_updated_at:
+          "$ref": "#/components/schemas/ExpectedUpdatedAt"
+        expected_credential_generation:
+          type: integer
+          minimum: 0
+    SessionLifecycleCommand:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_updated_at, timeout_ms]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        expected_updated_at:
+          "$ref": "#/components/schemas/ExpectedUpdatedAt"
+        timeout_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 30000
+    EndAgentSessionCommand:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_updated_at, mode, timeout_ms]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        expected_updated_at:
+          "$ref": "#/components/schemas/ExpectedUpdatedAt"
+        mode:
+          type: string
+          enum: [graceful, force]
+        timeout_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 30000
+    ReplaceProviderCredentialCommand:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_snapshot_generation, expected_credential_generation, secret]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        expected_snapshot_generation:
+          "$ref": "#/components/schemas/SnapshotGeneration"
+        expected_credential_generation:
+          type: integer
+          minimum: 1
+        secret:
+          "$ref": "./config-provider.schemas.yaml#/components/schemas/SecretRef"
+          x-deck-input-policy:
+            allowed_sources: [env, file, keychain]
+            forbidden_sources: [inline]
+            enforcement: generated_command_remains_full_secret_ref_but_deck_editor_offers_locator_sources_only
+    ProviderSecretAccessCommand:
+      type: object
+      additionalProperties: false
+      required: [instance_id, action, expected_snapshot_generation, expected_credential_generation]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        action:
+          type: string
+          enum: [copy, reveal]
+        expected_snapshot_generation:
+          "$ref": "#/components/schemas/SnapshotGeneration"
+        expected_credential_generation:
+          type: integer
+          minimum: 1
+    ProviderSecretAccessResult:
+      type: object
+      additionalProperties: false
+      required: [credential_id, generation, action, value]
+      description: >-
+        The action discriminator selects presentation behavior. `copy` writes
+        the transient value once through the approved OSC 52 path and never
+        renders it; `reveal` renders it only in the current detail view and
+        remasks it under the Deck epoch timer. Both actions return the same
+        required value field only in the no-store response.
+      properties:
+        credential_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        generation:
+          type: integer
+          minimum: 1
+        action:
+          type: string
+          enum: [copy, reveal]
+        value:
+          type: string
+          format: password
+          description: Transient no-store value; never persisted or placed in ordinary models.
+    TargetProbeCommand:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_target_generation, timeout_ms]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        expected_target_generation:
+          type: integer
+          minimum: 1
+        timeout_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 30000
+    SetTargetSuspendedCommand:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_target_generation, suspended]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        expected_target_generation:
+          type: integer
+          minimum: 1
+        suspended:
+          type: boolean
+    SessionReadQuery:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_updated_at]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        expected_updated_at:
+          "$ref": "#/components/schemas/ExpectedUpdatedAt"
+    AuthorizeAttachmentCommand:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_updated_at]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        expected_updated_at:
+          "$ref": "#/components/schemas/ExpectedUpdatedAt"
+    AttachmentGrant:
+      type: object
+      additionalProperties: false
+      description: >-
+        One-use authorization value. Core returns the raw token once and keeps
+        only its SHA-256 hash in the active in-memory grant table.
+      required: [instance_id, session_id, expected_updated_at, token, expires_at]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        session_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/SessionID"
+        expected_updated_at:
+          "$ref": "#/components/schemas/ExpectedUpdatedAt"
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          format: password
+        expires_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+    RedeemAttachmentGrantCommand:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_updated_at, grant]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        expected_updated_at:
+          "$ref": "#/components/schemas/ExpectedUpdatedAt"
+        grant:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          format: password
+          description: Raw grant read once by the CLI from inherited file descriptor 3.
+    AttachmentTarget:
+      type: object
+      additionalProperties: false
+      description: >-
+        No-store target returned only to the same-UID local CLI after grant
+        consumption. Deck and browser clients never receive this model.
+      required: [instance_id, session_id, expected_updated_at, tmux_executable, tmux_socket, tmux_target]
+      properties:
+        instance_id:
+          "$ref": "#/components/schemas/InstanceID"
+        session_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/SessionID"
+        expected_updated_at:
+          "$ref": "#/components/schemas/ExpectedUpdatedAt"
+          description: Committed post-redemption session version after unread is cleared.
+        tmux_executable:
+          type: string
+          pattern: "^/"
+        tmux_socket:
+          type: string
+          pattern: "^/"
+        tmux_target:
+          type: string
+          pattern: "^agent-harbor-ses-[0-9a-f]{32}:0$"
+    SessionPreview:
+      type: object
+      additionalProperties: false
+      description: >-
+        Core serializes the redacted UTF-8 response, removes oldest lines and
+        display-cell-safe suffixes until the compact JSON body is at most
+        262144 bytes, and sets truncated when any content is removed.
+      x-agent-harbor-serialization:
+        encoding: UTF-8
+        format: compact-json
+        max_serialized_bytes: 262144
+        enforcement: serialize_then_trim_oldest_lines_before_write
+      x-agent-harbor-preview-policy:
+        source: verified_tmux_capture_pane_without_escape_sequences
+        terminal_decode:
+          invalid_utf8: replace_with_U+FFFD
+          newline: normalize_CRLF_and_CR_to_LF
+          controls: strip_ECMA-48_C0_C1_CSI_OSC_DCS_APC_PM_SOS_except_tab_and_newline
+        redaction_order:
+          - exact_request_scoped_product_secret_values
+          - authorization_and_proxy_authorization_values
+          - builtin_v1_recognizable_secret_rules
+          - unpadded_base64url_product_token_shape_43_chars
+        replacement: "[REDACTED:<rule-id>]"
+        arbitrary_user_secret_detection: not_claimed
+        order: capture_then_decode_then_strip_controls_then_redact_then_compact_json_size
+      required: [session_id, observed_at, lines, truncated, serialized_bytes]
+      properties:
+        session_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/SessionID"
+        observed_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+        lines:
+          type: array
+          maxItems: 200
+          items:
+            type: string
+            maxLength: 8192
+        truncated:
+          type: boolean
+        serialized_bytes:
+          type: integer
+          minimum: 0
+          maximum: 262144
+          description: Exact UTF-8 byte length of the compact JSON response body.
+    NativeHookHealth:
+      description: >-
+        Core's epoch-relative managed hook assessment. `active` means a valid
+        event was accepted in the current capability epoch; `stale` means the
+        managed entry is valid and either no current epoch exists or no event
+        has been accepted in it. No wall-clock freshness threshold is used.
+      type: object
+      additionalProperties: false
+      x-state-rules:
+        active: registered_adapter_and_valid_managed_entry_and_current_epoch_has_accepted_event
+        stale: registered_adapter_and_valid_managed_entry_and_no_current_invalid_failure_and_either_no_current_epoch_or_current_epoch_has_no_accepted_event
+        unsupported: no_registered_adapter
+        invalid: managed_entry_or_latest_normalized_mailbox_failed_validation
+      x-state-rule-enforcement: >-
+        Core computes exactly one exhaustive state before serializing this
+        closed model. Managed-entry versions, event details, and rejected-input
+        reason codes remain in bounded observations instead of creating a
+        second, potentially inconsistent response tuple.
+      required: [session_id, provider, state, observed_at]
+      properties:
+        session_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/SessionID"
+        provider:
+          type: string
+          enum: [codex, claude, opencode, pi, grok]
+        state:
+          type: string
+          enum: [active, stale, unsupported, invalid]
+        observed_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"

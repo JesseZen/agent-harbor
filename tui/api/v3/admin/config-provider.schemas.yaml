@@ -1,0 +1,674 @@
+---
+components:
+  schemas:
+    ProviderCredentialConfig:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - provider
+      - generation
+      - secret
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+          minLength: 1
+        provider:
+          type: string
+          enum:
+          - openai
+          - openai_compatible
+          - sub2api_openai
+          - anthropic
+        generation:
+          type: integer
+          minimum: 1
+        secret:
+          "$ref": "#/components/schemas/SecretRef"
+    ProviderCredentialView:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - provider
+      - generation
+      - source
+      - masked_value
+      - fingerprint
+      - exportable
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+        provider:
+          type: string
+          enum:
+          - openai
+          - openai_compatible
+          - sub2api_openai
+          - anthropic
+        generation:
+          type: integer
+          minimum: 1
+        source:
+          type: string
+          enum:
+          - keychain
+          - env
+          - file
+          - inline
+        masked_value:
+          type: string
+        fingerprint:
+          type: string
+          pattern: "^[0-9a-f]{12}$"
+        exportable:
+          type: boolean
+    SecretRef:
+      type: object
+      additionalProperties: false
+      description: Exactly one typed source property is present. The property name is the source discriminator.
+      minProperties: 2
+      maxProperties: 2
+      required:
+      - exportable
+      properties:
+        exportable:
+          type: boolean
+        keychain:
+          "$ref": "#/components/schemas/KeychainSecretLocator"
+        env:
+          "$ref": "#/components/schemas/EnvSecretLocator"
+        file:
+          "$ref": "#/components/schemas/FileSecretLocator"
+        inline:
+          "$ref": "#/components/schemas/InlineSecretValue"
+    KeychainSecretLocator:
+      type: object
+      additionalProperties: false
+      required: [service, account]
+      properties:
+        service:
+          type: string
+          minLength: 1
+        account:
+          type: string
+          minLength: 1
+    EnvSecretLocator:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          pattern: "^[A-Z_][A-Z0-9_]*$"
+    FileSecretLocator:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path:
+          type: string
+          minLength: 1
+    InlineSecretValue:
+      type: object
+      additionalProperties: false
+      required: [value]
+      properties:
+        value:
+          type: string
+          minLength: 1
+          format: password
+    QuotaGroupConfig:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - rpm
+      - max_concurrency
+      - foreground_capacity
+      - background_capacity
+      - queue_timeout_ms
+      - foreground_weight
+      - background_weight
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+          minLength: 1
+        rpm:
+          type: integer
+          minimum: 1
+        max_concurrency:
+          type: integer
+          minimum: 1
+        foreground_capacity:
+          type: integer
+          minimum: 0
+        background_capacity:
+          type: integer
+          minimum: 0
+        queue_timeout_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854
+        foreground_weight:
+          type: integer
+          minimum: 1
+          default: 9
+        background_weight:
+          type: integer
+          minimum: 1
+          default: 1
+    TargetConfig:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - generation
+      - name
+      - endpoint_id
+      - credential_id
+      - quota_group_id
+      - adapter
+      - bridge
+      - capabilities
+      - health_policy
+      - throttle_policy
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        generation:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+        endpoint_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        credential_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        quota_group_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        adapter:
+          type: string
+          enum:
+          - openai
+          - openai_compatible
+          - sub2api_openai
+          - anthropic
+        bridge:
+          type: string
+          enum:
+          - openai_chat
+          - openai_responses
+          - anthropic_messages
+          - anthropic_to_openai
+          - openai_to_anthropic
+        capabilities:
+          type: array
+          uniqueItems: true
+          minItems: 1
+          items:
+            type: string
+            enum: [chat, responses, messages, streaming, tools, vision, model_discovery, probe]
+        health_policy:
+          "$ref": "#/components/schemas/HealthPolicyConfig"
+        throttle_policy:
+          "$ref": "#/components/schemas/ThrottlePolicyConfig"
+    HealthPolicyConfig:
+      type: object
+      additionalProperties: false
+      required:
+      - failure_threshold
+      - recovery_success_threshold
+      - initial_backoff_ms
+      - max_backoff_ms
+      - jitter_percent
+      - probe_timeout_ms
+      - stable_probe_interval_ms
+      properties:
+        failure_threshold:
+          type: integer
+          minimum: 1
+        recovery_success_threshold:
+          type: integer
+          minimum: 1
+        initial_backoff_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854
+        max_backoff_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854
+        jitter_percent:
+          type: integer
+          minimum: 0
+          maximum: 50
+        probe_timeout_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854
+        stable_probe_interval_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854
+    ThrottlePolicyConfig:
+      type: object
+      additionalProperties: false
+      description: Graph compilation rejects default_cooling_ms greater than max_cooling_ms.
+      required:
+      - default_cooling_ms
+      - max_cooling_ms
+      properties:
+        default_cooling_ms:
+          type: integer
+          format: int64
+          minimum: 1000
+          maximum: 3600000
+        max_cooling_ms:
+          type: integer
+          format: int64
+          minimum: 1000
+          maximum: 3600000
+    ModelPolicyConfig:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - catalog_ttl_ms
+      - discovery_timeout_ms
+      - mappings
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+        catalog_ttl_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854
+        discovery_timeout_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854
+        mappings:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ModelMapping"
+    ModelMapping:
+      type: object
+      additionalProperties: false
+      required:
+      - logical_model
+      - target_id
+      - physical_model
+      properties:
+        logical_model:
+          type: string
+          minLength: 1
+          description: Exact client model name, or '*' for a wildcard fallback mapping.
+        target_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        physical_model:
+          type: string
+          minLength: 1
+          description: Upstream model name. For a wildcard logical_model, '*' preserves the request model.
+    ModelProjectionConfig:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - logical_models
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+        logical_models:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+    CompatibilityTransformConfig:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - scope
+      - scope_id
+      - operation
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+        scope:
+          type: string
+          enum:
+          - client_profile
+          - route
+          - target
+        scope_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        operation:
+          "$ref": "#/components/schemas/CompatibilityTransformOperation"
+    CompatibilityTransformOperation:
+      type: object
+      additionalProperties: false
+      description: Exactly one typed operation property is present; its property name is the transform kind.
+      minProperties: 1
+      maxProperties: 1
+      properties:
+        drop_header:
+          "$ref": "#/components/schemas/HeaderNameTransform"
+        set_header:
+          "$ref": "#/components/schemas/SetHeaderTransform"
+        rename_model:
+          "$ref": "#/components/schemas/RenameModelTransform"
+        normalize_stream_event:
+          "$ref": "#/components/schemas/NormalizeStreamEventTransform"
+    HeaderNameTransform:
+      type: object
+      additionalProperties: false
+      required: [header_name]
+      properties:
+        header_name:
+          type: string
+          minLength: 1
+    SetHeaderTransform:
+      type: object
+      additionalProperties: false
+      required: [header_name, header_value]
+      properties:
+        header_name:
+          type: string
+          minLength: 1
+        header_value:
+          type: string
+    RenameModelTransform:
+      type: object
+      additionalProperties: false
+      required: [source_model, destination_model]
+      properties:
+        source_model:
+          type: string
+          minLength: 1
+        destination_model:
+          type: string
+          minLength: 1
+    NormalizeStreamEventTransform:
+      type: object
+      additionalProperties: false
+      required: [source_event, destination_event]
+      properties:
+        source_event:
+          type: string
+          minLength: 1
+        destination_event:
+          type: string
+          minLength: 1
+    PublishConfigRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_generation
+      - config_revision
+      - graph
+      properties:
+        expected_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        config_revision:
+          type: string
+          minLength: 1
+        graph:
+          "$ref": "./config-core.schemas.yaml#/components/schemas/ConfigGraph"
+    ValidationResult:
+      type: object
+      additionalProperties: false
+      required:
+      - valid
+      - compiled_summary
+      properties:
+        valid:
+          type: boolean
+          enum:
+          - true
+        compiled_summary:
+          "$ref": "./common.schemas.yaml#/components/schemas/CompiledSummary"
+    ReplaceProviderCredentialRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_generation
+      - expected_credential_generation
+      - secret
+      properties:
+        expected_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        expected_credential_generation:
+          type: integer
+          minimum: 1
+        secret:
+          "$ref": "#/components/schemas/SecretRef"
+    ReplaceProviderCredentialResult:
+      type: object
+      additionalProperties: false
+      required: [snapshot, credential]
+      properties:
+        snapshot:
+          "$ref": "./common.schemas.yaml#/components/schemas/SnapshotIdentity"
+        credential:
+          "$ref": "#/components/schemas/ProviderCredentialView"
+    MutableCredentialView:
+      type: object
+      additionalProperties: false
+      required: [id, name, provider, generation, secret_binding]
+      properties:
+        id:
+          $ref: "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+          minLength: 1
+        provider:
+          type: string
+          enum: [openai, openai_compatible, sub2api_openai, anthropic]
+          x-enum-varnames:
+            - MutableCredentialViewProviderOpenai
+            - MutableCredentialViewProviderOpenaiCompatible
+            - MutableCredentialViewProviderSub2apiOpenai
+            - MutableCredentialViewProviderAnthropic
+        generation:
+          type: integer
+          minimum: 1
+          readOnly: true
+        secret_binding:
+          $ref: "#/components/schemas/CredentialSecretBinding"
+    MutableCredentialCommand:
+      type: object
+      additionalProperties: false
+      required: [id, name, provider, secret_action]
+      properties:
+        id:
+          $ref: "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+          minLength: 1
+        provider:
+          type: string
+          enum: [openai, openai_compatible, sub2api_openai, anthropic]
+          x-enum-varnames:
+            - MutableCredentialCommandProviderOpenai
+            - MutableCredentialCommandProviderOpenaiCompatible
+            - MutableCredentialCommandProviderSub2apiOpenai
+            - MutableCredentialCommandProviderAnthropic
+        secret_action:
+          $ref: "#/components/schemas/CredentialSecretAction"
+    CredentialSecretBinding:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [mode, configured]
+          properties:
+            mode:
+              type: string
+              enum: [managed]
+              x-enum-varnames: [CredentialSecretBindingManaged]
+            configured:
+              type: boolean
+              enum: [true]
+              x-enum-varnames: [CredentialSecretBindingConfiguredTrue]
+        - type: object
+          additionalProperties: false
+          required: [mode, ref]
+          properties:
+            mode:
+              type: string
+              enum: [external_ref]
+              x-enum-varnames: [CredentialSecretBindingExternalRef]
+            ref:
+              $ref: "#/components/schemas/ExternalSecretRef"
+    CredentialSecretAction:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [mode]
+          properties:
+            mode:
+              type: string
+              enum: [preserve]
+              x-enum-varnames: [CredentialSecretActionPreserve]
+        - type: object
+          additionalProperties: false
+          required: [mode, stage_id]
+          properties:
+            mode:
+              type: string
+              enum: [replace]
+              x-enum-varnames: [CredentialSecretActionReplace]
+            stage_id:
+              $ref: "#/components/schemas/SecretStageID"
+        - type: object
+          additionalProperties: false
+          required: [mode, ref]
+          properties:
+            mode:
+              type: string
+              enum: [external_ref]
+              x-enum-varnames: [CredentialSecretActionExternalRef]
+            ref:
+              $ref: "#/components/schemas/ExternalSecretRef"
+    ExternalSecretRef:
+      type: object
+      additionalProperties: false
+      description: Exactly one locator and exportable are present; inline values are forbidden.
+      required: [exportable]
+      minProperties: 2
+      maxProperties: 2
+      properties:
+        exportable:
+          type: boolean
+        keychain:
+          $ref: "#/components/schemas/KeychainSecretLocator"
+        env:
+          $ref: "#/components/schemas/EnvSecretLocator"
+        file:
+          $ref: "#/components/schemas/FileSecretLocator"
+    MutableTargetCommand:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - endpoint_id
+        - credential_id
+        - quota_group_id
+        - adapter
+        - bridge
+        - capabilities
+        - health_policy
+        - throttle_policy
+      properties:
+        id:
+          $ref: "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+          minLength: 1
+        endpoint_id:
+          $ref: "./common.schemas.yaml#/components/schemas/ConfigID"
+        credential_id:
+          $ref: "./common.schemas.yaml#/components/schemas/ConfigID"
+        quota_group_id:
+          $ref: "./common.schemas.yaml#/components/schemas/ConfigID"
+        adapter:
+          type: string
+          enum: [openai, openai_compatible, sub2api_openai, anthropic]
+          x-enum-varnames:
+            - MutableTargetCommandAdapterOpenai
+            - MutableTargetCommandAdapterOpenaiCompatible
+            - MutableTargetCommandAdapterSub2apiOpenai
+            - MutableTargetCommandAdapterAnthropic
+        bridge:
+          type: string
+          enum: [openai_chat, openai_responses, anthropic_messages, anthropic_to_openai, openai_to_anthropic]
+          x-enum-varnames:
+            - MutableTargetCommandBridgeOpenaiChat
+            - MutableTargetCommandBridgeOpenaiResponses
+            - MutableTargetCommandBridgeAnthropicMessages
+            - MutableTargetCommandBridgeAnthropicToOpenai
+            - MutableTargetCommandBridgeOpenaiToAnthropic
+        capabilities:
+          type: array
+          uniqueItems: true
+          minItems: 1
+          items:
+            type: string
+            enum: [chat, responses, messages, streaming, tools, vision, model_discovery, probe]
+            x-enum-varnames:
+              - MutableTargetCommandCapabilitiesChat
+              - MutableTargetCommandCapabilitiesResponses
+              - MutableTargetCommandCapabilitiesMessages
+              - MutableTargetCommandCapabilitiesStreaming
+              - MutableTargetCommandCapabilitiesTools
+              - MutableTargetCommandCapabilitiesVision
+              - MutableTargetCommandCapabilitiesModelDiscovery
+              - MutableTargetCommandCapabilitiesProbe
+        health_policy:
+          $ref: "#/components/schemas/HealthPolicyConfig"
+        throttle_policy:
+          $ref: "#/components/schemas/ThrottlePolicyConfig"
+    SecretStageID:
+      type: string
+      pattern: "^stg_[0-9a-f]{32}$"
+    ProviderSecretStage:
+      type: object
+      additionalProperties: false
+      required: [stage_id, expires_at]
+      properties:
+        stage_id:
+          $ref: "#/components/schemas/SecretStageID"
+        expires_at:
+          $ref: "./common.schemas.yaml#/components/schemas/Timestamp"

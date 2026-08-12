@@ -1,0 +1,4 @@
+61113ba798636c28b8fece2050ebde1874223c7ea70c5ea6b6e87283269f0c89  darwin-amd64/agent-harbor-core
+89028e96f60492c6c4020a83a2673a694d702837292973da4d779306af48d76a  darwin-arm64/agent-harbor-core
+ff1b4f6b5388d1539b2e06fdf01a928bbd7eeab3d5c94ed2b82e92c6d956282d  linux-amd64/agent-harbor-core
+164e1380a230ed6448c1b8f2c7afae69846949f50630ee18dc2ba1253688ee58  linux-arm64/agent-harbor-core

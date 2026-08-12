@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "bundle_id": "development-empty",
+  "version": "dev",
+  "target_os": "",
+  "target_arch": "",
+  "unsigned": true,
+  "components": []
+}

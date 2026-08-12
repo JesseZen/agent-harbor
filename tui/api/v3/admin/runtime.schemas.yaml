@@ -1,0 +1,722 @@
+components:
+  schemas:
+    InstanceIdentity:
+      type: object
+      additionalProperties: false
+      required:
+        - instance_id
+        - binary
+        - admin_protocol_version
+        - version
+        - config_root
+        - state_root
+        - log_root
+        - gateway_address
+        - admin_socket
+        - admin_tcp_enabled
+        - admin_token_generation
+        - tmux_socket
+        - tmux_session
+        - supervisor_pid
+      properties:
+        instance_id:
+          type: string
+          pattern: "^ins_[0-9a-f]{32}$"
+        binary:
+          type: string
+          enum:
+            - agent-harbor-core
+        admin_protocol_version:
+          type: integer
+          enum:
+            - 1
+        version:
+          type: string
+        config_root:
+          type: string
+        state_root:
+          type: string
+        log_root:
+          type: string
+        gateway_address:
+          type: string
+        admin_socket:
+          type: string
+        admin_tcp_address:
+          type: string
+        admin_tcp_enabled:
+          type: boolean
+        admin_token_generation:
+          type: integer
+          minimum: 0
+        tmux_socket:
+          type: string
+        tmux_session:
+          type: string
+        supervisor_pid:
+          type: integer
+          minimum: 1
+    Readiness:
+      type: object
+      additionalProperties: false
+      required:
+        - ready
+        - identity
+        - snapshot
+        - database_schema_version
+        - clean_exit_recovered
+        - config_mutation_status
+      properties:
+        ready:
+          type: boolean
+        identity:
+          "$ref": "#/components/schemas/InstanceIdentity"
+        snapshot:
+          "$ref": "./common.schemas.yaml#/components/schemas/SnapshotIdentity"
+        database_schema_version:
+          type: integer
+          minimum: 1
+        clean_exit_recovered:
+          type: boolean
+        config_mutation_status:
+          $ref: "#/components/schemas/ConfigMutationStatus"
+    RuntimeStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - identity
+        - snapshot
+        - quota_groups
+        - targets
+        - routes
+        - sessions
+        - observations
+        - recent_observations
+      properties:
+        identity:
+          "$ref": "#/components/schemas/InstanceIdentity"
+        snapshot:
+          "$ref": "./common.schemas.yaml#/components/schemas/SnapshotIdentity"
+        quota_groups:
+          type: array
+          items:
+            "$ref": "#/components/schemas/QuotaGroupStatus"
+        targets:
+          type: array
+          items:
+            "$ref": "#/components/schemas/TargetStatus"
+        routes:
+          type: array
+          items:
+            "$ref": "#/components/schemas/RouteStatus"
+        sessions:
+          type: array
+          items:
+            "$ref": "./session.schemas.yaml#/components/schemas/AgentSession"
+        observations:
+          "$ref": "#/components/schemas/ObservationStatus"
+        recent_observations:
+          type: array
+          maxItems: 100
+          items:
+            "$ref": "#/components/schemas/ObservationRecord"
+    QuotaGroupStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - foreground_depth
+        - background_depth
+        - active_concurrency
+        - max_concurrency
+        - rpm
+        - next_permit_at
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        foreground_depth:
+          type: integer
+          minimum: 0
+        background_depth:
+          type: integer
+          minimum: 0
+        active_concurrency:
+          type: integer
+          minimum: 0
+        max_concurrency:
+          type: integer
+          minimum: 1
+        rpm:
+          type: integer
+          minimum: 1
+        next_permit_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+    TargetStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - target_generation
+        - name
+        - endpoint_id
+        - credential_id
+        - quota_group_id
+        - adapter
+        - bridge
+        - capabilities
+        - health
+        - credential_access
+        - capability_blocks
+        - policy_blocks
+        - throttle
+        - suspended
+        - base_eligible
+        - credential_generation
+        - probe
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        target_generation:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        endpoint_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        credential_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        quota_group_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        adapter:
+          type: string
+          enum: [openai, openai_compatible, sub2api_openai, anthropic]
+        bridge:
+          type: string
+          enum:
+            [
+              openai_chat,
+              openai_responses,
+              anthropic_messages,
+              anthropic_to_openai,
+              openai_to_anthropic
+            ]
+        capabilities:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              [
+                chat,
+                responses,
+                messages,
+                streaming,
+                tools,
+                vision,
+                model_discovery,
+                probe
+              ]
+        health:
+          type: string
+          enum:
+            - unknown
+            - healthy
+            - open
+            - recovering
+        credential_access:
+          type: string
+          enum:
+            - unknown
+            - allowed
+            - credential_blocked
+        capability_blocks:
+          type: array
+          items:
+            "$ref": "#/components/schemas/TargetGateBlock"
+        policy_blocks:
+          type: array
+          items:
+            "$ref": "#/components/schemas/TargetGateBlock"
+        throttle:
+          type: string
+          enum:
+            - available
+            - cooling
+        cooling_until:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+        suspended:
+          type: boolean
+        base_eligible:
+          type: boolean
+          description: Health, credential, throttle, and suspend eligibility before
+            request capability and policy-scope checks.
+        credential_generation:
+          type: integer
+          minimum: 1
+        probe:
+          "$ref": "#/components/schemas/ProbeStatus"
+    TargetModelCatalog:
+      type: object
+      additionalProperties: false
+      required: [target_id, models]
+      properties:
+        target_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        models:
+          type: array
+          items:
+            "$ref": "#/components/schemas/TargetModel"
+    TargetModel:
+      type: object
+      additionalProperties: false
+      required: [id, capabilities]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        capabilities:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [chat, responses, messages, streaming, tools, vision]
+    TargetGateBlock:
+      type: object
+      additionalProperties: false
+      required: [scope_key, target_generation, credential_generation, created_at]
+      properties:
+        scope_key:
+          type: string
+          minLength: 1
+        provider_code:
+          type: string
+        target_generation:
+          type: integer
+          minimum: 1
+        credential_generation:
+          type: integer
+          minimum: 1
+        created_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+    ProbeStatus:
+      type: object
+      additionalProperties: false
+      required: [state, service_failures, consecutive_failures, consecutive_successes]
+      properties:
+        state:
+          type: string
+          enum: [idle, queued, active, backoff]
+        service_failures:
+          type: integer
+          minimum: 0
+        consecutive_failures:
+          type: integer
+          minimum: 0
+        consecutive_successes:
+          type: integer
+          minimum: 0
+        next_probe_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+        last_outcome:
+          type: string
+          enum: [success, failure, expired, canceled]
+        last_completed_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+    RouteStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - policy
+        - backend_set_id
+        - eligible_target_ids
+        - recent_decisions
+        - id
+        - name
+        - policy
+        - backend_set_id
+        - eligible_target_ids
+        - recent_decisions
+        - content_policy
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+        policy:
+          type: string
+          enum:
+            - automatic
+            - sticky_session
+        backend_set_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        eligible_target_ids:
+          type: array
+          items:
+            "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        recent_decisions:
+          type: array
+          maxItems: 20
+          items:
+            "$ref": "#/components/schemas/RouteDecision"
+        content_policy:
+          $ref: "#/components/schemas/RouteContentPolicyStatus"
+    RouteDecision:
+      type: object
+      additionalProperties: false
+      required: [request_id, session_id, logical_model, result, reason, occurred_at]
+      properties:
+        request_id:
+          type: string
+          pattern: "^req_[0-9a-f]{32}$"
+        session_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/SessionID"
+        logical_model:
+          type: string
+        target_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        result:
+          type: string
+          enum: [selected, waited, rejected, completed]
+        reason:
+          "$ref": "./common.schemas.yaml#/components/schemas/DecisionReason"
+        occurred_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+    ObservationStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - last_event_id
+        - dropped_events
+      properties:
+        last_event_id:
+          type: string
+          pattern: "^[0-9]+$"
+        dropped_events:
+          type: integer
+          minimum: 0
+    ObservationPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items:
+            "$ref": "#/components/schemas/ObservationRecord"
+        next_cursor:
+          type: string
+          pattern: "^[0-9]+$"
+    PolicyRuleCount:
+      type: object
+      additionalProperties: false
+      required: [rule_id, count]
+      properties:
+        rule_id:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: "^[a-z][a-z0-9_-]*$"
+        count:
+          type: integer
+          minimum: 0
+    PolicyMode:
+      type: string
+      enum: [audit, block, redact]
+    PolicyDecision:
+      type: string
+      enum:
+        [
+          allowed,
+          redacted,
+          audited,
+          audit_uninspectable,
+          egress_content_blocked,
+          egress_content_uninspectable
+        ]
+    ObservationRecord:
+      type: object
+      additionalProperties: false
+      required: [id, type, occurred_at, snapshot_generation, decision_reason]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9]+$"
+        type:
+          type: string
+          enum: [request, attempt, gate, quota, session, config, operation]
+        occurred_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+        snapshot_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        request_id:
+          type: string
+          pattern: "^req_[0-9a-f]{32}$"
+        attempt_id:
+          type: string
+          pattern: "^att_[0-9a-f]{32}$"
+        session_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/SessionID"
+        route_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        target_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        quota_group_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        semantic_outcome:
+          "$ref": "./common.schemas.yaml#/components/schemas/SemanticOutcome"
+        decision_reason:
+          "$ref": "./common.schemas.yaml#/components/schemas/DecisionReason"
+        policy_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        policy_mode:
+          "$ref": "#/components/schemas/PolicyMode"
+        policy_decision:
+          "$ref": "#/components/schemas/PolicyDecision"
+        policy_rule_counts:
+          type: array
+          maxItems: 64
+          items:
+            "$ref": "#/components/schemas/PolicyRuleCount"
+        policy_inspected_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+    ProbeReceipt:
+      type: object
+      additionalProperties: false
+      required:
+        - target_id
+        - state
+      properties:
+        target_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        state:
+          type: string
+          enum:
+            - queued
+            - coalesced
+    SetSuspendedRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - suspended
+      properties:
+        suspended:
+          type: boolean
+    ShutdownRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - instance_id
+        - drain_timeout_ms
+      properties:
+        instance_id:
+          type: string
+          pattern: "^ins_[0-9a-f]{32}$"
+        drain_timeout_ms:
+          type: integer
+          format: int64
+          minimum: 0
+    ShutdownReceipt:
+      type: object
+      additionalProperties: false
+      required:
+        - instance_id
+        - accepted_at
+      properties:
+        instance_id:
+          type: string
+          pattern: "^ins_[0-9a-f]{32}$"
+        accepted_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+    RotateAdminTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [instance_id, expected_generation]
+      properties:
+        instance_id:
+          type: string
+          pattern: "^ins_[0-9a-f]{32}$"
+        expected_generation:
+          type: integer
+          minimum: 0
+    OneTimeAdminToken:
+      type: object
+      additionalProperties: false
+      required: [instance_id, generation, token, created_at]
+      properties:
+        instance_id:
+          type: string
+          pattern: "^ins_[0-9a-f]{32}$"
+        generation:
+          type: integer
+          minimum: 1
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          format: password
+        created_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+    RuntimeEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - type
+        - occurred_at
+        - instance_id
+        - snapshot_generation
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9]+$"
+        type:
+          type: string
+          enum:
+            - snapshot_published
+            - request_completed
+            - attempt_completed
+            - quota_changed
+            - target_gate_changed
+            - session_changed
+            - observation_dropped
+            - resync_required
+        occurred_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+        instance_id:
+          type: string
+          pattern: "^ins_[0-9a-f]{32}$"
+        snapshot_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        request_id:
+          type: string
+          pattern: "^req_[0-9a-f]{32}$"
+        attempt_id:
+          type: string
+          pattern: "^att_[0-9a-f]{32}$"
+        route_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        target_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        quota_group_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        session_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/SessionID"
+        semantic_outcome:
+          "$ref": "./common.schemas.yaml#/components/schemas/SemanticOutcome"
+        decision_reason:
+          "$ref": "./common.schemas.yaml#/components/schemas/DecisionReason"
+        policy_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        policy_mode:
+          "$ref": "#/components/schemas/PolicyMode"
+        policy_decision:
+          "$ref": "#/components/schemas/PolicyDecision"
+        policy_rule_counts:
+          type: array
+          maxItems: 64
+          items:
+            "$ref": "#/components/schemas/PolicyRuleCount"
+        policy_inspected_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+    RouteContentPolicyBinding:
+      type: string
+      enum:
+        - absent
+        - bound
+    RouteContentPolicyRuleSetVersion:
+      type: string
+      enum:
+        - builtin_v1
+    RouteContentPolicyDecisionCount:
+      type: object
+      additionalProperties: false
+      required:
+        - decision
+        - count
+      properties:
+        decision:
+          $ref: "#/components/schemas/PolicyDecision"
+        count:
+          type: integer
+          minimum: 0
+          maximum: 100
+    RouteContentPolicyStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - binding
+        - decision_counts
+      properties:
+        binding:
+          $ref: "#/components/schemas/RouteContentPolicyBinding"
+        policy_id:
+          $ref: ./common.schemas.yaml#/components/schemas/ConfigID
+        mode:
+          $ref: "#/components/schemas/PolicyMode"
+        rule_set_version:
+          $ref: "#/components/schemas/RouteContentPolicyRuleSetVersion"
+        decision_counts:
+          type: array
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/RouteContentPolicyDecisionCount"
+      x-agent-harbor-state-rules:
+        absent:
+          exact_fields:
+            - binding
+            - decision_counts
+          binding: absent
+          decision_counts:
+            []
+        bound:
+          exact_fields:
+            - binding
+            - policy_id
+            - mode
+            - rule_set_version
+            - decision_counts
+          binding: bound
+          rule_set_version: builtin_v1
+          decision_order:
+            - allowed
+            - redacted
+            - audited
+            - audit_uninspectable
+            - egress_content_blocked
+            - egress_content_uninspectable
+          decision_counts_length: 6
+          count_each_observation_once: true
+          ignore_policy_rule_counts: true
+          maximum_total: 100
+        source:
+          observation_window: RuntimeStatus.recent_observations
+          observation_window_maximum: 100
+          locked_capture: one_Publisher_Pin_and_one_observation_capture_per_RuntimeStatus
+          publisher_lease: one_Publisher_Pin_covers_identity_snapshot_targets_routes_quota_groups_and_routes_policy_projection
+          match_fields:
+            - type
+            - snapshot_generation
+            - route_id
+            - policy_id
+            - policy_mode
+          required_observation_type: operation
+          route_projection_capture: every_route_decision_and_policy_count_uses_the_same_slice
+          require_policy_decision: true
+        authority: observational_only_never_scheduling_admission_routing_or_gate_input
+    ConfigMutationStatus:
+      type: string
+      enum: [available, secret_cleanup_pending]
+      x-enum-varnames:
+        - ConfigMutationStatusAvailable
+        - ConfigMutationStatusSecretCleanupPending

@@ -1,0 +1,30 @@
+┌─ Sessions(all)[2] ─────────────────────────────────────────────────────────────────────┐
+│  NAME         ┊LIFECYCLE┊ACTIVITY ┊SOURCE  ┊PROVIDER┊WORKSPACE    ┊AGE                 │
+│  alpha-session│running  │running  │hook    │codex   │/tmp/ws/alpha│  2h                │
+│  beta-session ┊launching┊detecting┊unknown ┊        ┊/tmp/ws/beta ┊  2h                │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│1/2  n  new │  /  filter │  [ ]  column │  s  sort │  space  mark                       │
+└────────────────────────────────────────────────────────────────────────────────────────┘

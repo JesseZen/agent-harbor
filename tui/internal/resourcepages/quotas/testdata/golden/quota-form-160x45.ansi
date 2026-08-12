@@ -1,0 +1,45 @@
+                                     ╭────────────────────────────────────────────────────────────────────────────────────╮                                     
+                                     │                                                                                    │                                     
+                                     │   Create Quota Group                                                               │                                     
+                                     │   Shared request capacity                                                          │                                     
+                                     │                                                                                    │                                     
+                                     │     Basics  ────────────────────────────                                           │                                     
+                                     │   ▶ Name *              > A name used in routes and targets                        │                                     
+                                     │     Capacity  ──────────────────────────                                           │                                     
+                                     │     Requests per minu...> Enter a number... req/min                                │                                     
+                                     │     Maximum concurren...> Enter a number... requests                               │                                     
+                                     │                                                                                    │                                     
+                                     │     Advanced · 6 fields · Tab to show                                              │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │                                                                                    │                                     
+                                     │   ────────────────────────────────────────────────────────────────────────────     │                                     
+                                     │   Tab/Shift+Tab move  │  Type to edit  │  Ctrl+S save and apply  │  Esc cancel     │                                     
+                                     │                                                                                    │                                     
+                                     ╰────────────────────────────────────────────────────────────────────────────────────╯                                     
+                                                                                                                                                                

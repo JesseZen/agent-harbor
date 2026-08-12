@@ -1,0 +1,30 @@
+ Traffic Rules 
+                 ╭────────────────────────────────────────────────────────────────────────────────────╮                 
+                 │                                                                                    │                 
+                 │   Create Traffic Rule                                                              │                 
+                 │   Choose how this CLI sends traffic and models upstream                            │                 
+                 │                                                                                    │                 
+                 │     Client  ────────────────────────────                                           │                 
+                 │   ▶ Name *              > Enter Name...                                            │                 
+                 │     CLI *               [ codex                                            ▾ ]     │                 
+                 │     Routing  ───────────────────────────                                           │                 
+                 │     Routing strategy *  [ single                                           ▾ ]     │                 
+                 │     Upstreams  ─────────────────────────                                           │                 
+                 │     Primary upstream *  [ Choose Primary upstream...                       ▾ ]     │                 
+                 │     Models  ────────────────────────────                                           │                 
+                 │     Model handling *    [ preserve                                         ▾ ]     │                 
+                 │                                                                                    │                 
+                 │                                                                                    │                 
+                 │                                                                                    │                 
+                 │                                                                                    │                 
+                 │                                                                                    │                 
+                 │                                                                                    │                 
+                 │                                                                                    │                 
+                 │                                                                                    │                 
+                 │                                                                                    │                 
+                 │                                                                                    │                 
+                 │   ────────────────────────────────────────────────────────────────────────────     │                 
+                 │   Tab/Shift+Tab move  │  Enter select  │  Ctrl+S save and apply  │  Esc cancel     │                 
+                 │                                                                                    │                 
+                 ╰────────────────────────────────────────────────────────────────────────────────────╯                 
+                                                                                                                        

@@ -1,301 +1,40 @@
-# agent-inn
+# Agent Harbor V3
 
-**English** | [中文](translations/zh-CN/README.md)
+Agent Harbor manages Codex and Claude sessions, upstream API connections,
+traffic rules, model mappings, failover, and request limits from one TUI.
 
-A local proxy manager for Codex App. A single binary launches Manager + Workers + TUI.
+This branch is the V3 release source. It contains the open TUI and launcher
+source plus prebuilt Agent Harbor Core binaries. Core source code and local
+design documents are intentionally excluded.
 
-## Architecture
+## Build
 
-```
-Codex App / CLI
-      │
-      ▼
-┌──────────┐
-│  Worker  │  ← Listens on a local port, forwards requests to upstream
-│  (proxy) │  ← Filters image_generation, Chat Completions translation, etc.
-└──────────┘
-      │
-      ▼
-┌──────────┐
-│ Upstream │  ← Upstream API service (OpenAI, OpenRouter, Groq, etc.)
-└──────────┘
+Go 1.26 or newer is required. A local three-file build uses the bundled Core
+binary for the current platform:
 
-┌──────────┐
-│ Manager  │  ← Manages Worker lifecycle, exposes HTTP API + SSE event stream
-│          │  ← TUI communicates with Manager via API
-└──────────┘
-      │
-      ▼
-┌──────────┐
-│   TUI    │  ← OpenTUI (SolidJS) terminal interface
-│(OpenTUI) │  ← Conversational interaction, type / to trigger commands
-└──────────┘
+```sh
+make build
 ```
 
-### Core Concepts
+To build the portable Linux amd64 single file, Docker is also required:
 
-| Concept | Description |
-|---------|-------------|
-| **Manager** | Central manager — starts/stops Workers, provides HTTP API, TUI connects to it |
-| **Worker** | A local proxy process listening on a port, forwarding requests to a specified Upstream |
-| **Upstream** | Upstream API service config (base_url, api_key, api_format) |
-| **Module** | Worker feature module (see [Modules](#modules) below) |
-
-Each Worker is bound to one Upstream. You can run multiple Workers pointing to different Upstreams on different ports simultaneously.
-
-### Modules
-
-| Module | Description |
-|--------|-------------|
-| `config_patch` | Auto-modify `~/.codex/config.toml` to point Codex at the Worker |
-| `tool_filter` | Filter configured tools from upstream requests |
-| `api_translate` | Chat Completions ↔ Responses API translation |
-| `model_override` | Override the `model` field in requests via `params.model` |
-| `request_log` | Log request method + path to stderr |
-| `debug_sse` | Log SSE chunk statistics to stderr |
-
-## Build & Run
-
-### Prerequisites
-
-- Go 1.26+
-- Bun 1.2+ (for TUI)
-
-### Build
-
-```bash
-
-# Install TUI dependencies
-bun install
-
-# Build Go binary
-go build -o ainn .
-
+```sh
+AGENT_HARBOR_VERSION=0.1.16 make release-linux-amd64
 ```
 
-### Configuration
+The output is
+`dist/release-linux-amd64-0.1.16/out/agent-harbor-linux-amd64`. It embeds Core,
+the TUI, static tmux 3.6b, terminfo, licenses, and a payload hash manifest.
 
-```bash
-mkdir -p ${HOME}/.ainn
+GitHub Actions builds the same portable artifact on this branch. Download the
+workflow artifact, verify `SHA256SUMS`, then install it:
 
-cp config.example.yaml ${HOME}/.ainn/config.yaml
-# Edit ${HOME}/.ainn/config.yaml to set workers and upstreams
+```sh
+sha256sum -c SHA256SUMS
+install -m 0755 agent-harbor-linux-amd64 /usr/local/bin/agent-harbor
+agent-harbor doctor --repair-launchers
+agent-harbor
 ```
 
-### Run
-
-```bash
-./ainn
-```
-
-This single command starts the Manager → starts all Workers → starts the TUI.
-
-### Development Mode (Frontend/Backend Separated)
-
-```bash
-# Terminal 1: Backend only (default manager-port is 9090)
-./ainn --config-dir ${HOME}/.ainn --manager-port 9090 &
-
-# Terminal 2: TUI with hot reload
-bun install  # Install dependencies from project root (required first time)
-cd tui && AINN_URL=http://localhost:9090 bun run dev
-```
-
-## TUI Operations
-
-After launching, you'll see an empty screen with an input bar at the bottom. Type `/` to open the command selector with fuzzy search.
-
-### Command List
-
-| Command | Alias | Description |
-|---------|-------|-------------|
-| `/help` | | Show all commands |
-| `/status` | | View worker metrics (RPM, TPM, token totals, errors, latency) |
-| `/settings` | `/config` | Edit runtime settings and view config save status |
-| `/workers` | | Manage workers (create, inspect, edit fields/modules, view logs, restart/stop) |
-| `/upstream` | | Manage upstreams (create, edit base_url/api_key/api_format) |
-| `/logs` | | View Worker logs |
-| `/launch` | | Launch the configured CLI through a cli-role worker |
-| `/exit` | `/quit` `/q` | Exit |
-
-### Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `Ctrl+C` | Clear input; press twice to exit |
-| `Shift+Enter` | New line in input |
-| `↑` `↓` | List navigation |
-| `Enter` | Confirm selection |
-| `Esc` | Cancel/Go back |
-
-## Configuration File Format
-
-```yaml
-# Runtime settings
-settings:
-  state_dir: ~/.ainn
-  log_dir: ~/.ainn/logs
-  metrics:
-    retention_days: 30
-  launch:
-    default_mode: hosted-terminal
-  terminal:
-    host: tmux
-    opener: default
-    tmux:
-      socket_name: ainn
-      host_session: ainn-host
-      host_start_mode: new-window
-
-# Worker definitions
-workers:
-  codex-app:              # Worker name
-    port: 6767            # Local listen port
-    upstream: up_1        # Stable Upstream ID
-    upstream_pool: codex-ha # Optional ordered fallback pool
-    role: cli             # "cli" (default) or "app"
-    launcher: codex       # "codex" (default) or "claudecode"
-    log_level: simple     # "simple" or "detail"
-    modules:
-      config_patch:       # Auto-modify ~/.codex/config.toml
-        enabled: true
-        config_path: ~/.codex/config.toml
-      tool_filter:       # Filter selected tools
-        enabled: true
-        blocked_tools:
-          - image_generation
-      api_translate:      # Chat Completions ↔ Responses API translation
-        enabled: true
-
-# Upstream definitions
-next_upstream_id: 5       # Next system-allocated Upstream ID
-upstreams:
-  up_1:
-    name: joycode
-    base_url: https://api.joycode.dev/v1
-    api_key: sk-...                   # Plain key in config is supported
-    api_format: chat_completions       # Requires Chat Completions translation
-
-  up_2:
-    name: openrouter
-    base_url: https://openrouter.ai/api/v1
-    api_key: sk-...
-    api_format: chat_completions
-
-  up_3:
-    name: openai
-    base_url: https://api.openai.com/v1
-    api_key: sk-...                    # Plain key is supported
-    # <UPSTREAM_NAME>_API_KEY env var wins over config if set (e.g. OPENAI_API_KEY)
-    # No api_format = native Responses API passthrough
-
-  up_4:
-    name: anthropic
-    base_url: https://api.anthropic.com/v1
-    api_key: sk-...
-    api_format: anthropic              # Native Anthropic API passthrough for Claude Code
-
-# Optional reusable fallback routes. Members must be compatible with every
-# worker that uses the pool.
-upstream_pools:
-  codex-ha:
-    upstreams:
-      - up_1
-      - up_2
-    circuit_breaker:
-      failure_threshold: 3
-      recovery_success_threshold: 2
-      recovery_wait_seconds: 60
-```
-
-Leaving `api_format` empty or unset = native Responses API passthrough, no translation.
-
-New upstreams receive immutable IDs such as `up_5`; `name` is the editable display name shown in the UI.
-
-`role` defaults to `"cli"`; workers with `role: app` are filtered out of the `/launch` picker. `launcher` defaults to `"codex"`, and `log_level` defaults to `"simple"`.
-
-`launcher: grok` starts the installed xAI Grok Build CLI against an AINN-managed
-worker URL. AINN uses a shared isolated home under the configured state
-directory (`grok-home`), sets `XAI_API_KEY=ainn`, and sets
-`GROK_MODELS_BASE_URL` to the selected worker's `/v1` endpoint so Grok's model
-picker and requests use the worker catalog/proxy. When no explicit `--model` is
-given, Grok launch falls back to `grok-4.5` as a CLI bootstrap default.
-`protocol_probe.model` is only for upstream protocol probing, not launch model
-selection. Upstream model rewriting remains available through the
-`model_override` request module. Grok Build login and user configuration remain
-outside AINN. Basic launch, hosted terminal, rename, delete, and worker changes
-are supported; Grok-specific turn status and resume tracking are not.
-
-`launcher: opencode` starts OpenCode with an inline `ainn` provider whose URL
-points at the selected worker and whose API key is the placeholder `ainn`.
-AINN selects the OpenCode Responses or Chat Completions adapter from the
-upstream `api_format`. Launch does not invent a default model from
-`protocol_probe`; pass `--model` when OpenCode needs an explicit model ID.
-OpenCode user configuration remains available and is not modified. Basic
-launch and hosted terminal operations are supported; OpenCode-specific turn
-status and resume tracking are not.
-
-`launcher: pi` starts Pi with an isolated agent directory under the configured
-state directory. AINN writes Pi providers for the configured Responses, Chat
-Completions, or Anthropic worker protocol, points them at the worker URL, and
-passes the placeholder API key `ainn`. Launch does not invent a default model
-from `protocol_probe`; pass `--model` when Pi needs an explicit model ID. Pi
-user configuration remains untouched. Basic launch and hosted terminal
-operations are supported; Pi-specific turn status and resume tracking are not.
-
-`upstream_pool` is optional. A pool keeps its members in priority order: the Manager opens a member's circuit after qualified upstream failures, hot-switches the pool's workers to the next healthy member, and automatically returns to the preferred member after recovery. `stream_timeouts` can set the first SSE byte and SSE idle limits for an upstream. `protocol_probe.model` enables a low-output streaming request that verifies the upstream's configured API protocol; without it, AINN uses the lightweight base URL probe.
-
-`settings.state_dir` stores AINN runtime state such as hosted terminal sessions. `settings.log_dir` stores Worker logs.
-
-Worker metrics are persisted daily. `settings.metrics.retention_days` controls how long persisted metrics are retained.
-
-`settings.terminal.tmux.host_start_mode` defaults to `new-window`.
-
-- `new-window`: keep the current behavior
-- `reuse-first-window`: on a brand-new hosted tmux host, place the first hosted session in window `0`
-- `main-tui-window`: start `./ainn` itself inside the tmux host and keep the main TUI in window `0`
-
-`reuse-first-window` only affects newly created hosted tmux hosts. `main-tui-window` changes how the root `./ainn` command starts and reuses the configured tmux host on later launches.
-
-### API Key Resolution
-
-For each upstream named `<NAME>`, the environment variable `<NAME>_API_KEY` is checked first (e.g. `JOYCODE_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`). If the env var is set and non-empty, it overrides the `api_key` in the config file.
-
-## Testing
-
-```bash
-# Go backend
-go test ./...
-
-# TUI
-cd tui && bun test --timeout 30000
-
-# Type checking
-cd tui && bun run typecheck
-```
-
-## Subcommands
-
-```bash
-./ainn version           # Show version
-./ainn worker ...        # Worker process (auto-started by Manager, no need to run manually)
-./ainn launch --config-dir <dir> --worker <port> [--profile <name>] [--cd <dir>] [--add-dir <dir>] [--model <model>] [--mode <external-window|hosted-terminal>]
-                                # Launch the worker's configured CLI
-                                # --mode hosted-terminal runs it inside a AINN-owned tmux host (requires tmux)
-```
-
-## TODO
-
-- [x] `/status`: view worker metrics
-- [x] hosted-terminal (experimental): `/launch` can run Codex CLI inside a AINN-owned `tmux -L ainn` host; AINN handles `create` / `switch` / `attach`
-- [ ] embedded-terminal: built-in PTY sessions inside AINN with direct session switching
-
-## License
-
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
-## Attribution
-
-This project is a customized fork of [opencode](https://github.com/anomalyco/opencode) by [anomalyco](https://github.com/anomalyco), used under the [MIT License](https://github.com/anomalyco/opencode/blob/main/LICENSE).
-
-The original opencode source code has been modified to serve as a local proxy manager for Codex App.
+Core binary terms are in `core/NOTICE` and `core/LICENSE`. TUI source licensing
+and third-party notices are in `tui/LICENSE` and `tui/THIRD_PARTY_NOTICES.md`.

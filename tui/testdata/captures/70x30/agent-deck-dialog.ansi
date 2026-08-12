@@ -1,0 +1,30 @@
+    ╭────────────────────────────────────────────────────────────╮    
+    │                                                            │    
+    │                                                            │    
+    │    New Session                                             │    
+    │                                                            │    
+    │      in group: route_batch                                 │    
+    │                                                            │    
+    │    ▶ Name:                                                 │    
+    │      > session-name                                        │    
+    │                                                            │    
+    │      Command:                                              │    
+    │        shell    claude    gemini    opencode    codex      │    
+    │    pi    copilot    crush    cursor agent    hermes        │    
+    │                                                            │    
+    │        Custom:                                             │    
+    │        > custom command                                    │    
+    │                                                            │    
+    │      Path:                                                 │    
+    │      > /workspace/core-adapter                             │    
+    │                                                            │    
+    │      [ ] Create in worktree                                │    
+    │      [ ] Run in Docker sandbox                             │    
+    │                                                            │    
+    │      [ ] Multi-repo mode                                   │    
+    │                                                            │    
+    │                                                            │    
+    │    Tab next │ ↑↓ navigate │ ^S create │ Esc cancel         │    
+    │                                                            │    
+    │                                                            │    
+    ╰────────────────────────────────────────────────────────────╯    

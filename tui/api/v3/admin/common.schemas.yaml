@@ -1,0 +1,122 @@
+---
+components:
+  schemas:
+    ConfigID:
+      type: string
+      pattern: "^[a-z][a-z0-9_-]{0,62}$"
+    RequestID:
+      type: string
+      pattern: "^req_[0-9a-f]{32}$"
+    SessionID:
+      type: string
+      pattern: "^ses_[0-9a-f]{32}$"
+    Timestamp:
+      type: string
+      format: date-time
+    Problem:
+      type: object
+      additionalProperties: false
+      required:
+      - type
+      - title
+      - status
+      - code
+      - request_id
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        code:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+        request_id:
+          "$ref": "#/components/schemas/RequestID"
+        violations:
+          type: array
+          items:
+            "$ref": "#/components/schemas/FieldViolation"
+    FieldViolation:
+      type: object
+      additionalProperties: false
+      required:
+      - path
+      - code
+      - message
+      properties:
+        path:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    SnapshotIdentity:
+      type: object
+      additionalProperties: false
+      required:
+      - generation
+      - config_revision
+      - published_at
+      properties:
+        generation:
+          type: integer
+          format: int64
+          minimum: 1
+        config_revision:
+          type: string
+        published_at:
+          "$ref": "#/components/schemas/Timestamp"
+    CompiledSummary:
+      type: object
+      additionalProperties: false
+      required:
+      - client_profiles
+      - routes
+      - backend_sets
+      - targets
+      - quota_groups
+      - credential_generations
+      properties:
+        client_profiles:
+          type: integer
+          minimum: 0
+        routes:
+          type: integer
+          minimum: 0
+        backend_sets:
+          type: integer
+          minimum: 0
+        targets:
+          type: integer
+          minimum: 0
+        quota_groups:
+          type: integer
+          minimum: 0
+        credential_generations:
+          type: integer
+          minimum: 0
+    SemanticOutcome:
+      type: string
+      enum:
+      - success
+      - canceled
+      - local_session_auth_rejected
+      - local_request_rejected
+      - local_admission_rejected
+      - remote_credential_rejected
+      - remote_capability_rejected
+      - remote_policy_rejected
+      - remote_access_unknown
+      - remote_throttle
+      - remote_service_failure
+      - upstream_completion_unknown
+    DecisionReason:
+      type: string
+      pattern: "^[a-z][a-z0-9_]{0,62}$"

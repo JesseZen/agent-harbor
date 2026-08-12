@@ -1,0 +1,1440 @@
+components:
+  schemas:
+    ConfigGraph:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - instance
+        - client_profiles
+        - content_policies
+        - routes
+        - backend_sets
+        - endpoints
+        - credentials
+        - quota_groups
+        - targets
+        - model_policies
+        - model_projections
+        - compatibility_transforms
+      properties:
+        schema_version:
+          type: integer
+          enum:
+            - 1
+        instance:
+          "$ref": "#/components/schemas/InstanceConfig"
+        client_profiles:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ClientProfileConfig"
+        content_policies:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ContentPolicyConfig"
+        routes:
+          type: array
+          items:
+            "$ref": "#/components/schemas/RouteConfig"
+        backend_sets:
+          type: array
+          items:
+            "$ref": "#/components/schemas/BackendSetConfig"
+        endpoints:
+          type: array
+          items:
+            "$ref": "#/components/schemas/EndpointConfig"
+        credentials:
+          type: array
+          items:
+            "$ref": "./config-provider.schemas.yaml#/components/schemas/ProviderCredentialC\
+              onfig"
+        quota_groups:
+          type: array
+          items:
+            "$ref": "./config-provider.schemas.yaml#/components/schemas/QuotaGroupConfig"
+        targets:
+          type: array
+          items:
+            "$ref": "./config-provider.schemas.yaml#/components/schemas/TargetConfig"
+        model_policies:
+          type: array
+          items:
+            "$ref": "./config-provider.schemas.yaml#/components/schemas/ModelPolicyConfig"
+        model_projections:
+          type: array
+          items:
+            "$ref": "./config-provider.schemas.yaml#/components/schemas/ModelProjectionConf\
+              ig"
+        compatibility_transforms:
+          type: array
+          items:
+            "$ref": "./config-provider.schemas.yaml#/components/schemas/CompatibilityTransf\
+              ormConfig"
+        managed_objects:
+          type: array
+          uniqueItems: true
+          description: Optional ownership metadata for user-facing resource bundles. Core persists and validates it but does not use it for request routing.
+          items:
+            $ref: "#/components/schemas/ManagedObject"
+      x-agent-harbor-session-reference-publication:
+        all_sessions: referenced_client_profile_and_route_must_exist
+        native_identity: referenced_profile_launcher_must_equal_native_provider_and_effective_config_root_identity_must_not_change
+        live_pane: referenced_ResolvedLauncherPlan_fingerprint_must_not_change
+        idle_or_failed_without_live_pane: same_provider_same_config_root_other_plan_change_allowed
+        rejection: publish_conflict
+    ConfigOverview:
+      type: object
+      additionalProperties: false
+      required:
+        - active_generation
+        - config_revision
+        - compiled_summary
+        - graph
+        - instance_id
+        - active_generation
+        - config_revision
+        - compiled_summary
+        - graph
+      properties:
+        active_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        config_revision:
+          type: string
+        compiled_summary:
+          "$ref": "./common.schemas.yaml#/components/schemas/CompiledSummary"
+        graph:
+          "$ref": "#/components/schemas/ConfigGraphView"
+        instance_id:
+          $ref: ./deck.schemas.yaml#/components/schemas/InstanceID
+    ConfigGraphView:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - instance
+        - client_profiles
+        - content_policies
+        - routes
+        - backend_sets
+        - endpoints
+        - credentials
+        - quota_groups
+        - targets
+        - model_policies
+        - model_projections
+        - compatibility_transforms
+      properties:
+        schema_version:
+          type: integer
+          enum: [1]
+        instance:
+          "$ref": "#/components/schemas/InstanceConfig"
+        client_profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClientProfileView"
+        content_policies:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ContentPolicyConfig"
+        routes:
+          type: array
+          items:
+            "$ref": "#/components/schemas/RouteConfig"
+        backend_sets:
+          type: array
+          items:
+            "$ref": "#/components/schemas/BackendSetConfig"
+        endpoints:
+          type: array
+          items:
+            "$ref": "#/components/schemas/EndpointConfig"
+        credentials:
+          type: array
+          items:
+            "$ref": "./config-provider.schemas.yaml#/components/schemas/ProviderCredentialV\
+              iew"
+        quota_groups:
+          type: array
+          items:
+            "$ref": "./config-provider.schemas.yaml#/components/schemas/QuotaGroupConfig"
+        targets:
+          type: array
+          items:
+            "$ref": "./config-provider.schemas.yaml#/components/schemas/TargetConfig"
+        model_policies:
+          type: array
+          items:
+            "$ref": "./config-provider.schemas.yaml#/components/schemas/ModelPolicyConfig"
+        model_projections:
+          type: array
+          items:
+            "$ref": "./config-provider.schemas.yaml#/components/schemas/ModelProjectionConf\
+              ig"
+        compatibility_transforms:
+          type: array
+          items:
+            "$ref": "./config-provider.schemas.yaml#/components/schemas/CompatibilityTransf\
+              ormConfig"
+        managed_objects:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ManagedObject"
+    InstanceConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - state_root
+        - log_level
+        - gateway
+        - admin
+        - tmux
+      properties:
+        state_root:
+          type: string
+          minLength: 1
+          description: Immutable for the lifetime of one InstanceID.
+          x-agent-harbor-unix-socket-preflight:
+            capacity: platform_sockaddr_un_sun_path_bytes_minus_one_for_NUL
+            timing: instance_compile_before_any_resource_creation
+            paths:
+              - admin_socket
+              - tmux_socket
+              - handoff_worst_case
+            handoff_suffix: /h/00000000000000000000000000000000.sock
+            utf8_accounting: exact_absolute_path_bytes
+            overflow: validation_error_without_path_fallback
+            fixtures:
+              - macOS_exact_103_bytes
+              - macOS_104_bytes_rejected
+              - long_state_root_rejected
+        log_level:
+          type: string
+          enum:
+            - simple
+            - detail
+        gateway:
+          "$ref": "#/components/schemas/GatewayListenerConfig"
+        admin:
+          "$ref": "#/components/schemas/AdminListenerConfig"
+        tmux:
+          "$ref": "#/components/schemas/TmuxConfig"
+    GatewayListenerConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - host
+        - port
+      properties:
+        host:
+          type: string
+          enum:
+            - 127.0.0.1
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          not:
+            enum:
+              - 9090
+          description: Immutable for the lifetime of one InstanceID.
+    AdminListenerConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - unix_socket_name
+        - loopback_tcp_enabled
+        - loopback_tcp_port
+      properties:
+        unix_socket_name:
+          type: string
+          enum:
+            - agent-harbor-admin.sock
+          description: Exact immutable Agent Harbor Admin socket filename resolved below
+            state_root/admin for the lifetime of one InstanceID.
+        loopback_tcp_enabled:
+          type: boolean
+          description: When true, loopback_tcp_port is required and AdminToken lifecycle
+            is instance-owned below the state root.
+        loopback_tcp_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          not:
+            enum:
+              - 9090
+          description: Immutable for the lifetime of one InstanceID; reserved by a dormant
+            bind before hot enable.
+    TmuxConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - socket_name
+        - session_name
+        - status_bar_height
+      properties:
+        socket_name:
+          type: string
+          enum:
+            - agent-harbor
+          description: Exact immutable Agent Harbor tmux socket filename resolved below
+            state_root/tmux and passed to tmux with -S for the lifetime of one
+            InstanceID.
+        session_name:
+          type: string
+          enum:
+            - agent-harbor-tui
+          description: Exact immutable Agent Harbor TUI control session for the lifetime
+            of one InstanceID.
+        status_bar_height:
+          type: integer
+          minimum: 1
+          maximum: 5
+      x-agent-harbor-runtime-policy:
+        executable: canonical_system_tmux_regular_executable_identity_and_SHA256
+        command_prefix:
+          - canonical_system_tmux
+          - -f
+          - /dev/null
+          - -S
+          - verified_absolute_private_socket
+        configuration_sources: none_beyond_Core_commands
+        startup_options:
+          server:
+            exit-empty: off
+          global_session:
+            update-environment: empty
+          control_window_0:
+            remain-on-exit: off
+          control_pane:
+            allow-passthrough: on
+          agent_session_window_0:
+            remain-on-exit: on
+          agent_session_pane:
+            allow-passthrough: off
+        verification: set_then_read_back_exact_closed_options_before_readiness_or_launch
+        lifecycle_poller:
+          ownership: one_Core_owner
+          interval: SESSION_EXIT_POLL_INTERVAL_250ms
+          command_timeout: SESSION_EXIT_QUERY_TIMEOUT_1000ms
+          query: exact_one_shot_list-panes_metadata_for_owned_active_session_only
+          content: pane_content_and_control_mode_output_forbidden
+        forbidden:
+          - source-file
+          - hooks
+          - pipe-pane
+          - verbose_flags
+          - protocol_or_pane_logging
+        tmux_log: Core_owned_structured_lifecycle_events_only_without_raw_control_bytes_argv_environment_pane_content_or_OSC52
+        canary_scan: success_failure_preview_OSC52_high_output_and_every_rotated_file
+        fixtures:
+          - control_pane_OSC52_passthrough_on
+          - agent_pane_passthrough_off
+          - wrong_scope_passthrough_on_rejected
+          - dead_pane_poll_zero_percent_output
+          - malicious_user_tmux_conf_ignored
+    ClientProfileConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - launcher
+        - arguments
+        - environment
+        - default_route_id
+        - model_projection_id
+        - compatibility_transform_ids
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+          minLength: 1
+        launcher:
+          type: string
+          enum:
+            - codex
+            - claude
+            - opencode
+            - pi
+            - grok
+          description: Registered launcher name; never a path or command string.
+          x-resolved-session-execution:
+            resolution_point: candidate_graph_compilation_and_startup_recompile_before_readiness
+            registry_names:
+              codex: codex
+              claude: claude
+              opencode: opencode
+              pi: pi
+              grok: grok
+            lookup: frozen_root_startup_PATH_registry_name_once_then_canonical_symlink_resolution
+            profile_executable_or_wrapper_input: forbidden
+            required_file_identity: effective_uid_or_root_owned_regular_executable_not_group_or_world_writable_with_canonical_path_vnode_identity_and_SHA256
+            native_form:
+              executable: canonical_entry_target
+              argv_prefix:
+                - canonical_entry_target
+            script_form:
+              allowed_interpreters:
+                - node
+                - bun
+              shebang: absolute_interpreter_or_exact_usr_bin_env_single_name
+              forbidden:
+                - shell_interpreter
+                - interpreter_dash_c
+                - env_dash_S
+                - multiple_arguments
+                - nested_script_interpreter
+              executable: canonical_interpreter_target
+              argv_prefix:
+                - canonical_interpreter_target
+                - canonical_script_target
+            codex_npm_resolution:
+              recognition: registered_exact_wrapper_contract_and_fingerprint_only
+              package_resolution: canonical_package_root_then_registered_platform_optional_dependency_vendor_path
+              final_executable: canonical_registered_platform_vendor_binary
+              wrapper_runtime: never_executed
+              frozen_identities:
+                - entry_symlink
+                - wrapper_script
+                - package_root
+                - vendor_binary
+              environment: frozen_package_root_and_exactly_one_installation_manager_marker
+              replacement: any_wrapper_package_root_or_vendor_identity_or_SHA256_drift_rejects_compilation_or_restart_adoption
+            vectors:
+              launch:
+                codex: resolved_vendor_prefix_then_adapter_config_then_typed_profile_options_then_optional_prompt
+                claude: resolved_prefix_then_typed_profile_options_then_optional_prompt
+                opencode: unsupported
+                pi: unsupported
+                grok: unsupported
+              resume:
+                codex: resolved_vendor_prefix_then_resume_then_adapter_config_then_typed_profile_options_then_safe_native_session_id_then_optional_prompt
+                claude: resolved_prefix_then_typed_profile_options_then_dash_dash_resume_then_safe_native_session_id_then_optional_prompt
+                opencode: unsupported
+                pi: unsupported
+                grok: unsupported
+              operation_argument_contract:
+                mode: registered_launcher_positive_allowlist_parser_at_candidate_graph_compilation
+                parser_table: compiled_positive_grammar_with_registered_SHA256
+                shared_profile_arguments: must_validate_for_launch_and_resume_when_resume_is_supported
+                tokenization: registered_arity_and_alias_semantics_including_long_equals_attached_short_values_and_option_terminator
+                fingerprint:
+                  probe: resolved_prefix_plus_bounded_version_root_help_and_resume_help_before_publication
+                  environment: empty_non_TTY_env_plus_fixed_LANG_C_LC_ALL_C_TERM_dumb_COLUMNS_80_NO_COLOR_1_and_adapter_config_root_only
+                  io: stdin_dev_null_and_separate_exact_stdout_stderr_byte_frames
+                  failure: nonzero_timeout_or_oversize_is_validation_error_without_truncation
+                  timeout_ms: 5000
+                  max_output_bytes: 131072
+                  codex:
+                    version: codex-cli 0.144.4
+                    version_sha256: 7ccbf69c1456ab6a6fdffd204e5d87f1795fc447ff7e453f0ee62468a33fd42c
+                    root_help_sha256: 7d92f4c4f219f700c96018e40f8bf03859db588eb89e9fc68c35d2204dd5dedd
+                    resume_help_sha256: 3a36dca325e2f2d8b3b8d189994b259a166912a7d6b4d05cac94d8b8d0509f35
+                    hook_capability: phase_04_official_2026_07_20_codex_matrix
+                  claude:
+                    version: 2.1.214 (Claude Code)
+                    version_sha256: 50c613fb11d46fb1352dfa36368d891b636aba6df68dd82108fb562b705a598a
+                    root_help_sha256: fcd5b45507c7c602d54d85a300eab288a8a3c6770c6def696ca19a3100725de4
+                    hook_capability: phase_04_official_2026_07_20_claude_matrix
+                codex:
+                  value_options:
+                    - -i|--image:one_or_more_paths
+                    - -m|--model:one
+                    - -s|--sandbox:one
+                    - -a|--ask-for-approval:one
+                    - --add-dir:one_or_more_paths
+                  flag_options:
+                    - --search
+                    - --no-alt-screen
+                    - --dangerously-bypass-approvals-and-sandbox
+                    - --dangerously-bypass-hook-trust
+                  launch:
+                    subcommands: none
+                    selector: new_session_only
+                    positional: zero_or_one_prompt
+                  resume:
+                    selector: adapter_resume_then_persisted_safe_native_session_id_only
+                    options_after_selector: accepted_by_registered_parser
+                    positional: zero_or_one_prompt
+                claude:
+                  value_options:
+                    - --model:one
+                    - --permission-mode:one
+                    - --effort:one
+                    - --name:one
+                    - --add-dir:one_or_more_paths
+                  flag_options:
+                    - --no-chrome
+                    - --dangerously-skip-permissions
+                    - --allow-dangerously-skip-permissions
+                  launch:
+                    commands: none
+                    selector: new_session_only
+                    positional: zero_or_one_prompt
+                  resume:
+                    selector: adapter_dash_dash_resume_plus_persisted_safe_native_session_id_only
+                    positional: zero_or_one_prompt
+                rejection: unknown_option_command_subcommand_selector_invalid_arity_or_fingerprint_drift_rejects_candidate_graph
+              native_session_id: normalized_ASCII_token_not_starting_dash
+            native_config_root:
+              defaults:
+                codex: canonical_current_user_home_dot_codex
+                claude: canonical_current_user_home_dot_claude
+              delivery:
+                codex: Core_owned_CODEX_HOME
+                claude: Core_owned_CLAUDE_CONFIG_DIR
+                opencode: unsupported
+                pi: unsupported
+                grok: unsupported
+              identity: installation_preflight_and_child_read_use_the_same_canonical_effective_root
+              explicit_unsupported: validation_error_at_candidate_graph_compilation
+            gateway_adapter:
+              supported:
+                - codex
+                - claude
+              unsupported:
+                opencode: validation_error
+                pi: validation_error
+                grok: validation_error
+              origin:
+                value: http://127.0.0.1:<immutable_dynamic_gateway_port>
+                path: none
+                trailing_slash: forbidden
+                identity: exact_current_InstanceID_listener_only
+              model:
+                profile_option: optional_single_typed_model_value
+                validation: when_present_must_belong_to_the_referenced_ModelProjection
+                adapter_default: none
+                runtime_authority: Gateway_models_projection_and_ingress_validation
+              codex:
+                argv_config:
+                  - model_provider="agent-harbor"
+                  - model_providers.agent-harbor.name="Agent Harbor"
+                  - model_providers.agent-harbor.base_url="<gateway-origin>/v1"
+                  - model_providers.agent-harbor.env_key="OPENAI_API_KEY"
+                  - model_providers.agent-harbor.wire_api="responses"
+                environment:
+                  CODEX_HOME: <effective-native-config-root>
+                  OPENAI_API_KEY: <raw-current-SessionCredential>
+                  CODEX_MANAGED_PACKAGE_ROOT: <frozen-package-root>
+                installation_manager_environment: exactly_one_of_CODEX_MANAGED_BY_NPM_CODEX_MANAGED_BY_BUN_CODEX_MANAGED_BY_PNPM_equals_1
+                forbidden_environment:
+                  - OPENAI_BASE_URL
+              claude:
+                argv_config:
+                  []
+                environment:
+                  CLAUDE_CONFIG_DIR: <effective-native-config-root>
+                  ANTHROPIC_BASE_URL: <gateway-origin>
+                  ANTHROPIC_AUTH_TOKEN: <raw-current-SessionCredential>
+                  CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "1"
+                  CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1"
+              credential_rule: raw_SessionCredential_appears_only_in_the_registered_provider_auth_variable
+              hook_environment:
+                - AGENT_HARBOR_EXECUTABLE
+                - AGENT_HARBOR_INSTANCE_ID
+                - AGENT_HARBOR_AGENT_SESSION_ID
+                - AGENT_HARBOR_HOOK_CAPABILITY
+                - AGENT_HARBOR_HOOK_CAPABILITY_EPOCH
+                - AGENT_HARBOR_HOOK_MAILBOX_DIR
+            resolution_layers:
+              plan:
+                fields:
+                  - registered_entry_wrapper_package_and_final_executable_identities_and_SHA256
+                  - parser_and_hook_contract_fingerprint
+                  - effective_native_config_root
+                  - typed_operation_argv_templates
+                  - validated_profile_and_adapter_environment_template
+                snapshot: immutable_per_profile_ResolvedLauncherPlan_in_compiled_snapshot
+                live_publish: any_plan_change_for_a_profile_with_a_live_verified_pane_is_publish_conflict
+                restart: recompile_and_block_readiness_on_live_plan_drift
+              execution:
+                construction: per_session_owner_after_command_transaction_from_plan_workspace_FD_runtime_IDs_tmux_intrinsics_and_new_secrets
+                fields:
+                  - plan_fingerprint
+                  - operation
+                  - exact_argv
+                  - exact_final_environment
+                  - workspace_directory_FD_and_identity
+                  - process_start_token
+                  - process_group
+                lifetime: memory_only_until_running_or_failed_then_zero_secrets_and_close_FDs
+                initial_match: exact_complete_execution_before_command_owner_commits_running
+              recovery:
+                predicate: persistable_nonsecret_plan_fingerprint_executable_argv_cwd_instance_session_and_tmux_identity_plus_process_SessionCredential_hash_match
+                hook_capability: never_persisted_or_reconstructed_and_prior_epoch_is_stale_not_adoption_identity
+                environment: enumerate_exact_names_and_values_except_old_hook_capability_value_while_hashing_the_raw_SessionCredential_against_durable_active_hash
+            session_exec_handoff:
+              tmux_server_environment:
+                startup: Core_constructed_nonsecret_terminal_bootstrap_only
+                update_environment: empty
+                session_overrides: none
+              tmux_helper_argv:
+                - absolute_sibling_agent-harbor
+                - session-exec
+                - --instance-id
+                - instance_id
+                - --session-id
+                - agent_session_id
+                - --handoff-socket
+                - absolute_one_time_socket
+              tmux_secret_values: none_in_argv_environment_control_mode_or_logs
+              socket:
+                path: state_root/h/128_bit_random_lowercase_hex.sock
+                binding: session_and_operation_IDs_exist_only_in_the_in_memory_handshake
+                directory_mode: "0700"
+                socket_mode: "0600"
+                lifecycle: Core_binds_before_tmux_spawn_and_no_payload_bytes_are_persisted
+              helper_image:
+                snapshot: frozen_absolute_current_Core_executable_path_vnode_identity_and_SHA256_used_for_tmux_spawn
+                proof: platform_process_inspector_reports_the_same_loaded_executable_path_identity_and_SHA256_before_payload
+                replacement: same_argv_with_replaced_or_different_image_rejects_without_sending_payload
+              core_accept_order:
+                - same_effective_uid
+                - exact_pane_pid
+                - exact_process_start_token
+                - exact_process_group_leader
+                - exact_frozen_helper_executable_path_identity_and_SHA256
+                - exact_helper_argv
+                - exact_socket_inode_and_operation_id
+              payload:
+                encoding: closed_versioned_unsigned_length_prefixed_binary
+                max_bytes: 262144
+                size_budget:
+                  profile_arguments_utf8_bytes_max: 32768
+                  profile_environment_utf8_bytes_max: 65536
+                  resolved_operation_utf8_bytes_max: 16384
+                  adapter_core_tmux_environment_utf8_bytes_max: 49152
+                  encoding_and_length_prefix_bytes_max: 32768
+                  encoded_payload_bytes_max: 196608
+                  frame_bytes_max: 262144
+                  reserved_headroom_bytes: 65536
+                provider_secret_values: forbidden_Gateway_only
+                ancillary_fds:
+                  - frozen_workspace_directory_FD_via_SCM_RIGHTS
+                execve_preflight:
+                  accounting: exact_argv_and_environment_UTF-8_bytes_plus_NUL_terminators_and_platform_pointer_overhead
+                  limit: runtime_sysconf_SC_ARG_MAX_minus_32768_bytes
+                  timing: candidate_graph_compilation_with_worst_case_Core_tmux_values_before_publication
+                  rejection: validation_error
+                fields:
+                  - ResolvedSessionExecution_executable
+                  - exact_argv
+                  - exact_final_environment
+                  - frozen_workspace_canonical_path_and_directory_identity
+                final_environment:
+                  inherited_tmux_keys:
+                    - TERM
+                    - TMUX
+                    - TMUX_PANE
+                    - SHELL
+                  path: Core_selected_frozen_startup_PATH
+                  base: validated_unique_profile_entries
+                  adapter_owned_last:
+                    codex:
+                      - CODEX_HOME
+                      - OPENAI_API_KEY
+                      - CODEX_MANAGED_PACKAGE_ROOT
+                      - exactly_one_CODEX_MANAGED_BY_installation_marker
+                    claude:
+                      - CLAUDE_CONFIG_DIR
+                      - ANTHROPIC_BASE_URL
+                      - ANTHROPIC_AUTH_TOKEN
+                      - CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST
+                      - CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY
+                  core_owned_last:
+                    - AGENT_HARBOR_EXECUTABLE
+                    - AGENT_HARBOR_INSTANCE_ID
+                    - AGENT_HARBOR_AGENT_SESSION_ID
+                    - AGENT_HARBOR_HOOK_CAPABILITY
+                    - AGENT_HARBOR_HOOK_CAPABILITY_EPOCH
+                    - AGENT_HARBOR_HOOK_MAILBOX_DIR
+                  supervisor_or_tmux_ambient: discard_every_other_name
+                  merge_order:
+                    - empty_map
+                    - validated_unique_profile
+                    - authoritative_tmux_intrinsics
+                    - frozen_PATH
+                    - adapter_owned_values
+                    - Core_owned_hook_values
+                exec: helper_fchdir_frozen_workspace_then_execve_exact_ResolvedSessionExecution_vector_with_PID_and_PGID_unchanged
+              final_predicate: Core_rechecks_same_PID_PGID_start_token_exact_execution_projection_and_actual_cwd_identity_after_exec
+              cleanup: Core_or_helper_unlinks_socket_on_every_terminal_path_and_zeros_payload_buffers
+              failures:
+                pre_payload_crash_or_timeout: no_secret_helper_exits_and_incomplete_pane_remains_evidence
+                post_payload_helper_crash: process_memory_dies_socket_unlinks_and_no_payload_is_replayed
+                Core_crash_after_final_exec: only_the_recovery_predicate_can_adopt_an_already_running_row
+                peer_race_or_helper_drift: send_no_payload_and_block_the_operation
+                stale_socket_on_restart: unlink_only_after_exclusive_state_lock_proves_no_live_listener_otherwise_block_readiness
+            integration_cases:
+              - native_binary
+              - codex_usr_bin_env_node_wrapper
+              - codex_vendor_direct_exec
+              - codex_vendor_replacement_rejected
+              - symlink_chain
+              - shell_wrapper_rejected
+              - env_dash_S_rejected
+              - same_name_foreign_wrapper_process_rejected
+              - interpreter_drift_blocks_adoption
+              - path_drift_blocks_adoption
+              - exact_launch_and_resume_match
+              - codex_exec_subcommand_rejected
+              - codex_cd_override_rejected
+              - codex_resume_id_then_options
+              - codex_resume_second_bare_rejected
+              - codex_resume_last_selector_rejected
+              - claude_print_rejected
+              - claude_bg_rejected
+              - claude_tmux_rejected
+              - claude_worktree_rejected
+              - claude_bare_rejected
+              - claude_safe_mode_rejected
+              - claude_settings_override_rejected
+              - claude_continue_rejected
+              - claude_session_id_rejected
+              - claude_from_pr_rejected
+              - claude_fork_session_rejected
+              - parser_fingerprint_drift_rejected
+              - hook_capability_drift_rejected
+              - codex_default_config_root
+              - claude_default_config_root
+              - codex_explicit_config_root
+              - claude_explicit_config_root
+              - config_root_missing_rejected
+              - config_root_crash_leaves_no_directory
+              - config_root_child_mismatch_rejected
+              - unsupported_explicit_config_root_rejected
+              - referenced_profile_removed_rejected
+              - referenced_route_removed_rejected
+              - bound_profile_launcher_change_rejected
+              - bound_idle_config_root_change_rejected
+              - idle_same_provider_other_plan_change_allowed
+              - live_publish_image_drift_rejected
+              - live_publish_arguments_drift_rejected
+              - live_publish_environment_drift_rejected
+              - live_publish_config_root_drift_rejected
+              - live_publish_parser_drift_rejected
+              - unsupported_launcher_launch_rejected
+              - codex_exact_gateway_request
+              - claude_exact_gateway_request
+              - provider_auth_override_rejected
+              - projected_model_accepted
+              - unprojected_model_rejected
+              - workspace_relative_rejected
+              - workspace_missing_rejected
+              - workspace_file_rejected
+              - workspace_symlink_replaced
+              - workspace_cwd_drift
+              - workspace_descriptor_missing
+              - workspace_descriptor_wrong_type
+              - workspace_descriptor_wrong_identity
+              - workspace_descriptor_extra
+              - workspace_SCM_truncation
+              - socket_path_exact_platform_max
+              - socket_path_platform_max_plus_one_rejected
+              - handoff_maximum_legal_payload
+              - handoff_profile_argument_plus_one_rejected
+              - handoff_profile_environment_plus_one_rejected
+              - handoff_generated_environment_plus_one_rejected
+              - handoff_encoded_payload_plus_one_rejected
+              - handoff_ARG_MAX_preflight_rejected
+              - provider_secret_excluded_from_handoff
+              - handoff_pre_secret_crash
+              - handoff_post_secret_crash
+              - handoff_peer_race
+              - helper_image_drift
+              - helper_exec_failure
+              - malicious_user_tmux_conf_ignored
+              - tmux_forbidden_facilities_rejected
+              - tmux_log_secret_canary
+        arguments:
+          type: array
+          maxItems: 64
+          x-total-utf8-bytes-maximum: 32768
+          items:
+            type: string
+            maxLength: 4096
+            pattern: ^[^\u0000]*$
+        environment:
+          type: array
+          items:
+            "$ref": "#/components/schemas/EnvironmentVariableConfig"
+          maxItems: 128
+          x-total-utf8-bytes-maximum: 65536
+          x-unique-by: name
+        default_route_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        model_projection_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        compatibility_transform_ids:
+          type: array
+          uniqueItems: true
+          items:
+            "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        native_config_root:
+          type: string
+          minLength: 1
+          description: Absolute canonical client configuration root selected by graph
+            compilation. Omission uses the registered launcher default. The
+            value is used only by Core nativehook and is never returned to Deck.
+          x-native-config-root-policy:
+            explicit_input: absolute_path_without_NUL_or_tilde_expansion
+            defaults:
+              codex: <canonical-home>/.codex
+              claude: <canonical-home>/.claude
+            allowed_containment: canonical_current_user_home
+            required_identity:
+              owner: effective_uid
+              root_type: preexisting_directory
+              root_mode: not_group_or_world_writable
+              existing_config_type: regular_file_or_single_symlink_to_regular_file
+              existing_config_mode: not_group_or_world_writable
+            symlink_policy: lstat every existing component, resolve once to a canonical
+              target, validate both link and target ownership/containment,
+              preserve the link itself, and perform the atomic write in the
+              resolved target directory without replacing the link
+            exclusions:
+              - <canonical-home>/.agent-harbor-canary
+              - current_agent_harbor_state_root
+              - other_registered_launcher_default_root
+            exclusion_relation: candidate_must_be_neither_equal_to_nor_ancestor_or_descendant_of_excluded_root
+            shared_root:
+              same_launcher_and_exact_managed_template: coalesce_one_write_and_reference_count_ownership
+              otherwise: native_config_root_conflict
+            cross_instance_lease:
+              identity: sorted_unique_verified_root_and_resolved_managed_target_parent_directory_vnodes
+              descriptor:
+                open_flags: O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC
+                proof: same_FD_fstat_effective_uid_directory_mode_dev_and_ino
+                inheritance: FD_CLOEXEC_verified_and_excluded_from_every_child_descriptor_and_SCM_RIGHTS_allowlist
+              acquisition: nonblocking_exclusive_advisory_lock_on_every_verified_directory_FD
+              timing: before_native_config_read_write_or_ownership_preflight
+              lifetime: held_while_instance_references_root_or_any_owned_session_uses_profile
+              same_instance: one_lease_per_unique_directory_vnode_with_profile_reference_count
+              different_state_roots: concurrent_shared_coordination_vnode_forbidden
+              managed_io:
+                anchor: all_traversal_read_stage_fsync_rename_and_cleanup_use_at_operations_relative_to_the_held_root_or_target_parent_FD
+                leaf_identity:
+                  entry: fstatat_parent_FD_basename_AT_SYMLINK_NOFOLLOW_freezes_type_dev_and_ino
+                  symlink: readlinkat_bytes_plus_resolved_target_parent_FD_and_basename
+                  target: openat_target_parent_FD_basename_O_RDONLY|O_NOFOLLOW_then_fstat_freezes_regular_dev_and_ino
+                recheck: before_each_managed_read_write_stage_rename_cleanup_or_native_child_exec_repeat_and_require_exact_root_parent_entry_link_and_target_identity
+                publication_linearization: only_Core_successful_journaled_renameat_may_replace_the_frozen_target_identity_with_the_same_FD_verified_after_identity
+                drift: native_config_root_conflict_without_config_or_ownership_change
+              contention: native_config_root_conflict_without_config_or_ownership_change
+              unsupported: native_config_root_denied
+              startup_order: canonical_path_UTF8_lexical_for_all_unique_coordination_directories
+              publish_add: acquire_all_new_coordination_leases_before_publication_journal_or_file_write_and_release_newly_acquired_on_failure
+              publish_remove: release_only_after_committed_entry_removal_ownership_delete_and_no_live_session_or_managed_target_reference
+              restore: source_instance_must_not_hold_any_relocated_graph_root_lease
+              fixtures:
+                - same_instance_shared_root_coalesced
+                - different_state_root_same_native_root_rejected
+                - distinct_roots_shared_symlink_target_parent_rejected
+                - different_coordination_vnodes_concurrent_allowed
+                - root_path_replaced_before_write_rejected_no_bytes
+                - symlink_leaf_replaced_same_parent_rejected_no_bytes
+                - resolved_target_leaf_replaced_same_parent_rejected_no_bytes
+                - child_exec_does_not_inherit_lease
+                - publish_add_contended_root_no_bytes
+                - publish_remove_releases_after_commit
+                - restore_while_source_holds_root_rejected
+                - restore_after_source_stop_acquires_root
+            failure_codes:
+              validation: native_config_root_denied
+              collision: native_config_root_conflict
+              write: native_config_write_failed
+            failure_effect: no_config_file_or_managed_entry_bytes_changed
+            managed_file_write:
+              new_file_mode: "0600"
+              replacement: preserve_validated_owner_and_mode
+              missing_root: native_config_root_denied_without_directory_residue
+    EnvironmentVariableConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - value
+      properties:
+        name:
+          type: string
+          pattern: "^[A-Z_][A-Z0-9_]*$"
+          maxLength: 128
+          description: Names reserved for Agent Harbor runtime identity, native-hook
+            authentication, or provider authentication, and names ending
+            _KEY, _TOKEN, _SECRET, or _PASSWORD, reject graph compilation.
+            Core-owned native-hook variables are injected only after this
+            validation and cannot be overridden by ClientProfile entries.
+          not:
+            enum:
+              - AGENT_HARBOR_URL
+              - AGENT_HARBOR_CONFIG_DIR
+              - AGENT_HARBOR_EXECUTABLE
+              - OPENAI_API_KEY
+              - OPENAI_BASE_URL
+              - ANTHROPIC_API_KEY
+              - ANTHROPIC_BASE_URL
+            anyOf:
+              - enum:
+                  - AGENT_HARBOR_URL
+                  - AGENT_HARBOR_CONFIG_DIR
+                  - AGENT_HARBOR_EXECUTABLE
+                  - AGENT_HARBOR_INSTANCE_ID
+                  - AGENT_HARBOR_AGENT_SESSION_ID
+                  - AGENT_HARBOR_HOOK_CAPABILITY
+                  - AGENT_HARBOR_HOOK_CAPABILITY_EPOCH
+                  - AGENT_HARBOR_HOOK_MAILBOX_DIR
+                  - OPENAI_API_KEY
+                  - OPENAI_BASE_URL
+                  - ANTHROPIC_API_KEY
+                  - ANTHROPIC_BASE_URL
+                  - ANTHROPIC_AUTH_TOKEN
+                  - CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST
+                  - CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY
+                  - CODEX_HOME
+                  - CLAUDE_CONFIG_DIR
+                  - CODEX_MANAGED_PACKAGE_ROOT
+                  - CODEX_MANAGED_BY_NPM
+                  - CODEX_MANAGED_BY_BUN
+                  - CODEX_MANAGED_BY_PNPM
+                  - PATH
+                  - TERM
+                  - TMUX
+                  - TMUX_PANE
+                  - SHELL
+              - pattern: _(KEY|TOKEN|SECRET|PASSWORD)$
+        value:
+          type: string
+          maxLength: 8192
+          pattern: ^[^\u0000]*$
+    RouteConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - ingress_protocol
+        - routing_policy
+        - backend_set_id
+        - model_policy_id
+        - request_deadline_ms
+        - retry_deadline_ms
+        - stream_idle_timeout_ms
+        - max_attempts
+        - max_request_body_bytes
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+          minLength: 1
+        ingress_protocol:
+          type: string
+          enum:
+            - openai_chat
+            - openai_responses
+            - anthropic_messages
+        routing_policy:
+          type: string
+          enum:
+            - automatic
+            - sticky_session
+        backend_set_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        model_policy_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        content_policy_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        request_deadline_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854
+        retry_deadline_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854
+          description: Must be less than or equal to request_deadline_ms.
+        stream_idle_timeout_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854
+          description: Maximum interval between provider bytes and client writes after
+            streaming response commitment.
+        max_attempts:
+          type: integer
+          minimum: 1
+          maximum: 8
+          default: 2
+        max_request_body_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 134217728
+          default: 33554432
+    ContentPolicyConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        mode:
+          type: string
+          enum:
+            - redact
+            - audit
+            - block
+          default: redact
+        max_inspection_bytes:
+          type: integer
+          format: int64
+          minimum: 1024
+          maximum: 4194304
+          default: 1048576
+    BackendSetConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - candidates
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+          minLength: 1
+        required_capabilities:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - chat
+              - responses
+              - messages
+              - streaming
+              - tools
+              - vision
+        candidates:
+          type: array
+          minItems: 1
+          items:
+            "$ref": "#/components/schemas/BackendCandidate"
+    BackendCandidate:
+      type: object
+      additionalProperties: false
+      required:
+        - target_id
+        - priority
+        - weight
+      properties:
+        target_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        priority:
+          type: integer
+          minimum: 0
+        weight:
+          type: integer
+          minimum: 1
+    EndpointConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - base_url
+        - allow_private_network
+        - http2_enabled
+        - max_idle_connections
+        - idle_connection_timeout_ms
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+          minLength: 1
+        base_url:
+          type: string
+          format: uri
+        proxy_url:
+          type: string
+          format: uri
+        tls_server_name:
+          type: string
+        allow_private_network:
+          type: boolean
+          default: false
+          description: Permits local/private/link-local/CGNAT destinations; cloud metadata
+            endpoints remain forbidden.
+        http2_enabled:
+          type: boolean
+        max_idle_connections:
+          type: integer
+          minimum: 1
+        idle_connection_timeout_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854
+    ClientProfileView:
+      type: object
+      additionalProperties: false
+      description: Redacted ClientProfile read model. It intentionally has no
+        native_config_root because that absolute path is Core-only.
+      required:
+        - id
+        - name
+        - launcher
+        - arguments
+        - environment
+        - default_route_id
+        - model_projection_id
+        - compatibility_transform_ids
+      properties:
+        id:
+          $ref: ./common.schemas.yaml#/components/schemas/ConfigID
+        name:
+          type: string
+          minLength: 1
+        launcher:
+          type: string
+          enum:
+            - codex
+            - claude
+            - opencode
+            - pi
+            - grok
+        arguments:
+          type: array
+          maxItems: 64
+          x-total-utf8-bytes-maximum: 32768
+          items:
+            type: string
+            maxLength: 4096
+            pattern: ^[^\u0000]*$
+        environment:
+          type: array
+          maxItems: 128
+          x-total-utf8-bytes-maximum: 65536
+          x-unique-by: name
+          items:
+            $ref: "#/components/schemas/EnvironmentVariableConfig"
+        default_route_id:
+          $ref: ./common.schemas.yaml#/components/schemas/ConfigID
+        model_projection_id:
+          $ref: ./common.schemas.yaml#/components/schemas/ConfigID
+        compatibility_transform_ids:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: ./common.schemas.yaml#/components/schemas/ConfigID
+    MutableConfigSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - instance_id
+        - active_generation
+        - config_revision
+        - mutable_config
+        - compiled_summary
+      properties:
+        instance_id:
+          $ref: "./deck.schemas.yaml#/components/schemas/InstanceID"
+        active_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        config_revision:
+          type: string
+          minLength: 1
+          maxLength: 120
+        mutable_config:
+          $ref: "#/components/schemas/MutableConfigView"
+        compiled_summary:
+          $ref: "./common.schemas.yaml#/components/schemas/CompiledSummary"
+    PatchConfigCommand:
+      type: object
+      additionalProperties: false
+      required:
+        - instance_id
+        - expected_generation
+        - config_revision
+        - mutable_config
+      properties:
+        instance_id:
+          $ref: "./deck.schemas.yaml#/components/schemas/InstanceID"
+        expected_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        config_revision:
+          type: string
+          minLength: 1
+          maxLength: 120
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$"
+        mutable_config:
+          $ref: "#/components/schemas/MutableConfigCommand"
+    ValidateConfigCommand:
+      type: object
+      additionalProperties: false
+      required:
+        - instance_id
+        - expected_generation
+        - mutable_config
+      properties:
+        instance_id:
+          $ref: "./deck.schemas.yaml#/components/schemas/InstanceID"
+        expected_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        mutable_config:
+          $ref: "#/components/schemas/MutableConfigCommand"
+    MutableConfigView:
+      type: object
+      additionalProperties: false
+      required: &mutable-required
+        - instance
+        - client_profiles
+        - content_policies
+        - routes
+        - backend_sets
+        - endpoints
+        - credentials
+        - quota_groups
+        - targets
+        - model_policies
+        - model_projections
+        - compatibility_transforms
+      properties:
+        instance:
+          $ref: "#/components/schemas/MutableInstanceConfig"
+        client_profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/MutableClientProfile"
+        content_policies:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentPolicyConfig"
+        routes:
+          type: array
+          items:
+            $ref: "#/components/schemas/RouteConfig"
+        backend_sets:
+          type: array
+          items:
+            $ref: "#/components/schemas/BackendSetConfig"
+        endpoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/EndpointConfig"
+        credentials:
+          type: array
+          items:
+            $ref: "./config-provider.schemas.yaml#/components/schemas/MutableCredentialView"
+        quota_groups:
+          type: array
+          items:
+            $ref: "./config-provider.schemas.yaml#/components/schemas/QuotaGroupConfig"
+        targets:
+          type: array
+          items:
+            $ref: "./config-provider.schemas.yaml#/components/schemas/TargetConfig"
+        model_policies:
+          type: array
+          items:
+            $ref: "./config-provider.schemas.yaml#/components/schemas/ModelPolicyConfig"
+        model_projections:
+          type: array
+          items:
+            $ref: "./config-provider.schemas.yaml#/components/schemas/ModelProjectionConfig"
+        compatibility_transforms:
+          type: array
+          items:
+            $ref: "./config-provider.schemas.yaml#/components/schemas/CompatibilityTransformConfig"
+        managed_objects:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ManagedObject"
+    MutableConfigCommand:
+      type: object
+      additionalProperties: false
+      required: *mutable-required
+      properties:
+        instance:
+          $ref: "#/components/schemas/MutableInstanceConfig"
+        client_profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/MutableClientProfile"
+        content_policies:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentPolicyConfig"
+        routes:
+          type: array
+          items:
+            $ref: "#/components/schemas/RouteConfig"
+        backend_sets:
+          type: array
+          items:
+            $ref: "#/components/schemas/BackendSetConfig"
+        endpoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/EndpointConfig"
+        credentials:
+          type: array
+          items:
+            $ref: "./config-provider.schemas.yaml#/components/schemas/MutableCredentialCommand"
+        quota_groups:
+          type: array
+          items:
+            $ref: "./config-provider.schemas.yaml#/components/schemas/QuotaGroupConfig"
+        targets:
+          type: array
+          items:
+            $ref: "./config-provider.schemas.yaml#/components/schemas/MutableTargetCommand"
+        model_policies:
+          type: array
+          items:
+            $ref: "./config-provider.schemas.yaml#/components/schemas/ModelPolicyConfig"
+        model_projections:
+          type: array
+          items:
+            $ref: "./config-provider.schemas.yaml#/components/schemas/ModelProjectionConfig"
+        compatibility_transforms:
+          type: array
+          items:
+            $ref: "./config-provider.schemas.yaml#/components/schemas/CompatibilityTransformConfig"
+        managed_objects:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ManagedObject"
+    ManagedObject:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, members]
+      properties:
+        id:
+          $ref: "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        kind:
+          type: string
+          enum: [upstream, traffic_rule, limit_policy]
+          x-enum-varnames:
+            - ManagedObjectKindUpstream
+            - ManagedObjectKindTrafficRule
+            - ManagedObjectKindLimitPolicy
+        members:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ManagedResourceRef"
+    ManagedResourceRef:
+      type: object
+      additionalProperties: false
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          enum:
+            - endpoint
+            - credential
+            - quota_group
+            - target
+            - client_profile
+            - route
+            - backend_set
+            - model_policy
+            - model_projection
+            - content_policy
+            - compatibility_transform
+        id:
+          $ref: "./common.schemas.yaml#/components/schemas/ConfigID"
+    MutableInstanceConfig:
+      type: object
+      additionalProperties: false
+      required: [log_level]
+      properties:
+        log_level:
+          type: string
+          enum: [simple, detail]
+          x-enum-varnames:
+            - MutableInstanceConfigLogLevelSimple
+            - MutableInstanceConfigLogLevelDetail
+    MutableClientProfile:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - launcher
+        - arguments
+        - environment
+        - default_route_id
+        - model_projection_id
+        - compatibility_transform_ids
+      properties:
+        id:
+          $ref: "./common.schemas.yaml#/components/schemas/ConfigID"
+        name:
+          type: string
+          minLength: 1
+        launcher:
+          type: string
+          enum: [codex, claude, opencode, pi, grok]
+          x-enum-varnames:
+            - MutableClientProfileLauncherCodex
+            - MutableClientProfileLauncherClaude
+            - MutableClientProfileLauncherOpencode
+            - MutableClientProfileLauncherPi
+            - MutableClientProfileLauncherGrok
+        arguments:
+          type: array
+          maxItems: 64
+          x-total-utf8-bytes-maximum: 32768
+          items:
+            type: string
+            maxLength: 4096
+            pattern: "^[^\\u0000]*$"
+        environment:
+          type: array
+          maxItems: 128
+          x-total-utf8-bytes-maximum: 65536
+          x-unique-by: name
+          items:
+            $ref: "#/components/schemas/EnvironmentVariableConfig"
+        default_route_id:
+          $ref: "./common.schemas.yaml#/components/schemas/ConfigID"
+        model_projection_id:
+          $ref: "./common.schemas.yaml#/components/schemas/ConfigID"
+        compatibility_transform_ids:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "./common.schemas.yaml#/components/schemas/ConfigID"
+        native_config_root:
+          type: string
+          minLength: 1
+          description: >-
+            Optional absolute canonical root. Omission selects the registered
+            launcher default. It is returned only on the same-UID Admin API.

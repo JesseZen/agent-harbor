@@ -1,22 +1,24 @@
-.PHONY: build version test clean
+.PHONY: build bundle bundle-linux-amd64 release-linux-amd64 verify-bundles test clean
 
-# ── Version management ──────────────────────────────────────────────
-#   Version is derived from git tags at build time.
-#   Channel switch: gh workflow run bump.yml -f channel=beta
-
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-
-version:
-	@echo $(VERSION)
-
-# ── Build ───────────────────────────────────────────────────────────
 build:
-	go build -ldflags "-X github.com/jesse/agent-inn/cmd.version=$(VERSION)" -o ainn .
+	./scripts/build.sh
 
-# ── Test ────────────────────────────────────────────────────────────
+bundle:
+	./scripts/build-bundle.sh
+
+bundle-linux-amd64:
+	AGENT_HARBOR_BUNDLE_TARGETS=linux-amd64 ./scripts/build-bundle.sh
+
+release-linux-amd64:
+	./scripts/build-linux-amd64-release.sh
+
+verify-bundles:
+	./scripts/verify-bundles.sh
+
 test:
-	go test ./...
+	./scripts/build_test.sh
+	cd launcher && go test ./...
+	cd tui && go test ./internal/app ./internal/e2e ./internal/formui ./internal/managedconfig
 
-# ── Clean ───────────────────────────────────────────────────────────
 clean:
-	rm -f ainn
+	rm -rf dist

@@ -1,0 +1,30 @@
+ Advanced Resources / Routes 
+Managed members are read-only · u unlock
+┌─ *Routes(all)[1] ──────────────────────────────────────────────────┐
+│  ID        ┊NAME         ┊INGRESS       ┊POLICY    ┊BACKEND        │
+│  route-1   │route-route-1│openai_chat   │automatic │bs-1           │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+├────────────────────────────────────────────────────────────────────┤
+│1/1  n  new │  e  edit │  d  del │  /  filter │  [ ]  column │  s  …│
+└────────────────────────────────────────────────────────────────────┘

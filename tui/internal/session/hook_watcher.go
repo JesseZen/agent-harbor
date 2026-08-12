@@ -1,0 +1,341 @@
+package session
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
+
+	"github.com/asheshgoplani/agent-deck/internal/logging"
+)
+
+var hookLog = logging.ForComponent(logging.CompSession)
+
+// HookStatus holds the decoded status from a hook status file.
+type HookStatus struct {
+	Status    string    // running, idle, waiting, dead
+	SessionID string    // Claude session ID
+	Event     string    // Hook event name
+	UpdatedAt time.Time // When this status was received
+	// DoneStatus/DoneSummary carry a worker-printed completion sentinel
+	// detected on the Stop edge (issue #1186). Empty for ordinary turns.
+	DoneStatus  string // "ok" or "fail" when a completion sentinel was seen
+	DoneSummary string // free-text completion summary
+	// TranscriptPath is set when the Stop-edge sentinel scan was inconclusive
+	// because the turn's assistant record had not flushed yet (issue #1186
+	// flush race). The transition daemon re-scans this path on its poll loop.
+	TranscriptPath string
+}
+
+// StatusFileWatcher watches ~/.agent-deck/hooks/ for status file changes
+// and updates instance hook status in real time.
+type StatusFileWatcher struct {
+	hooksDir string
+	watcher  *fsnotify.Watcher
+
+	mu       sync.RWMutex
+	statuses map[string]*HookStatus // instance_id -> latest hook status
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// onChange is called when a hook status changes (for TUI refresh)
+	onChange func()
+}
+
+// NewStatusFileWatcher creates a new watcher for the hooks directory.
+// Call Start() to begin watching.
+func NewStatusFileWatcher(onChange func()) (*StatusFileWatcher, error) {
+	hooksDir := GetHooksDir()
+
+	// Ensure directory exists
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		return nil, err
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	return &StatusFileWatcher{
+		hooksDir: hooksDir,
+		watcher:  watcher,
+		statuses: make(map[string]*HookStatus),
+		ctx:      ctx,
+		cancel:   cancel,
+		onChange: onChange,
+	}, nil
+}
+
+// Start begins watching the hooks directory. Must be called in a goroutine.
+func (w *StatusFileWatcher) Start() {
+	if err := w.watcher.Add(w.hooksDir); err != nil {
+		hookLog.Warn("hook_watcher_add_failed", slog.String("dir", w.hooksDir), slog.String("error", err.Error()))
+		return
+	}
+
+	// Load any existing status files on startup
+	w.loadExisting()
+
+	// Debounce timer: coalesce rapid file events
+	var debounceTimer *time.Timer
+	pendingFiles := make(map[string]bool)
+	var pendingMu sync.Mutex
+
+	for {
+		select {
+		case <-w.ctx.Done():
+			return
+
+		case event, ok := <-w.watcher.Events:
+			if !ok {
+				return
+			}
+
+			// Only process .json file writes/creates
+			if filepath.Ext(event.Name) != ".json" {
+				continue
+			}
+			if event.Op&(fsnotify.Create|fsnotify.Write) == 0 {
+				continue
+			}
+
+			pendingMu.Lock()
+			pendingFiles[event.Name] = true
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
+			debounceTimer = time.AfterFunc(100*time.Millisecond, func() {
+				pendingMu.Lock()
+				files := make([]string, 0, len(pendingFiles))
+				for f := range pendingFiles {
+					files = append(files, f)
+				}
+				pendingFiles = make(map[string]bool)
+				pendingMu.Unlock()
+
+				for _, f := range files {
+					w.processFile(f)
+				}
+			})
+			pendingMu.Unlock()
+
+		case err, ok := <-w.watcher.Errors:
+			if !ok {
+				return
+			}
+			if isOverflowError(err) {
+				w.handleOverflow(err)
+				continue
+			}
+			hookLog.Warn("hook_watcher_error", slog.String("error", err.Error()))
+		}
+	}
+}
+
+// isOverflowError reports whether err is (or wraps) fsnotify.ErrEventOverflow.
+func isOverflowError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, fsnotify.ErrEventOverflow)
+}
+
+// handleOverflow recovers from an inotify queue overflow by re-walking the
+// hooks directory from disk and atomically replacing the in-memory status
+// map. After overflow, individual file events were dropped, so the in-memory
+// map can be arbitrarily out of sync with disk; a full re-scan is the only
+// reliable recovery.
+func (w *StatusFileWatcher) handleOverflow(err error) {
+	hookLog.Warn("hook_watcher_overflow_resync",
+		slog.String("dir", w.hooksDir),
+		slog.String("error", errString(err)),
+	)
+
+	rebuilt := w.scanDisk()
+
+	w.mu.Lock()
+	w.statuses = rebuilt
+	w.mu.Unlock()
+
+	if w.onChange != nil {
+		w.onChange()
+	}
+}
+
+// scanDisk reads every .json hook status file in hooksDir and returns a
+// fresh map. Errors on individual files are skipped (they're either
+// mid-write or corrupt; the next event will retry).
+func (w *StatusFileWatcher) scanDisk() map[string]*HookStatus {
+	out := make(map[string]*HookStatus)
+	entries, err := os.ReadDir(w.hooksDir)
+	if err != nil {
+		hookLog.Warn("hook_watcher_scan_read_dir_failed",
+			slog.String("dir", w.hooksDir),
+			slog.String("error", err.Error()),
+		)
+		return out
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		path := filepath.Join(w.hooksDir, entry.Name())
+		data, rerr := os.ReadFile(path)
+		if rerr != nil {
+			continue
+		}
+		var raw struct {
+			Status         string `json:"status"`
+			SessionID      string `json:"session_id"`
+			Event          string `json:"event"`
+			Timestamp      int64  `json:"ts"`
+			DoneStatus     string `json:"done_status"`
+			DoneSummary    string `json:"done_summary"`
+			TranscriptPath string `json:"transcript_path"`
+		}
+		if uerr := json.Unmarshal(data, &raw); uerr != nil {
+			continue
+		}
+		instanceID := strings.TrimSuffix(entry.Name(), ".json")
+		out[instanceID] = &HookStatus{
+			Status:         raw.Status,
+			SessionID:      raw.SessionID,
+			Event:          raw.Event,
+			UpdatedAt:      time.Unix(raw.Timestamp, 0),
+			DoneStatus:     raw.DoneStatus,
+			DoneSummary:    raw.DoneSummary,
+			TranscriptPath: raw.TranscriptPath,
+		}
+	}
+	return out
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// Stop shuts down the watcher.
+func (w *StatusFileWatcher) Stop() {
+	w.cancel()
+	_ = w.watcher.Close()
+}
+
+// GetHookStatus returns the hook status for an instance, or nil if not available.
+func (w *StatusFileWatcher) GetHookStatus(instanceID string) *HookStatus {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.statuses[instanceID]
+}
+
+// ClearHookStatus removes the cached hook status for an instance.
+func (w *StatusFileWatcher) ClearHookStatus(instanceID string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	delete(w.statuses, instanceID)
+}
+
+// loadExisting reads all current status files on startup.
+func (w *StatusFileWatcher) loadExisting() {
+	entries, err := os.ReadDir(w.hooksDir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		w.processFile(filepath.Join(w.hooksDir, entry.Name()))
+	}
+}
+
+// processFile reads a status file and updates the internal map.
+// Closes logging-review G9/G10/G11: corrupt files now WARN instead of
+// fail-open silently; success-path logs at INFO with file path so a hook
+// audit can be done without opening SQLite.
+func (w *StatusFileWatcher) processFile(filePath string) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		// Not-exist is benign (file was deleted between event and read).
+		// Anything else is real corruption.
+		if !os.IsNotExist(err) {
+			hookLog.Warn("hook_file_corrupt",
+				slog.String("path", filePath),
+				slog.String("reason", "read"),
+				slog.String("error", err.Error()),
+			)
+		}
+		return
+	}
+
+	var status struct {
+		Status         string `json:"status"`
+		SessionID      string `json:"session_id"`
+		Event          string `json:"event"`
+		Timestamp      int64  `json:"ts"`
+		DoneStatus     string `json:"done_status"`
+		DoneSummary    string `json:"done_summary"`
+		TranscriptPath string `json:"transcript_path"`
+	}
+	if err := json.Unmarshal(data, &status); err != nil {
+		hookLog.Warn("hook_file_corrupt",
+			slog.String("path", filePath),
+			slog.String("reason", "unmarshal"),
+			slog.String("error", err.Error()),
+			slog.Int("bytes_read", len(data)),
+		)
+		return
+	}
+
+	// Extract instance ID from filename (remove .json extension)
+	base := filepath.Base(filePath)
+	instanceID := strings.TrimSuffix(base, ".json")
+
+	hookStatus := &HookStatus{
+		Status:         status.Status,
+		SessionID:      status.SessionID,
+		Event:          status.Event,
+		UpdatedAt:      time.Unix(status.Timestamp, 0),
+		DoneStatus:     status.DoneStatus,
+		DoneSummary:    status.DoneSummary,
+		TranscriptPath: status.TranscriptPath,
+	}
+
+	w.mu.Lock()
+	w.statuses[instanceID] = hookStatus
+	w.mu.Unlock()
+
+	hookLog.Info("hook_status_updated",
+		slog.String("instance", instanceID),
+		slog.String("status", status.Status),
+		slog.String("event", status.Event),
+		slog.String("path", filePath),
+	)
+
+	if w.onChange != nil {
+		w.onChange()
+	}
+}
+
+// GetHooksDir returns the path to the hooks status directory.
+func GetHooksDir() string {
+	path, err := dataPath("hooks", "hooks")
+	if err != nil {
+		return tempAgentDeckPath("hooks")
+	}
+	return path
+}

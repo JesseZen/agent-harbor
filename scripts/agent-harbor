@@ -1,0 +1,229 @@
+#!/bin/sh
+set -eu
+
+BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+CORE="$BIN_DIR/agent-harbor-core"
+TUI="$BIN_DIR/agent-harbor-tui"
+CONFIG_DIR=${AGENT_HARBOR_CONFIG_DIR:-"${HOME:?HOME is required}/.agent-harbor"}
+STATE_ROOT=${AGENT_HARBOR_STATE_ROOT:-"$CONFIG_DIR/state"}
+ADMIN_SOCKET="$STATE_ROOT/admin/agent-harbor-admin.sock"
+PRODUCT_TMUX_SOCKET=${AGENT_HARBOR_TMUX_SOCKET:-"$STATE_ROOT/tmux/agent-harbor"}
+PRODUCT_SESSION=${AGENT_HARBOR_TUI_SESSION:-agent-harbor-tui}
+SUPERVISOR_DIR="$CONFIG_DIR/supervisor"
+SUPERVISOR_SOCKET="$SUPERVISOR_DIR/core.tmux.sock"
+SUPERVISOR_SESSION=agent-harbor-core
+RESPONSE=$(mktemp "${TMPDIR:-/tmp}/agent-harbor-launcher.XXXXXX")
+
+case "${TERM:-}" in
+  ""|dumb|unknown)
+    TERM=xterm-256color
+    export TERM
+    ;;
+esac
+unset NO_COLOR
+
+cleanup() {
+  rm -f "$RESPONSE"
+}
+trap cleanup EXIT HUP INT TERM
+
+fail() {
+  printf 'agent-harbor: %s\n' "$1" >&2
+  exit 1
+}
+
+usage() {
+  printf 'usage: agent-harbor [status|stop]\n' >&2
+  exit 2
+}
+
+readiness() {
+  test -S "$ADMIN_SOCKET" || return 1
+  code=$(curl -sS --unix-socket "$ADMIN_SOCKET" \
+    -o "$RESPONSE" -w '%{http_code}' \
+    http://localhost/v1/readiness 2>/dev/null || true)
+  test "$code" = 200
+}
+
+instance_id() {
+  sed -n \
+    's/.*"instance_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "$RESPONSE" | head -n 1
+}
+
+supervisor_exists() {
+  tmux -f /dev/null -S "$SUPERVISOR_SOCKET" \
+    has-session -t "$SUPERVISOR_SESSION" 2>/dev/null
+}
+
+supervisor_dead() {
+  test "$(tmux -f /dev/null -S "$SUPERVISOR_SOCKET" \
+    display-message -p -t "$SUPERVISOR_SESSION":0.0 \
+    '#{pane_dead}' 2>/dev/null || printf 1)" = 1
+}
+
+recorded_core_alive() {
+  pid_file="$STATE_ROOT/run/supervisor.pid"
+  test -f "$pid_file" || return 1
+  pid=$(sed -n '1p' "$pid_file")
+  case "$pid" in
+    ""|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "$pid" 2>/dev/null
+}
+
+recover_stale_topology() {
+  recorded_core_alive &&
+    fail "Core process exists but readiness is unavailable"
+
+  if test -S "$PRODUCT_TMUX_SOCKET" &&
+    tmux -f /dev/null -S "$PRODUCT_TMUX_SOCKET" \
+      list-sessions >/dev/null 2>&1; then
+    return 0
+  fi
+
+  test -S "$PRODUCT_TMUX_SOCKET" || test -S "$ADMIN_SOCKET" || return 0
+  backup="$STATE_ROOT/backups/launcher-stale-$(date +%s)-$$"
+  mkdir -p "$backup"
+  chmod 700 "$backup"
+  if test -S "$PRODUCT_TMUX_SOCKET"; then
+    mv "$PRODUCT_TMUX_SOCKET" "$backup/tmux.sock"
+  fi
+  if test -S "$ADMIN_SOCKET"; then
+    mv "$ADMIN_SOCKET" "$backup/admin.sock"
+  fi
+}
+
+show_core_output() {
+  supervisor_exists || return 0
+  tmux -f /dev/null -S "$SUPERVISOR_SOCKET" \
+    capture-pane -p -t "$SUPERVISOR_SESSION":0.0 -S -80 2>/dev/null |
+    tail -80 >&2 || true
+}
+
+start_core() {
+  command -v tmux >/dev/null 2>&1 || fail "tmux is required"
+  command -v curl >/dev/null 2>&1 || fail "curl is required"
+  test -x "$CORE" || fail "missing sibling executable: agent-harbor-core"
+  test -x "$TUI" || fail "missing sibling executable: agent-harbor-tui"
+
+  case "$CORE:$CONFIG_DIR:$PATH" in
+    *"'"*) fail "paths containing single quotes are unsupported" ;;
+  esac
+
+  mkdir -p "$SUPERVISOR_DIR"
+  chmod 700 "$SUPERVISOR_DIR"
+
+  if supervisor_exists && ! supervisor_dead; then
+    return
+  fi
+  recover_stale_topology
+
+  claude_dir="$CONFIG_DIR/tools/claude-code-2.1.214/node_modules/.bin"
+  launcher_path=$PATH
+  if test -d "$claude_dir"; then
+    launcher_path="$claude_dir:$launcher_path"
+  fi
+  core_command="exec env PATH='$launcher_path' '$CORE' --config-dir '$CONFIG_DIR'"
+
+  if supervisor_exists; then
+    tmux -f /dev/null -S "$SUPERVISOR_SOCKET" \
+      respawn-pane -k -t "$SUPERVISOR_SESSION":0.0 "$core_command"
+    return
+  fi
+
+  if test -S "$SUPERVISOR_SOCKET"; then
+    rm -f "$SUPERVISOR_SOCKET"
+  fi
+  tmux -f /dev/null -S "$SUPERVISOR_SOCKET" \
+    new-session -d -s "$SUPERVISOR_SESSION"
+  tmux -f /dev/null -S "$SUPERVISOR_SOCKET" \
+    set-option -t "$SUPERVISOR_SESSION" remain-on-exit on
+  tmux -f /dev/null -S "$SUPERVISOR_SOCKET" \
+    respawn-pane -k -t "$SUPERVISOR_SESSION":0.0 "$core_command"
+}
+
+wait_for_readiness() {
+  attempts=0
+  while ! readiness; do
+    if supervisor_exists && supervisor_dead; then
+      show_core_output
+      fail "Core exited before readiness"
+    fi
+    attempts=$((attempts + 1))
+    test "$attempts" -lt 900 || {
+      show_core_output
+      fail "Core readiness timed out"
+    }
+    sleep 0.1
+  done
+}
+
+wait_for_tui() {
+  attempts=0
+  while ! tmux -f /dev/null -S "$PRODUCT_TMUX_SOCKET" \
+    has-session -t "$PRODUCT_SESSION" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    test "$attempts" -lt 300 || fail "TUI session did not start"
+    sleep 0.1
+  done
+}
+
+status_command() {
+  if readiness; then
+    id=$(instance_id)
+    if test -n "$id"; then
+      printf 'Agent Harbor is running (%s).\n' "$id"
+    else
+      printf 'Agent Harbor is running.\n'
+    fi
+    return
+  fi
+  printf 'Agent Harbor is stopped.\n'
+  exit 1
+}
+
+stop_command() {
+  readiness || {
+    printf 'Agent Harbor is already stopped.\n'
+    return
+  }
+  id=$(instance_id)
+  test -n "$id" || fail "readiness response has no instance identity"
+  body=$(printf '{"instance_id":"%s","drain_timeout_ms":10000}' "$id")
+  code=$(curl -sS --unix-socket "$ADMIN_SOCKET" \
+    -X POST -H 'Content-Type: application/json' \
+    -o "$RESPONSE" -w '%{http_code}' --data-binary "$body" \
+    http://localhost/v1/shutdown)
+  test "$code" = 202 || fail "Core rejected shutdown (HTTP $code)"
+
+  attempts=0
+  while readiness; do
+    attempts=$((attempts + 1))
+    test "$attempts" -lt 300 || fail "Core did not stop"
+    sleep 0.1
+  done
+  if supervisor_exists; then
+    tmux -f /dev/null -S "$SUPERVISOR_SOCKET" \
+      kill-server 2>/dev/null || true
+  fi
+  printf 'Agent Harbor stopped.\n'
+}
+
+test "$#" -le 1 || usage
+case "${1:-open}" in
+  open)
+    if ! readiness; then
+      start_core
+      wait_for_readiness
+    fi
+    wait_for_tui
+    trap - EXIT HUP INT TERM
+    rm -f "$RESPONSE"
+    exec tmux -f /dev/null -S "$PRODUCT_TMUX_SOCKET" \
+      attach-session -t "$PRODUCT_SESSION"
+    ;;
+  status) status_command ;;
+  stop) stop_command ;;
+  *) usage ;;
+esac

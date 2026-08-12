@@ -1,0 +1,31 @@
+CORE-BACKED SESSIONS (70x30)                                           │ UNMODIFIED AGENT DECK HOME
+ Overview   Sessions   Routes   Targets   Quotas   Observations   Plac │  ⟨ ● │ ● │ ○ ⟩  Agent Deck [_test]  ● 2 running • ○ 1 idle • ✕ 1 error
+ ⟨ ● │ ● │ ○ ⟩  Agent Deck  ● 2 running • ○ 1 idle • ✕ 1 error v0.0.0  │   All    ● 2   ◐ 0   ○ 1   ✕ 1   !@#$ filter • 0 all • % open • ^ arch
+  All    ● 2   ◐ 0   ○ 1   ✕ 1   !@#$ filter • 0 all • % open • ^ arch │ SESSIONS                                                              
+SESSIONS                                                               │ ──────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────── │ 1·▾ Background (2) ● 1                                                
+1·▾ Background (2) ● 1                                                 │     ▾ route_batch (2) ● 1                                             
+    ▾ route_batch (2) ● 1                                              │      ├─ ● Prepare release notes opencode                              
+     ├─ ● Prepare release notes opencode                               │      └─ ✕ Repair target health codex                                  
+     └─ ✕ Repair target health codex                                   │ 2·▾ Interactive (2) ● 1                                               
+2·▾ Interactive (2) ● 1                                                │     ▾ route_primary (2) ● 1                                           
+    ▾ route_primary (2) ● 1                                            │      ├─ ● Review routing rollout codex                                
+     ├─ ● Review routing rollout codex                                 │      └─ ○ Investigate quota pressure claude                           
+     └─ ○ Investigate quota pressure claude                            │                                                                       
+                                                                       │                                                                       
+                                                                       │                                                                       
+                                                                       │                                                                       
+                                                                       │                                                                       
+                                                                       │ ──────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────── │ PREVIEW                                                               
+PREVIEW                                                                │ ──────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────── │ 📁 route_batch                                                        
+📁 route_batch                                                         │                                                                       
+                                                                       │ 2 sessions                                                            
+2 sessions                                                             │                                                                       
+                                                                       │ ● 1 running  ✕ 1 error                                                
+● 1 running  ✕ 1 error                                                 │                                                                       
+                                                                       │ ──────────────────────────── Sessions ────────────────────────────    
+──────────────────────────── Sessions ────────────────────────────     │   ● Prepare release notes opencode                                    
+────────────────────────────────────────────────────────────────────── │ ──────────────────────────────────────────────────────────────────────
+⏎Toggle │                                                      ↑↓ Nav  │ ⏎Toggle n/NNew │                                       ↑↓ Nav / S ? q 

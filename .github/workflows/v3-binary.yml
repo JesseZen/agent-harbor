@@ -1,0 +1,94 @@
+name: V3 binary
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Bundle version
+        required: false
+        default: snapshot
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: |
+            launcher/go.sum
+            tui/go.sum
+      - name: Verify Core payloads
+        run: sha256sum -c SHA256SUMS
+        working-directory: core
+      - name: Test launcher
+        run: go test ./...
+        working-directory: launcher
+      - name: Test V3 TUI
+        run: go test ./internal/app ./internal/e2e ./internal/formui ./internal/managedconfig
+        working-directory: tui
+
+  linux-amd64:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select version
+        id: version
+        shell: bash
+        run: |
+          value="${{ inputs.version }}"
+          if [[ -z "$value" || "$value" == snapshot ]]; then
+            value="snapshot-${GITHUB_SHA::12}"
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+      - name: Build portable Linux amd64 binary
+        env:
+          AGENT_HARBOR_VERSION: ${{ steps.version.outputs.value }}
+        run: ./scripts/build-linux-amd64-release.sh
+      - name: Stage artifact
+        env:
+          AGENT_HARBOR_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          mkdir artifact
+          cp "dist/release-linux-amd64-$AGENT_HARBOR_VERSION/out/agent-harbor-linux-amd64" artifact/
+          cp "dist/release-linux-amd64-$AGENT_HARBOR_VERSION/out/SHA256SUMS" artifact/
+          cp "dist/release-linux-amd64-$AGENT_HARBOR_VERSION/out/agent-harbor-linux-amd64.manifest.json" artifact/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-harbor-linux-amd64-${{ steps.version.outputs.value }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish rolling V3 prerelease
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git tag --force v3-latest "$GITHUB_SHA"
+          git push --force origin refs/tags/v3-latest
+          if gh release view v3-latest >/dev/null 2>&1; then
+            gh release edit v3-latest \
+              --prerelease \
+              --title "Agent Harbor V3 latest" \
+              --notes "Rolling Linux amd64 development build from commit ${GITHUB_SHA}."
+          else
+            gh release create v3-latest \
+              --prerelease \
+              --title "Agent Harbor V3 latest" \
+              --notes "Rolling Linux amd64 development build from commit ${GITHUB_SHA}."
+          fi
+          gh release upload v3-latest --clobber \
+            artifact/agent-harbor-linux-amd64 \
+            artifact/SHA256SUMS \
+            artifact/agent-harbor-linux-amd64.manifest.json \
+            scripts/install-linux-amd64.sh

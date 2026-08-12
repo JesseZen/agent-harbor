@@ -1,0 +1,640 @@
+components:
+  schemas:
+    AgentSession:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          "$ref": "./common.schemas.yaml#/components/schemas/SessionID"
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        client_profile_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        route_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        lifecycle:
+          type: string
+          enum:
+            - created
+            - launching
+            - running
+            - idle
+            - failed
+            - ending
+            - ended
+        tmux_window_id:
+          type: string
+        affinity_target_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        unread:
+          type: boolean
+        created_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+        updated_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+        workspace:
+          type: string
+          minLength: 1
+          $ref: ./deck.schemas.yaml#/components/schemas/WorkspacePath
+        cleanup_pending:
+          type: boolean
+          description: True only while the exact durable tmux cleanup journal row exists.
+        tmux_session_name:
+          type: string
+          pattern: ^agent-harbor-ses-[0-9a-f]{32}$
+          description: Core-generated private tmux session name; never accepted from a
+            client.
+        session_credential:
+          $ref: ./deck.schemas.yaml#/components/schemas/SessionCredentialView
+        native_provider:
+          type: string
+          enum:
+            - codex
+            - claude
+          description: Durable provider identity bound only by the first authenticated
+            SessionStart event.
+        native_session_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$
+          description: Durable native identity; never accepted from create input and never
+            rebound.
+        native_activity:
+          type: string
+          enum:
+            - running
+            - waiting
+            - idle
+            - failed
+            - unknown
+        activity_source:
+          $ref: "#/components/schemas/SessionActivitySource"
+        native_activity_event:
+          type: string
+          enum:
+            - started
+            - waiting_for_input
+            - completed
+            - failed
+            - unknown
+        native_activity_observed_at:
+          $ref: ./common.schemas.yaml#/components/schemas/Timestamp
+        hook_health:
+          type: string
+          enum:
+            - active
+            - stale
+            - unsupported
+            - invalid
+        hook_health_observed_at:
+          $ref: ./common.schemas.yaml#/components/schemas/Timestamp
+        last_error_code:
+          type: string
+          enum:
+            - native_launch_failed
+            - native_process_failed
+            - native_exit_not_resumable
+            - shutdown_not_resumable
+      required:
+        - id
+        - label
+        - client_profile_id
+        - workspace
+        - route_id
+        - lifecycle
+        - unread
+        - created_at
+        - updated_at
+        - id
+        - label
+        - client_profile_id
+        - workspace
+        - route_id
+        - lifecycle
+        - cleanup_pending
+        - session_credential
+        - native_activity
+        - activity_source
+        - native_activity_event
+        - hook_health
+        - hook_health_observed_at
+        - unread
+        - created_at
+        - updated_at
+      x-agent-harbor-state-rules:
+        tmux_identity:
+          valid:
+            - both_absent
+            - tmux_session_name_and_tmux_window_id_both_present
+        native_identity:
+          valid:
+            - both_absent
+            - native_provider_and_native_session_id_both_present
+          binding: first_authenticated_current_epoch_SessionStart_from_compiled_provider_only
+          linearization: current_command_owner_rechecks_and_commits_without_a_detached_authorization_snapshot
+          rebind: forbidden
+        resume_metadata_json: must_remain_SQL_NULL_and_has_no_AgentSession_semantics
+        lifecycle_meaning:
+          running: exact_native_process_alive_regardless_of_native_activity
+          idle: no_tmux_pair_or_process_and_complete_native_pair_is_resumable
+          created: no_native_pair_no_tmux_pair_and_never_launched
+        command_lifecycle:
+          owner: single_per_session_owner
+          launch:
+            allowed:
+              - created_without_native_or_tmux_and_cleanup_false
+              - failed_without_native_or_tmux_and_cleanup_false
+            commit: set_launching_clear_last_error_rotate_credential_and_start_owner
+            otherwise: invalid_lifecycle
+          resume:
+            allowed:
+              - idle_with_native_pair_no_tmux_and_cleanup_false
+              - failed_with_native_pair_no_tmux_and_cleanup_false
+            commit: set_launching_clear_last_error_rotate_credential_and_start_owner
+            missing_native_pair: resume_unavailable
+            otherwise: invalid_lifecycle
+          after_commit: owner_ignores_request_cancellation_and_must_converge_to_running_or_failed_before_releasing_session
+        action_enablement:
+          launch: cleanup_false_and_created_or_failed_without_native_pair_and_no_tmux_pair
+          resume: cleanup_false_and_idle_or_failed_with_native_pair_and_no_tmux_pair
+          attach_or_preview: cleanup_false_and_running_with_complete_live_recovery_predicate
+          end: cleanup_false_and_created_idle_or_failed_direct_delete_or_running_graceful_force
+          credential_rotate: cleanup_false_no_live_process_and_credential_none_active_or_revoked
+          credential_revoke: cleanup_false_no_live_process_and_credential_active_only
+          disabled: cleanup_true_or_launching_ending_ended
+        cleanup_pending:
+          source: exact_cleanup_journal_row_exists_for_session
+          false: no_terminal_tmux_cleanup_is_pending
+          true: stable_cleaning_presentation_and_every_state_changing_command_disabled
+          versioning: journal_insert_and_delete_each_advance_updated_at_and_emit_session_changed_after_commit
+        hook_health:
+          precedence:
+            - unsupported
+            - invalid
+            - stale
+            - active
+          active: registered_adapter_and_valid_managed_entry_and_current_epoch_has_accepted_event
+          stale: registered_adapter_and_valid_managed_entry_and_no_current_invalid_failure_and_either_no_current_epoch_or_current_epoch_has_no_accepted_event
+          unsupported: no_registered_adapter
+          invalid: managed_entry_or_latest_normalized_mailbox_failed_validation
+        activity:
+          active:
+            observed_at: required
+            native_identity: required_complete_pair
+            pairs:
+              running:
+                - started
+              waiting:
+                - waiting_for_input
+              idle:
+                - started
+                - completed
+              failed:
+                - failed
+          stale:
+            observed_at: forbidden
+            pair:
+              - unknown
+              - unknown
+          unsupported:
+            observed_at: forbidden
+            pair:
+              - unknown
+              - unknown
+          invalid:
+            observed_at: forbidden
+            pair:
+              - unknown
+              - unknown
+        last_error:
+          failed: required_closed_code
+          every_other_lifecycle: forbidden
+          outcomes:
+            native_launch_failed: spawn_or_initial_predicate_failed
+            native_process_failed: unexpected_nonzero_or_signaled_process_exit
+            native_exit_not_resumable: unexpected_zero_exit_without_native_identity
+            shutdown_not_resumable: clean_shutdown_without_native_identity
+        process_exit:
+          observation:
+            window_option: remain-on-exit_on_for_AgentSession_Window0_only
+            sources:
+              - bounded_Core_tmux_dead_pane_poll
+              - startup_dead_pane_scan
+            poller: one_Core_owner_every_SESSION_EXIT_POLL_INTERVAL_250ms_queries_only_owned_launching_running_or_ending_rows_with_complete_tmux_pairs
+            command: exact_one_shot_tmux_list-panes_metadata_query_with_1000ms_timeout_and_no_pane_content
+            fields:
+              - exact_tmux_session
+              - stored_window_id
+              - single_pane
+              - pane_dead
+              - pane_dead_status
+              - pane_dead_signal
+            recheck: exact_pane_identity_before_classification_and_cleanup
+          owners:
+            launching_before_final_predicate: current_launch_or_resume_command
+            running: session_owner_unexpected_exit_path
+            ending: current_end_command
+            shutdown_in_progress: supervisor_shutdown_sequence
+          unexpected_outcomes:
+            nonzero_or_signal: failed_native_process_failed
+            zero_with_native_identity: idle_without_last_error
+            zero_without_native_identity: failed_native_exit_not_resumable
+          durable_order:
+            unexpected_or_shutdown:
+              - one_transaction_revoke_credential_and_hook_epoch_consume_mailbox_reset_activity_recompute_hook_health_commit_final_AgentSession_clear_tmux_pair_insert_retain_session_cleanup_journal_set_cleanup_pending_true_and_advance_updated_at
+              - emit_session_changed_for_cleanup_pending_true
+              - delete_exact_verified_dead_or_already_missing_tmux_session
+              - one_transaction_delete_cleanup_journal_set_cleanup_pending_false_and_advance_updated_at
+              - emit_session_changed_for_cleanup_pending_false
+            explicit_end_with_tmux:
+              - one_transaction_revoke_credential_and_hook_epoch_consume_mailbox_reset_activity_recompute_hook_health_commit_ended_clear_tmux_pair_insert_delete_session_cleanup_journal_set_cleanup_pending_true_and_advance_updated_at
+              - emit_session_changed_for_cleanup_pending_true
+              - delete_exact_verified_dead_or_already_missing_tmux_session
+              - one_transaction_insert_operator_delete_tombstone_delete_AgentSession_and_cascade_cleanup_journal
+              - emit_session_changed_for_session_deletion
+            explicit_end_without_tmux:
+              - one_transaction_revoke_remaining_credentials_insert_operator_delete_tombstone_and_delete_AgentSession
+              - emit_session_changed_for_session_deletion
+          hook_terminal_state:
+            activity: unknown_unknown_without_observed_at
+            health: valid_registered_adapter_stale_managed_invalid_remains_invalid_unsupported_remains_unsupported
+            stale_mailbox: consume_without_state_change_after_epoch_revoke
+          crash_recovery: cleanup_journal_is_the_only_cleanup_intent;_retain_session_finishes_to_cleanup_false;_delete_session_finishes_to_tombstone_and_AgentSession_deletion;_startup_completes_exact_dead_or_already_missing_entries_before_readiness_and_blocks_on_live_foreign_or_mismatched_evidence
+          integration_cases:
+            - launch_helper_exit
+            - launch_final_predicate_failure
+            - unexpected_zero_with_native_identity
+            - unexpected_zero_without_native_identity
+            - unexpected_nonzero
+            - unexpected_signal
+            - exit_converges_without_Admin_request_within_two_poll_intervals_plus_timeout
+            - poller_reads_zero_pane_content
+            - active_running_exit_converges_hook_tuple
+            - exit_vs_mailbox_race
+            - cleanup_pending_action_disablement
+            - no_live_idle_owner
+            - idle_live_pane_blocks
+            - end_race
+            - shutdown_race
+            - crash_before_terminal_commit
+            - crash_after_journal_commit_before_tmux_delete
+            - retain_crash_after_tmux_delete_before_journal_delete
+            - delete_crash_after_tmux_delete_before_tombstone_transaction
+        shutdown_and_restart:
+          clean_shutdown: only_launching_or_running_with_exact_live_process_enters_shutdown_owner;_native_pair_becomes_idle_otherwise_failed_shutdown_not_resumable;_idle_is_already_stopped
+          clean_marker: all_cleanup_journals_finished_tmux_pairs_cleared_credentials_and_hook_epochs_revoked
+          abnormal_startup: adopt_only_running_with_exact_live_recovery_predicate;_idle_with_live_process_blocks;_finish_exact_dead_or_missing_cleanup_journals_before_readiness;_foreign_live_or_mismatch_blocks
+        restore_canonicalization:
+          transaction: before_new_InstanceID_readiness_finish_delete_intents_clear_retain_intents_and_clear_tmux_runtime_hook_activity_and_capability_state_then_revoke_active_SessionCredentials
+          delete_intent: insert_original_operator_delete_tombstone_then_delete_AgentSession_and_cascade_intent_before_remaining_session_canonicalization
+          retain_intent: delete_exact_journal_before_remaining_session_canonicalization
+          lifecycle: created_remains_created;_launching_running_or_ending_with_native_pair_becomes_idle;_same_without_native_pair_becomes_failed_shutdown_not_resumable;_legal_idle_or_failed_is_preserved;_no_ended_row_remains
+          rule: backup_runtime_identity_is_never_cleanup_intent_and_updated_at_advances_for_every_changed_session
+          drills:
+            - delete_intent_restores_to_tombstone_and_absent_session
+            - live_backup_after_source_stop_restores_to_idle_then_explicit_resume
+            - no_native_backup_restores_to_failed
+            - restored_backup_never_adopts_old_process
+        enforcement: Core_constructs_and_validates_the_complete_AgentSession_before_serialization
+      x-agent-harbor-semantic-schema-dialect: http://json-schema.org/draft-07/schema#
+      x-agent-harbor-semantic-all-of:
+        - oneOf:
+            - required:
+                - tmux_session_name
+                - tmux_window_id
+              properties:
+                tmux_session_name:
+                  {}
+                tmux_window_id:
+                  {}
+            - properties:
+                tmux_session_name:
+                  not:
+                    {}
+                tmux_window_id:
+                  not:
+                    {}
+        - oneOf:
+            - required:
+                - native_provider
+                - native_session_id
+              properties:
+                native_provider:
+                  {}
+                native_session_id:
+                  {}
+            - properties:
+                native_provider:
+                  not:
+                    {}
+                native_session_id:
+                  not:
+                    {}
+        - oneOf:
+            - required:
+                - native_activity_observed_at
+                - native_provider
+                - native_session_id
+              properties:
+                native_activity_observed_at:
+                  {}
+                native_provider:
+                  {}
+                native_session_id:
+                  {}
+                hook_health:
+                  type: string
+                  enum:
+                    - active
+                lifecycle:
+                  type: string
+                  enum:
+                    - launching
+                    - running
+                    - ending
+              oneOf:
+                - properties:
+                    native_activity:
+                      type: string
+                      enum:
+                        - running
+                    native_activity_event:
+                      type: string
+                      enum:
+                        - started
+                - properties:
+                    native_activity:
+                      type: string
+                      enum:
+                        - waiting
+                    native_activity_event:
+                      type: string
+                      enum:
+                        - waiting_for_input
+                - properties:
+                    native_activity:
+                      type: string
+                      enum:
+                        - idle
+                    native_activity_event:
+                      type: string
+                      enum:
+                        - started
+                        - completed
+                - properties:
+                    native_activity:
+                      type: string
+                      enum:
+                        - failed
+                    native_activity_event:
+                      type: string
+                      enum:
+                        - failed
+            - properties:
+                native_activity_observed_at:
+                  not:
+                    {}
+                hook_health:
+                  type: string
+                  enum:
+                    - stale
+                    - unsupported
+                    - invalid
+                native_activity:
+                  type: string
+                  enum:
+                    - unknown
+                native_activity_event:
+                  type: string
+                  enum:
+                    - unknown
+        - oneOf:
+            - required:
+                - last_error_code
+              properties:
+                last_error_code:
+                  {}
+                lifecycle:
+                  type: string
+                  enum:
+                    - failed
+            - properties:
+                last_error_code:
+                  not:
+                    {}
+                lifecycle:
+                  type: string
+                  enum:
+                    - created
+                    - launching
+                    - running
+                    - idle
+                    - ending
+                    - ended
+        - oneOf:
+            - properties:
+                lifecycle:
+                  type: string
+                  enum:
+                    - created
+                native_provider:
+                  not:
+                    {}
+                native_session_id:
+                  not:
+                    {}
+                tmux_session_name:
+                  not:
+                    {}
+                tmux_window_id:
+                  not:
+                    {}
+            - properties:
+                lifecycle:
+                  type: string
+                  enum:
+                    - launching
+            - required:
+                - tmux_session_name
+                - tmux_window_id
+              properties:
+                lifecycle:
+                  type: string
+                  enum:
+                    - running
+                    - ending
+                tmux_session_name:
+                  {}
+                tmux_window_id:
+                  {}
+            - required:
+                - native_provider
+                - native_session_id
+              properties:
+                lifecycle:
+                  type: string
+                  enum:
+                    - idle
+                native_provider:
+                  {}
+                native_session_id:
+                  {}
+                tmux_session_name:
+                  not:
+                    {}
+                tmux_window_id:
+                  not:
+                    {}
+            - properties:
+                lifecycle:
+                  type: string
+                  enum:
+                    - failed
+                    - ended
+                tmux_session_name:
+                  not:
+                    {}
+                tmux_window_id:
+                  not:
+                    {}
+        - oneOf:
+            - properties:
+                cleanup_pending:
+                  type: boolean
+                  enum:
+                    - false
+                lifecycle:
+                  type: string
+                  enum:
+                    - created
+                    - launching
+                    - running
+                    - idle
+                    - failed
+                    - ending
+            - required:
+                - session_credential
+              properties:
+                cleanup_pending:
+                  type: boolean
+                  enum:
+                    - true
+                lifecycle:
+                  type: string
+                  enum:
+                    - idle
+                    - failed
+                    - ended
+                session_credential:
+                  type: object
+                  required:
+                    - status
+                    - generation
+                  properties:
+                    status:
+                      type: string
+                      enum:
+                        - revoked
+                    generation:
+                      type: integer
+                      minimum: 1
+    CreateAgentSessionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - label
+        - client_profile_id
+        - workspace
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        client_profile_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        route_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        workspace:
+          type: string
+          minLength: 1
+          $ref: ./deck.schemas.yaml#/components/schemas/WorkspacePath
+    OneTimeSessionCredential:
+      type: object
+      additionalProperties: false
+      properties:
+        session_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/SessionID"
+        credential:
+          type: string
+          minLength: 43
+          maxLength: 43
+          format: password
+        created_at:
+          "$ref": "./common.schemas.yaml#/components/schemas/Timestamp"
+        generation:
+          type: integer
+          minimum: 1
+      required:
+        - session_id
+        - credential
+        - created_at
+        - session_id
+        - credential
+        - generation
+        - created_at
+    EndAgentSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [mode, timeout_ms]
+      properties:
+        mode:
+          type: string
+          enum: [graceful, force]
+        timeout_ms:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 30000
+    ProviderSecretAccessRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - action
+        - expected_generation
+      properties:
+        action:
+          type: string
+          enum:
+            - copy
+            - reveal
+        expected_generation:
+          type: integer
+          minimum: 1
+    ProviderSecretValue:
+      type: object
+      additionalProperties: false
+      required:
+        - credential_id
+        - generation
+        - value
+      properties:
+        credential_id:
+          "$ref": "./common.schemas.yaml#/components/schemas/ConfigID"
+        generation:
+          type: integer
+          minimum: 1
+        value:
+          type: string
+          format: password
+    SessionActivitySource:
+      type: string
+      enum: [hook, pane, process, lifecycle, unknown]
+      x-enum-varnames:
+        - SessionActivitySourceHook
+        - SessionActivitySourcePane
+        - SessionActivitySourceProcess
+        - SessionActivitySourceLifecycle
+        - SessionActivitySourceUnknown

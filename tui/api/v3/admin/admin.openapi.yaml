@@ -1,0 +1,1957 @@
+openapi: 3.0.3
+info:
+  title: Agent Harbor Admin API
+  version: 0.1.0
+  description: |
+    Local administrator contract for configuration, readiness, sessions,
+    runtime status, provider-secret operations, target control, and shutdown.
+    Unix-socket peer authorization occurs before HTTP dispatch. An explicitly
+    enabled loopback TCP listener requires the AdminToken security scheme.
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit
+x-requirement-definitions:
+  V3-API-001: Admin and Gateway listeners, routers, authentication, and generated
+    packages are separate.
+  V3-API-002: Unix peer authorization or loopback AdminToken establishes one local
+    administrator principal before handler dispatch.
+  V3-API-003: Admin failures use the closed RFC 9457 Problem schema and have no
+    side effects before validation and authorization pass.
+  V3-API-004: Runtime events use monotonic decimal IDs; stale cursors receive
+    resync_required and reconnect from a full status snapshot.
+  V3-API-005: Runtime status and bounded observation pages expose every masked
+    field required by the TUI without client-side contract mirrors.
+  V3-API-006: Partial credential replacement constructs, compiles, and publishes
+    one complete candidate graph under expected-generation control.
+servers:
+  - url: http://localhost
+    description: Unix socket or explicitly enabled loopback Admin listener
+tags:
+  - name: instance
+    description: Exact instance readiness, status, observations, and shutdown
+  - name: config
+    description: Complete graph validation and atomic publication
+  - name: sessions
+    description: AgentSession lifecycle, credentials, and affinity
+  - name: targets
+    description: Target probe and suspend operations
+  - name: secrets
+    description: No-store local provider-secret operations
+paths:
+  "/v1/readiness":
+    get:
+      operationId: getReadiness
+      tags:
+        - instance
+      x-requirements:
+        - V3-SCP-002
+        - V3-SCP-003
+        - V3-CAP-003
+      summary: Get exact instance readiness
+      x-error-codes:
+        - operation_error
+      responses:
+        '200':
+          description: Exact ready instance identity
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Readiness"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/status":
+    get:
+      operationId: getRuntimeStatus
+      tags:
+        - instance
+      x-requirements:
+        - V3-CAP-011
+        - V3-OBS-001
+        - V3-API-005
+      summary: Get masked runtime status
+      x-error-codes:
+        - operation_error
+      responses:
+        '200':
+          description: Masked complete runtime status snapshot
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RuntimeStatus"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/events":
+    get:
+      operationId: streamRuntimeEvents
+      tags:
+        - instance
+      x-requirements:
+        - V3-CAP-011
+        - V3-CAP-021
+        - V3-API-005
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema:
+            type: string
+            pattern: "^[0-9]+$"
+      summary: Stream runtime observation events
+      x-observation-cursor:
+        id_format: unsigned_decimal
+        stream:
+          last_event_id_is_exclusive: true
+          emitted_ids_are_strictly_monotonic: true
+          stale_cursor_event: resync_required
+          stale_cursor_closes_stream: true
+          client_cursor_never_regresses: true
+        cross_endpoint_snapshot:
+          runtime_status_field: RuntimeStatus.observations.last_event_id
+          page_field: ObservationPage.next_cursor
+          frozen_until: required_listObservations_until_query
+          resume_cursor: terminal_committed_observation_page_cursor_equal_to_until
+          reason: concurrent_events_above_until_are_replayed_by_the_exclusive_stream
+      x-error-codes:
+        - validation_error
+        - operation_error
+      responses:
+        '200':
+          description: |
+            Server-sent events. Each event has decimal `id`, an event name equal
+            to RuntimeEvent.type, and one JSON RuntimeEvent object in `data`.
+            A stale cursor returns event `resync_required` then closes.
+          content:
+            text/event-stream:
+              schema:
+                "$ref": "#/components/schemas/RuntimeEvent"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/observations":
+    get:
+      operationId: listObservations
+      tags:
+        - instance
+      x-requirements:
+        - V3-CAP-011
+        - V3-CAP-021
+      summary: List bounded redacted observations
+      description: Returns a bounded redacted observation window no newer than the
+        required frozen `until` high-water. `after` is an exclusive
+        unsigned-decimal lower bound and omitted `after` is the reset sentinel
+        zero. Reset reads return the newest retained records at or below `until`
+        in ascending order and finish with `next_cursor=until`. Forward reads
+        return records in `(after, until]`; nonterminal pages advance to the
+        last item and a terminal or empty page returns `next_cursor=until`. A
+        nonzero cursor below the retention floor returns
+        `observation_cursor_stale`.
+      parameters:
+        - name: after
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: "^[0-9]+$"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+        - name: until
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: ^[0-9]+$
+      x-observation-cursor:
+        id_format: unsigned_decimal
+        after_is_exclusive: true
+        omitted_after: "0"
+        zero_after: reset_sentinel_always_valid
+        until_is_inclusive_frozen_high_water: true
+        until_source: RuntimeStatus.observations.last_event_id
+        item_order: event_id_ascending
+        reset_page: newest_retained_records_at_or_below_until_bounded_by_limit_then_ascending
+        forward_page: records_strictly_after_after_and_at_or_below_until_bounded_by_limit
+        nonterminal_next_cursor: last_returned_item_id
+        terminal_or_empty_next_cursor: until
+        stale_nonzero_after_below_retention_floor: observation_cursor_stale
+        until_less_than_after: invalid_value
+        next_cursor_is_page_offset: false
+        page_read_consistency: one_locked_history_snapshot
+        client_cursor_never_regresses: true
+        concurrent_records_above_until: excluded_from_page_and_replayed_by_sse_after_terminal_commit
+      x-error-codes:
+        - observation_cursor_stale
+        - validation_error
+        - operation_error
+      responses:
+        '200':
+          description: Bounded redacted observations ordered by event ID
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ObservationPage"
+        "409":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/config":
+    get:
+      operationId: getConfig
+      responses:
+        "200":
+          description: Complete mutable configuration view with masked credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MutableConfigSnapshot"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: patchConfig
+      x-audit: config_publish
+      x-cancellation: Cancellation before the publication transaction commits leaves
+        the active snapshot unchanged; after commit the result is
+        operation_unknown and the caller reloads readiness and config without
+        replaying publication.
+      x-error-codes:
+        - instance_mismatch
+        - generation_conflict
+        - no_change
+        - duplicate_id
+        - validation_error
+        - stage_not_found
+        - stage_expired
+        - stage_reserved
+        - secret_prepare_failed
+        - secret_cleanup_pending
+        - publish_conflict
+        - operation_error
+        - operation_unknown
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchConfigCommand"
+      responses:
+        "200":
+          description: Newly active immutable snapshot identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SnapshotIdentity"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "410":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+  "/v1/config/validate":
+    post:
+      operationId: validateConfig
+      x-side-effects: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateConfigCommand"
+      responses:
+        "200":
+          description: Candidate compiled without persistence or external mutation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResult"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "410":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+  "/v1/provider-secret-stages":
+    post:
+      operationId: createProviderSecretStage
+      x-audit: provider_secret_stage_create
+      x-cancellation: Cancellation before the stage is stored creates no stage;
+        after storage the stage remains memory-only and expires after five minutes
+        unless consumed or explicitly deleted.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              minLength: 1
+              maxLength: 65536
+      responses:
+        "201":
+          description: Opaque single-use stage metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderSecretStage"
+        "413":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+  "/v1/provider-secret-stages/{stage_id}":
+    delete:
+      operationId: deleteProviderSecretStage
+      x-audit: provider_secret_stage_delete
+      x-cancellation: Cancellation before deletion commits leaves the stage
+        unchanged; after deletion commits it is destroyed and an idempotent retry
+        returns 204.
+      parameters:
+        - in: path
+          name: stage_id
+          required: true
+          schema:
+            $ref: "#/components/schemas/SecretStageID"
+      responses:
+        "204":
+          description: Stage destroyed; deleting a missing or already destroyed stage is idempotent
+        "409":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+  "/v1/config/publish":
+    post:
+      operationId: publishConfig
+      tags:
+        - config
+      x-requirements:
+        - V3-CAP-002
+        - V3-FLW-002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishConfigCommand"
+      summary: Publish a complete configuration graph
+      x-audit: config_publish
+      x-cancellation: Cancellation before the publication transaction commits leaves
+        the active snapshot unchanged; after commit the result is
+        operation_unknown and the caller reloads readiness and config without
+        replaying publication.
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - validation_error
+        - publish_conflict
+        - native_config_root_denied
+        - native_config_root_conflict
+        - native_hook_entry_conflict
+        - native_config_write_failed
+        - operation_error
+        - operation_unknown
+      responses:
+        '200':
+          description: Newly active immutable snapshot identity
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/SnapshotIdentity"
+        "409":
+          $ref: "#/components/responses/Phase04Problem"
+        "422":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/sessions":
+    get:
+      operationId: listAgentSessions
+      tags:
+        - sessions
+      x-requirements:
+        - V3-CAP-011
+        - V3-SES-001
+      summary: List managed agent sessions
+      parameters:
+        - name: instance_id
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/InstanceID"
+      x-error-codes:
+        - instance_mismatch
+        - validation_error
+        - operation_error
+      responses:
+        '200':
+          description: AgentSessions ordered by updated_at descending then ID
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/AgentSession"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+    post:
+      operationId: createAgentSession
+      tags:
+        - sessions
+      x-requirements:
+        - V3-CAP-013
+        - V3-SES-001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentSessionCommand"
+      summary: Create a managed agent session
+      x-audit: session_create
+      x-cancellation: Cancellation before the create transaction commits has no side
+        effect; after commit the caller reloads the exact instance session list.
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - validation_error
+        - operation_error
+        - operation_unknown
+      responses:
+        '201':
+          description: Persisted AgentSession before terminal launch
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AgentSession"
+        "422":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/sessions/{session_id}":
+    parameters:
+      - "$ref": "#/components/parameters/SessionID"
+    get:
+      operationId: getAgentSession
+      tags:
+        - sessions
+      x-requirements:
+        - V3-CAP-011
+        - V3-SES-001
+      summary: Get one managed agent session
+      parameters:
+        - name: instance_id
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/InstanceID"
+        - name: expected_updated_at
+          in: query
+          required: true
+          schema:
+            $ref: ./admin/deck.schemas.yaml#/components/schemas/ExpectedUpdatedAt
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - session_not_found
+        - validation_error
+        - operation_error
+      responses:
+        '200':
+          description: One AgentSession
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AgentSession"
+        "404":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+    delete:
+      operationId: deleteAgentSession
+      tags:
+        - sessions
+      x-requirements:
+        - V3-SES-004
+        - V3-SES-006
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EndAgentSessionCommand"
+      summary: End and delete one managed agent session
+      x-cancellation: Cancellation before the end transaction commits has no side
+        effect; after pane ownership is resolved, deadline expiry returns
+        operation_unknown and the client reloads the exact session.
+      x-audit: session_delete
+      x-session-end:
+        precondition: cleanup_pending_false
+        no_tmux: created_idle_or_failed_tombstone_and_AgentSession_delete_in_one_transaction
+        live_tmux: ending_owner_uses_delete_session_cleanup_journal_until_tmux_delete_then_tombstone_and_AgentSession_delete_commit
+        response: success_only_after_tombstone_and_AgentSession_delete_commit
+        crash_recovery: delete_session_journal_never_clears_to_an_ended_AgentSession
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - session_not_found
+        - invalid_lifecycle
+        - tmux_identity_mismatch
+        - operation_timeout
+        - validation_error
+        - operation_error
+        - operation_unknown
+      responses:
+        '204':
+          description: Session ended and deleted, credentials and affinity removed, owned
+            tmux window removed, and minimal tombstone retained for 30 days
+        "404":
+          $ref: "#/components/responses/Phase04Problem"
+        "409":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/sessions/{session_id}/launch":
+    post:
+      operationId: launchAgentSession
+      tags:
+        - sessions
+      x-requirements:
+        - V3-CAP-013
+        - V3-TMX-002
+      parameters:
+        - "$ref": "#/components/parameters/SessionID"
+      summary: Launch an agent session in private tmux
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionLifecycleCommand"
+      x-cancellation: Cancellation before the launch transaction commits has no side
+        effect; after commit the per-session owner ignores request cancellation
+        and converges to running or failed; an expired response returns
+        operation_unknown and the client reloads the exact AgentSession.
+      x-audit: session_launch
+      x-session-lifecycle-command:
+        state_rules_ref: session.schemas.yaml_AgentSession_x-agent-harbor-state-rules_command_lifecycle
+        accepted: cleanup_pending_false_and_created_or_failed_without_native_pair_and_without_tmux_pair
+        launcher_support: codex_or_claude_only_other_registered_launchers_return_validation_error
+        workspace_preflight: before_transaction_or_validation_error_without_state_change
+        terminal_obligation: running_or_failed_before_owner_release
+      x-session-credential:
+        pane_precondition: no_live_verified_AgentSession_pane
+        before_spawn: revoke_prior_hash_create_next_active_hash_and_mark_launching_in_one_session_transaction
+        process_delivery: private_session-exec_handoff_then_zero_the_raw_buffer_at_owner_terminal_state
+        spawn_failure: revoke_the_new_hash_mark_session_failed_with_last_error_code_native_launch_failed_and_return_200
+        process_exit_or_end: revoke_active_hash
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - session_not_found
+        - invalid_lifecycle
+        - tmux_identity_mismatch
+        - operation_timeout
+        - validation_error
+        - operation_error
+        - operation_unknown
+      responses:
+        "200":
+          description: Updated running AgentSession, or explicit failed AgentSession with
+            stable last_error_code after an accepted launch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSession"
+        "404":
+          $ref: "#/components/responses/Phase04Problem"
+        "409":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/sessions/{session_id}/resume":
+    post:
+      operationId: resumeAgentSession
+      tags:
+        - sessions
+      x-requirements:
+        - V3-CAP-014
+        - V3-TMX-002
+      parameters:
+        - "$ref": "#/components/parameters/SessionID"
+      summary: Resume an agent session in private tmux
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionLifecycleCommand"
+      x-cancellation: Cancellation before the resume transaction commits has no side
+        effect; after commit the per-session owner ignores request cancellation
+        and converges to running or failed; an expired response returns
+        operation_unknown and the client reloads the exact session.
+      x-audit: session_resume
+      x-session-lifecycle-command:
+        state_rules_ref: session.schemas.yaml_AgentSession_x-agent-harbor-state-rules_command_lifecycle
+        accepted: cleanup_pending_false_and_idle_or_failed_with_native_pair_and_without_tmux_pair
+        launcher_support: codex_or_claude_only_other_registered_launchers_return_validation_error
+        workspace_preflight: before_transaction_or_validation_error_without_state_change
+        terminal_obligation: running_or_failed_before_owner_release
+      x-session-credential:
+        pane_precondition: no_live_verified_AgentSession_pane
+        before_spawn: revoke_prior_hash_create_next_active_hash_and_mark_launching_in_one_session_transaction
+        process_delivery: private_session-exec_handoff_then_zero_the_raw_buffer_at_owner_terminal_state
+        spawn_failure: revoke_the_new_hash_mark_session_failed_with_last_error_code_native_launch_failed_and_return_200
+        process_exit_or_end: revoke_active_hash
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - session_not_found
+        - invalid_lifecycle
+        - resume_unavailable
+        - tmux_identity_mismatch
+        - operation_timeout
+        - validation_error
+        - operation_error
+        - operation_unknown
+      responses:
+        "200":
+          description: Updated running AgentSession, or explicit failed AgentSession with
+            stable last_error_code after an accepted resume
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSession"
+        "404":
+          $ref: "#/components/responses/Phase04Problem"
+        "409":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/sessions/{session_id}/credentials":
+    post:
+      operationId: rotateSessionCredential
+      tags:
+        - sessions
+      x-requirements:
+        - V3-CAP-004
+        - V3-SEC-002
+      parameters:
+        - "$ref": "#/components/parameters/SessionID"
+      summary: Rotate the session Gateway credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionCredentialCommand"
+      x-audit: session_credential_rotate
+      x-cancellation: Cancellation before the credential transaction commits has no
+        side effect; after commit the caller reloads the exact session and does
+        not replay an unknown credential value.
+      x-credential-lifecycle:
+        pane_precondition: cleanup_pending_false_and_complete_pane_process_predicate_must_find_no_live_process
+        transitions:
+          none_0: active_1
+          active_N: active_N_plus_1_with_prior_hash_revoked_in_same_transaction
+          revoked_N: active_N_plus_1
+        response: one_time_value_and_new_generation_no_store
+        session_updated_at: changes_in_same_transaction
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - session_not_found
+        - session_process_active
+        - validation_error
+        - operation_error
+      responses:
+        '201':
+          description: New one-time credential; prior credential is revoked atomically
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                  - no-store
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/OneTimeSessionCredential"
+        "404":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/sessions/{session_id}/credentials/revoke":
+    post:
+      operationId: revokeSessionCredential
+      tags:
+        - sessions
+      x-requirements:
+        - V3-CAP-004
+        - V3-SEC-002
+      parameters:
+        - "$ref": "#/components/parameters/SessionID"
+      summary: Revoke the session Gateway credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionCredentialCommand"
+      x-audit: session_credential_revoke
+      x-cancellation: Cancellation before the revoke transaction commits has no side
+        effect; after commit the caller reloads the exact session.
+      x-credential-lifecycle:
+        pane_precondition: cleanup_pending_false_and_complete_pane_process_predicate_must_find_no_live_process
+        accepted_state: active_exact_generation
+        result: revoked_same_generation_and_session_updated_at_in_one_transaction
+        none_or_revoked: credential_not_found
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - session_not_found
+        - session_process_active
+        - credential_not_found
+        - validation_error
+        - operation_error
+      responses:
+        '204':
+          description: Active SessionCredential revoked
+        "404":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/sessions/{session_id}/affinity/reset":
+    post:
+      operationId: resetSessionAffinity
+      tags:
+        - sessions
+      x-requirements:
+        - V3-ROU-005
+      parameters:
+        - "$ref": "#/components/parameters/SessionID"
+      summary: Reset sticky Target affinity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionVersionCommand"
+      x-audit: session_affinity_reset
+      x-cancellation: Cancellation before the affinity transaction commits has no side
+        effect; after commit the caller reloads the exact session.
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - session_not_found
+        - validation_error
+        - operation_error
+      responses:
+        '204':
+          description: SessionAffinity cleared
+        "404":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/provider-credentials/{credential_id}/secret":
+    put:
+      operationId: replaceProviderCredential
+      tags:
+        - secrets
+      x-requirements:
+        - V3-CAP-002
+        - V3-SEC-001
+        - V3-API-006
+      parameters:
+        - "$ref": "#/components/parameters/CredentialID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceProviderCredentialCommand"
+      summary: Replace and republish one provider credential
+      x-audit: provider_credential_replace
+      x-cancellation: Cancellation before publication commits leaves the active graph
+        and credential unchanged; after publication the caller reloads config
+        and does not replay the replacement.
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - credential_not_found
+        - secret_denied
+        - validation_error
+        - publish_conflict
+        - native_config_root_denied
+        - native_config_root_conflict
+        - native_hook_entry_conflict
+        - native_config_write_failed
+        - operation_error
+        - operation_unknown
+      responses:
+        '200':
+          description: Recompiled complete graph with incremented credential and snapshot
+            generations
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ReplaceProviderCredentialResult"
+        "404":
+          $ref: "#/components/responses/Phase04Problem"
+        "409":
+          $ref: "#/components/responses/Phase04Problem"
+        "422":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+    post:
+      operationId: accessProviderSecret
+      tags:
+        - secrets
+      x-requirements:
+        - V3-CAP-012
+        - V3-SEC-001
+        - V3-SEC-004
+      parameters:
+        - "$ref": "#/components/parameters/CredentialID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderSecretAccessCommand"
+      summary: Copy or reveal one provider secret
+      x-audit: provider_secret_access
+      x-cancellation: Cancellation before the safe authorization-audit commit resolves
+        no secret and writes no audit; after that commit and before the first
+        response byte Core writes no bytes, zeroes the resolved buffer, and
+        retains the authorization audit. After the first response byte, delivery
+        is unknown, Core stops writing and zeroes the buffer, and the client
+        must not retry the value operation.
+      x-secret-access-linearization:
+        validation_order:
+          - authentication
+          - complete_shape
+          - instance_identity
+          - exact_preconditions
+          - exportability
+        audit_commit: provider_secret_access_authorized_before_secret_resolution
+        audit_payload: authorization_and_subject_only_no_value_and_no_delivery_claim
+        pre_audit_cancellation: no_audit_no_resolution_no_response_bytes
+        post_audit_pre_first_byte_cancellation: audit_remains_no_response_bytes_zero_ephemeral_buffer
+        first_response_byte: delivery_unknown_no_retry
+        post_first_byte_disconnect: stop_writing_zero_ephemeral_buffer_audit_remains
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - credential_not_found
+        - secret_denied
+        - secret_unavailable
+        - validation_error
+        - operation_error
+      responses:
+        '200':
+          description: One no-store provider secret value
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                  - no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderSecretAccessResult"
+        "403":
+          $ref: "#/components/responses/Phase04Problem"
+        "404":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/targets/{target_id}/probe":
+    post:
+      operationId: probeTarget
+      tags:
+        - targets
+      x-requirements:
+        - V3-CAP-007
+        - V3-ADM-010
+      parameters:
+        - "$ref": "#/components/parameters/TargetID"
+      summary: Queue or join one admitted Target probe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TargetProbeCommand"
+      x-cancellation: Cancellation before admission enqueue has no side effect; after
+        the receipt is committed the probe continues and the receipt is
+        reloadable.
+      x-audit: target_probe
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - target_not_found
+        - admission_rejected
+        - validation_error
+        - operation_error
+        - operation_unknown
+      responses:
+        '202':
+          description: Probe queued in background Admission or coalesced
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ProbeReceipt"
+        "404":
+          $ref: "#/components/responses/Phase04Problem"
+        "429":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/targets/{target_id}/models":
+    get:
+      operationId: discoverTargetModels
+      tags:
+        - targets
+      parameters:
+        - "$ref": "#/components/parameters/TargetID"
+      summary: Discover the models currently offered by one Target
+      x-error-codes:
+        - target_not_found
+        - operation_error
+      responses:
+        '200':
+          description: Transient upstream model catalog
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TargetModelCatalog"
+        "404":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/targets/{target_id}/suspend":
+    put:
+      operationId: setTargetSuspended
+      tags:
+        - targets
+      x-requirements:
+        - V3-DOM-014
+      parameters:
+        - "$ref": "#/components/parameters/TargetID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetTargetSuspendedCommand"
+      summary: Set the Target suspend gate
+      x-audit: target_suspend
+      x-cancellation: Cancellation before the suspend transaction commits has no side
+        effect; after commit the caller reloads the exact target status.
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - target_not_found
+        - validation_error
+        - operation_error
+      responses:
+        '200':
+          description: Updated target status
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TargetStatus"
+        "404":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/admin-token/rotate":
+    post:
+      operationId: rotateAdminToken
+      tags:
+        - instance
+      security:
+        - UnixPeer: []
+      x-requirements:
+        - V3-CAP-023
+        - V3-FLW-018
+        - V3-SEC-009
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RotateAdminTokenRequest"
+      summary: Rotate the loopback Admin token through Unix peer authorization
+      x-audit: admin_token_rotate
+      x-cancellation: Cancellation before the token-hash transaction commits leaves
+        the prior generation active. After commit the prior token is revoked and
+        delivery of the no-store replacement is unknown; the caller must rotate
+        again through the same Unix peer operation instead of replaying the
+        request.
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - validation_error
+        - operation_error
+        - operation_unknown
+      responses:
+        '201':
+          description: New one-time AdminToken; prior token is revoked atomically
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [ no-store ]
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/OneTimeAdminToken"
+        "409":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  "/v1/shutdown":
+    post:
+      operationId: shutdownInstance
+      tags:
+        - instance
+      x-requirements:
+        - V3-CAP-015
+        - V3-OPS-006
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ShutdownRequest"
+      summary: Shut down the exact instance
+      x-audit: instance_shutdown
+      x-cancellation: Cancellation before the shutdown receipt commits leaves ingress
+        open; after commit shutdown continues and the accepted result is
+        reloadable only through the exact recorded instance state.
+      x-error-codes:
+        - instance_mismatch
+        - validation_error
+        - operation_error
+        - operation_unknown
+      responses:
+        '202':
+          description: Shutdown accepted for the exact instance
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ShutdownReceipt"
+        "409":
+          $ref: "#/components/responses/Phase04Problem"
+        default:
+          $ref: "#/components/responses/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  /v1/sessions/{session_id}/preview:
+    parameters:
+      - $ref: "#/components/parameters/SessionID"
+      - name: instance_id
+        in: query
+        required: true
+        schema:
+          $ref: "#/components/schemas/InstanceID"
+      - name: expected_updated_at
+        in: query
+        required: true
+        schema:
+          $ref: ./admin/deck.schemas.yaml#/components/schemas/ExpectedUpdatedAt
+    get:
+      operationId: getAgentSessionPreview
+      tags:
+        - sessions
+      x-requirements:
+        - V3-CAP-026
+        - V3-TUI-014
+        - V3-SEC-004
+      summary: Read a bounded redacted AgentSession preview
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - session_not_found
+        - preview_unavailable
+        - tmux_identity_mismatch
+        - validation_error
+        - operation_error
+      responses:
+        "200":
+          description: Bounded redacted terminal tail; no command channel
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionPreview"
+        "404":
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        "409":
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        "503":
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        default:
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  /v1/sessions/{session_id}/attach:
+    parameters:
+      - $ref: "#/components/parameters/SessionID"
+    post:
+      operationId: authorizeAgentSessionAttach
+      tags:
+        - sessions
+      security:
+        - UnixPeer: []
+      x-requirements:
+        - V3-CAP-026
+        - V3-TMX-003
+        - V3-SEC-007
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthorizeAttachmentCommand"
+      summary: Authorize one exact AgentSession attachment
+      x-audit: session_attach_authorize
+      x-cancellation: Cancellation before the grant transaction commits creates no
+        grant; an issued grant remains one-use and expires after 15 seconds.
+      x-attachment-issuance:
+        authorization: same_uid_unix_peer_on_exact_instance_admin_socket
+        token: random_32_bytes_unpadded_base64url_returned_once
+        core_storage: SHA-256_hash_only_in_memory
+        binding:
+          - instance_id
+          - session_id
+          - expected_updated_at
+          - expires_at
+        expiry_seconds: 15
+        active_grants: one_per_session_new_issue_invalidates_prior_hash
+        response: no_store
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - session_not_found
+        - attachment_unavailable
+        - tmux_identity_mismatch
+        - validation_error
+        - operation_error
+      responses:
+        "201":
+          description: One-time Core attachment grant
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                  - no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentGrant"
+        "403":
+          description: Same-UID Unix peer is required; TCP and browser callers have no
+            fallback
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        "404":
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        "409":
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        default:
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  /v1/sessions/{session_id}/attach/redeem:
+    parameters:
+      - $ref: "#/components/parameters/SessionID"
+    post:
+      operationId: redeemAgentSessionAttachment
+      tags:
+        - sessions
+      security:
+        - UnixPeer: []
+      x-requirements:
+        - V3-CAP-026
+        - V3-TMX-003
+        - V3-SEC-007
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedeemAttachmentGrantCommand"
+      summary: Redeem one attachment grant from the local attach CLI
+      x-audit: session_attach_redeem
+      x-cancellation: Before the audit-and-consume transaction commits, cancellation
+        leaves the grant valid. After commit the grant is consumed and target
+        delivery is unknown; the CLI must return to the TUI and must not retry the
+        grant.
+      x-attachment-redemption:
+        tui_launch:
+          executable: validated_absolute_sibling_agent-harbor-core_no_PATH_or_environment_lookup
+          argv:
+            - agent-harbor-core
+            - attach
+            - --instance-id
+            - <instance-id>
+            - --admin-socket
+            - <absolute-admin-socket>
+            - --session-id
+            - <session-id>
+            - --expected-updated-at
+            - <timestamp>
+            - --grant-fd
+            - "3"
+          grant_fd: anonymous_pipe_fd_3_contains_exactly_43_token_bytes_then_EOF
+          token_forbidden:
+            - argv
+            - environment
+            - stdin
+            - logs
+            - persistent_or_view_models
+          terminal: original_stdio_preserved
+        core_preconsume:
+          order:
+            - same_uid_unix_peer
+            - complete_shape
+            - exact_instance_session_and_updated_at
+            - unexpired_active_hash
+            - constant_time_token_compare
+            - complete_pane_process_predicate
+          failure: grant_not_consumed_and_no_target_bytes
+        linearization: consume_grant_write_audit_set_unread_false_and_advance_updated_at_in_one_transaction
+        read_state:
+          linearization: consume_grant_write_audit_set_unread_false_and_advance_updated_at_in_one_transaction
+          precondition: request_and_grant_both_match_the_pretransaction_updated_at
+          response: AttachmentTarget_expected_updated_at_is_the_committed_posttransaction_version
+          event: emit_one_session_changed_after_commit
+          non_read_actions:
+            - authorize
+            - preview
+            - list_selection
+        pre_linearization_cancellation: grant_remains_valid
+        post_linearization_cancellation: grant_consumed_delivery_unknown_no_retry
+        final_check: repeat_complete_pane_process_predicate_after_consumption_before_serialization
+        response: no_store_exact_absolute_tmux_executable_socket_and_derived_window_0_target
+        cli_exec: validate_target_then_direct_exec_returned_tmux_vector_no_shell_or_PATH_and_clear_TMUX_only_for_nested_client
+        detach: tmux_client_returns_to_the_existing_agent-harbor-tui_process
+        browser_or_deck_redemption: forbidden
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - session_not_found
+        - attachment_unavailable
+        - tmux_identity_mismatch
+        - validation_error
+        - operation_error
+        - operation_unknown
+      responses:
+        "200":
+          description: No-store exact tmux target returned only after grant consumption
+            and final pane revalidation
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                  - no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentTarget"
+        "403":
+          description: Same-UID Unix peer is required; TCP and browser callers have no
+            fallback
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        "404":
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        "409":
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        default:
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+  /v1/sessions/{session_id}/hook-health:
+    parameters:
+      - $ref: "#/components/parameters/SessionID"
+      - name: instance_id
+        in: query
+        required: true
+        schema:
+          $ref: "#/components/schemas/InstanceID"
+      - name: expected_updated_at
+        in: query
+        required: true
+        schema:
+          $ref: ./admin/deck.schemas.yaml#/components/schemas/ExpectedUpdatedAt
+    get:
+      operationId: getNativeHookHealth
+      tags:
+        - sessions
+      x-requirements:
+        - V3-CAP-028
+        - V3-HOK-003
+        - V3-TUI-011
+      summary: Read managed native-hook health for one session
+      x-error-codes:
+        - instance_mismatch
+        - stale_precondition
+        - session_not_found
+        - hook_unavailable
+        - validation_error
+        - operation_error
+      responses:
+        "200":
+          description: Core-normalized managed hook health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NativeHookHealth"
+        "404":
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        "409":
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        default:
+          description: Phase 04 typed problem
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Phase04Problem"
+        "500":
+          $ref: "#/components/responses/Phase04Problem"
+components:
+  securitySchemes:
+    AdminToken:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque local development token
+      description: One-time-delivered token whose SHA-256 hash is stored; required
+        only on an explicitly enabled loopback TCP Admin listener
+    UnixPeer:
+      type: apiKey
+      in: header
+      name: X-Agent-Harbor-Unix-Peer-Authenticated
+      description: Logical scheme satisfied from Unix-socket peer credentials before
+        HTTP dispatch. The listener strips and ignores any client-supplied
+        header with this name.
+  parameters:
+    SessionID:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/SessionID"
+    CredentialID:
+      name: credential_id
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/ConfigID"
+    TargetID:
+      name: target_id
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/ConfigID"
+  responses:
+    Problem:
+      description: Typed Agent Harbor problem
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Phase04Problem:
+      description: Phase 04 typed RFC 9457 problem response
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Phase04Problem"
+  schemas:
+    ConfigID:
+      "$ref": "./admin/common.schemas.yaml#/components/schemas/ConfigID"
+    RequestID:
+      "$ref": "./admin/common.schemas.yaml#/components/schemas/RequestID"
+    SessionID:
+      "$ref": "./admin/common.schemas.yaml#/components/schemas/SessionID"
+    Timestamp:
+      "$ref": "./admin/common.schemas.yaml#/components/schemas/Timestamp"
+    Problem:
+      "$ref": "./admin/common.schemas.yaml#/components/schemas/Problem"
+    FieldViolation:
+      "$ref": "./admin/common.schemas.yaml#/components/schemas/FieldViolation"
+    InstanceIdentity:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/InstanceIdentity"
+    Readiness:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/Readiness"
+    SnapshotIdentity:
+      "$ref": "./admin/common.schemas.yaml#/components/schemas/SnapshotIdentity"
+    RuntimeStatus:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/RuntimeStatus"
+    QuotaGroupStatus:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/QuotaGroupStatus"
+    TargetStatus:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/TargetStatus"
+    TargetModelCatalog:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/TargetModelCatalog"
+    RouteStatus:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/RouteStatus"
+    ObservationStatus:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/ObservationStatus"
+    ObservationPage:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/ObservationPage"
+    ObservationRecord:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/ObservationRecord"
+    ConfigGraph:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/ConfigGraph"
+    ConfigOverview:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/ConfigOverview"
+    MutableConfigSnapshot:
+      $ref: "./admin/config-core.schemas.yaml#/components/schemas/MutableConfigSnapshot"
+    PatchConfigCommand:
+      $ref: "./admin/config-core.schemas.yaml#/components/schemas/PatchConfigCommand"
+    ValidateConfigCommand:
+      $ref: "./admin/config-core.schemas.yaml#/components/schemas/ValidateConfigCommand"
+    ProviderSecretStage:
+      $ref: "./admin/config-provider.schemas.yaml#/components/schemas/ProviderSecretStage"
+    SecretStageID:
+      $ref: "./admin/config-provider.schemas.yaml#/components/schemas/SecretStageID"
+    InstanceConfig:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/InstanceConfig"
+    GatewayListenerConfig:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/GatewayListenerCo\
+        nfig"
+    AdminListenerConfig:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/AdminListenerConf\
+        ig"
+    TmuxConfig:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/TmuxConfig"
+    ClientProfileConfig:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/ClientProfileConf\
+        ig"
+    EnvironmentVariableConfig:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/EnvironmentVariab\
+        leConfig"
+    RouteConfig:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/RouteConfig"
+    ContentPolicyConfig:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/ContentPolicyConf\
+        ig"
+    BackendSetConfig:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/BackendSetConfig"
+    BackendCandidate:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/BackendCandidate"
+    EndpointConfig:
+      "$ref": "./admin/config-core.schemas.yaml#/components/schemas/EndpointConfig"
+    ProviderCredentialConfig:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/ProviderCrede\
+        ntialConfig"
+    ProviderCredentialView:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/ProviderCrede\
+        ntialView"
+    SecretRef:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/SecretRef"
+    QuotaGroupConfig:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/QuotaGroupCon\
+        fig"
+    TargetConfig:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/TargetConfig"
+    HealthPolicyConfig:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/HealthPolicyC\
+        onfig"
+    ThrottlePolicyConfig:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/ThrottlePolic\
+        yConfig"
+    ModelPolicyConfig:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/ModelPolicyCo\
+        nfig"
+    ModelMapping:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/ModelMapping"
+    ModelProjectionConfig:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/ModelProjecti\
+        onConfig"
+    CompatibilityTransformConfig:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/Compatibility\
+        TransformConfig"
+    PublishConfigRequest:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/PublishConfig\
+        Request"
+    ValidationResult:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/ValidationRes\
+        ult"
+    ReplaceProviderCredentialRequest:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/ReplaceProvid\
+        erCredentialRequest"
+    ReplaceProviderCredentialResult:
+      "$ref": "./admin/config-provider.schemas.yaml#/components/schemas/ReplaceProvid\
+        erCredentialResult"
+    CompiledSummary:
+      "$ref": "./admin/common.schemas.yaml#/components/schemas/CompiledSummary"
+    AgentSession:
+      "$ref": "./admin/session.schemas.yaml#/components/schemas/AgentSession"
+    CreateAgentSessionRequest:
+      "$ref": "./admin/session.schemas.yaml#/components/schemas/CreateAgentSessionReq\
+        uest"
+    OneTimeSessionCredential:
+      "$ref": "./admin/session.schemas.yaml#/components/schemas/OneTimeSessionCredent\
+        ial"
+    EndAgentSessionRequest:
+      "$ref": "./admin/session.schemas.yaml#/components/schemas/EndAgentSessionRequest"
+    ProviderSecretAccessRequest:
+      "$ref": "./admin/session.schemas.yaml#/components/schemas/ProviderSecretAccessR\
+        equest"
+    ProviderSecretValue:
+      "$ref": "./admin/session.schemas.yaml#/components/schemas/ProviderSecretValue"
+    ProbeReceipt:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/ProbeReceipt"
+    SetSuspendedRequest:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/SetSuspendedRequest"
+    ShutdownRequest:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/ShutdownRequest"
+    ShutdownReceipt:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/ShutdownReceipt"
+    RotateAdminTokenRequest:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/RotateAdminTokenReque\
+        st"
+    OneTimeAdminToken:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/OneTimeAdminToken"
+    RuntimeEvent:
+      "$ref": "./admin/runtime.schemas.yaml#/components/schemas/RuntimeEvent"
+    InstanceID:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/InstanceID
+    SnapshotGeneration:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/SnapshotGeneration
+    PublishConfigCommand:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/PublishConfigCommand
+    CreateAgentSessionCommand:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/CreateAgentSessionCommand
+    SessionVersionCommand:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/SessionVersionCommand
+    SessionLifecycleCommand:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/SessionLifecycleCommand
+    EndAgentSessionCommand:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/EndAgentSessionCommand
+    ReplaceProviderCredentialCommand:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/ReplaceProviderCredentialCommand
+    ProviderSecretAccessCommand:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/ProviderSecretAccessCommand
+    ProviderSecretAccessResult:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/ProviderSecretAccessResult
+    TargetProbeCommand:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/TargetProbeCommand
+    SetTargetSuspendedCommand:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/SetTargetSuspendedCommand
+    SessionReadQuery:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/SessionReadQuery
+    AuthorizeAttachmentCommand:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/AuthorizeAttachmentCommand
+    AttachmentGrant:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/AttachmentGrant
+    RedeemAttachmentGrantCommand:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/RedeemAttachmentGrantCommand
+    AttachmentTarget:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/AttachmentTarget
+    SessionPreview:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/SessionPreview
+    NativeHookHealth:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/NativeHookHealth
+    SessionCredentialCommand:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/SessionCredentialCommand
+    SessionCredentialView:
+      $ref: ./admin/deck.schemas.yaml#/components/schemas/SessionCredentialView
+    Phase04ProblemCode:
+      type: string
+      enum:
+        - instance_mismatch
+        - stale_precondition
+        - validation_error
+        - invalid_lifecycle
+        - tmux_identity_mismatch
+        - operation_timeout
+        - operation_unknown
+        - resume_unavailable
+        - session_process_active
+        - operation_error
+        - credential_not_found
+        - session_not_found
+        - secret_denied
+        - publish_conflict
+        - secret_unavailable
+        - admission_rejected
+        - target_not_found
+        - preview_unavailable
+        - attachment_unavailable
+        - hook_unavailable
+        - observation_cursor_stale
+        - active_config_invalid
+        - native_config_root_denied
+        - native_config_root_conflict
+        - native_hook_entry_conflict
+        - native_config_write_failed
+        - runtime_shutting_down
+        - admin_authentication_required
+        - too_many_headers
+        - headers_too_large
+        - invalid_request
+        - not_found
+        - method_not_allowed
+        - unsupported_content_encoding
+        - unsupported_content_type
+        - body_too_large
+        - invalid_json
+        - missing_field
+        - null_field
+        - unknown_field
+        - duplicate_field
+        - invalid_field_type
+        - invalid_value
+        - unix_peer_required
+    Phase04Problem:
+      allOf:
+        - $ref: "#/components/schemas/Problem"
+        - type: object
+          properties:
+            code:
+              $ref: "#/components/schemas/Phase04ProblemCode"
+security:
+  - UnixPeer: []
+  - AdminToken: []
+x-agent-harbor-operation-policy:
+  classification: exhaustive_disjoint_union_of_every_merged_operationId
+  read_only:
+    operation_ids:
+      - getReadiness
+      - getConfig
+      - getRuntimeStatus
+      - validateConfig
+      - listAgentSessions
+      - getAgentSession
+      - listObservations
+      - streamRuntimeEvents
+      - getAgentSessionPreview
+      - getNativeHookHealth
+      - discoverTargetModels
+    cancellation: inherit_request_context_and_deadline_until_response_completion
+    audit: none
+  state_changing:
+    operation_ids:
+      - patchConfig
+      - createProviderSecretStage
+      - deleteProviderSecretStage
+      - publishConfig
+      - createAgentSession
+      - launchAgentSession
+      - resumeAgentSession
+      - deleteAgentSession
+      - rotateSessionCredential
+      - revokeSessionCredential
+      - resetSessionAffinity
+      - replaceProviderCredential
+      - probeTarget
+      - setTargetSuspended
+      - rotateAdminToken
+      - shutdownInstance
+      - authorizeAgentSessionAttach
+      - redeemAgentSessionAttachment
+    cancellation: operation_x-cancellation_required
+    audit: operation_x-audit_required
+  secret_access:
+    operation_ids:
+      - accessProviderSecret
+    cancellation: operation_x-cancellation_required
+    audit: operation_x-audit_required_before_value_resolution
+x-agent-harbor-attachment-transport:
+  operation_ids:
+    - authorizeAgentSessionAttach
+    - redeemAgentSessionAttachment
+  allowed: same_uid_unix_peer_on_exact_instance_socket
+  loopback_tcp_or_browser: unix_peer_required
+  fallback: none
+x-deck-bootstrap:
+  selectors: explicit_instance_id_and_exactly_one_of_admin_socket_or_admin_address
+  discovery: none
+  tcp_token_open: open_O_RDONLY_O_NOFOLLOW_once_before_any_network_request
+  tcp_token_file: same_fd_fstat_effective_uid_owned_regular_mode_exactly_0600
+  tcp_token_bytes: exactly_43_ASCII_base64url_bytes_then_EOF_without_trimming
+  tcp_token_failure: close_fd_clear_private_auth_and_exit_before_network_without_token_bytes
+  tcp_token_use: AdminToken_on_every_TCP_request_including_readiness_and_reconnect
+  tcp_token_residency: private_transport_auth_memory_only
+  tcp_token_excluded_from:
+    - argv
+    - environment
+    - reducer
+    - view_cache
+    - persistence
+    - logs
+    - errors
+  tcp_token_clear: terminal_instance_mismatch_or_process_exit
+  reconnect: reuse_private_transport_auth_then_repeat_exact_readiness_validation
+  binding: expected_instance_id_exact_transport_and_private_TCP_auth_when_selected
+  mismatch: close_transport_discard_cache_clear_private_auth_and_exit_instance_mismatch
+x-deck-event-invalidation:
+  snapshot_published:
+    - getReadiness
+    - getConfig
+    - getRuntimeStatus
+    - listObservations
+  request_completed:
+    - getRuntimeStatus
+    - listObservations
+  attempt_completed:
+    - getRuntimeStatus
+    - listObservations
+  quota_changed:
+    - getRuntimeStatus
+    - listObservations
+  target_gate_changed:
+    - getRuntimeStatus
+    - listObservations
+  session_changed:
+    - getRuntimeStatus
+    - listObservations
+  observation_dropped:
+    - getRuntimeStatus
+    - listObservations
+  resync_required:
+    - getReadiness
+    - getConfig
+    - getRuntimeStatus
+    - listObservations
+x-agent-harbor-problem-policy:
+  operation_x-error-codes: semantic_operation_codes_only
+  complete_operation_codes: union_of_shared_codes_and_operation_x-error-codes
+  status_binding: Phase04Problem.code_determines_HTTP_status_from_the_two_closed_status_tables
+  shared_code_status:
+    runtime_shutting_down: 503
+    admin_authentication_required: 401
+    too_many_headers: 431
+    headers_too_large: 431
+    invalid_request: 400
+    not_found: 404
+    method_not_allowed: 405
+    unsupported_content_encoding: 415
+    unsupported_content_type: 415
+    body_too_large: 413
+    invalid_json: 400
+    missing_field: 422
+    null_field: 422
+    unknown_field: 422
+    duplicate_field: 422
+    invalid_field_type: 422
+    invalid_value: 422
+    unix_peer_required: 403
+  shared_code_recovery:
+    runtime_shutting_down: reconnect_only_after_the_exact_instance_is_ready
+    admin_authentication_required: supply_the_current_exact_transport_credential
+    too_many_headers: reduce_header_count_before_a_new_request
+    headers_too_large: reduce_total_header_bytes_before_a_new_request
+    invalid_request: correct_the_HTTP_request_shape
+    not_found: use_a_declared_endpoint
+    method_not_allowed: use_the_declared_method
+    unsupported_content_encoding: send_identity_content_encoding
+    unsupported_content_type: send_the_declared_content_type
+    body_too_large: reduce_the_body_below_the_declared_limit
+    invalid_json: correct_the_JSON_document
+    missing_field: supply_the_reported_field
+    null_field: supply_a_non_null_reported_field
+    unknown_field: remove_the_reported_field
+    duplicate_field: send_the_reported_field_once
+    invalid_field_type: use_the_reported_field_type
+    invalid_value: correct_the_reported_value
+    unix_peer_required: use_the_exact_same_uid_instance_Unix_socket_without_fallback
+  semantic_code_status:
+    instance_mismatch: 409
+    stale_precondition: 409
+    validation_error: 422
+    invalid_lifecycle: 409
+    tmux_identity_mismatch: 409
+    operation_timeout: 504
+    operation_unknown: 500
+    resume_unavailable: 409
+    session_process_active: 409
+    operation_error: 500
+    credential_not_found: 404
+    session_not_found: 404
+    secret_denied: 403
+    publish_conflict: 409
+    secret_unavailable: 503
+    admission_rejected: 429
+    target_not_found: 404
+    preview_unavailable: 503
+    attachment_unavailable: 409
+    hook_unavailable: 503
+    observation_cursor_stale: 409
+    active_config_invalid: 503
+    native_config_root_denied: 403
+    native_config_root_conflict: 409
+    native_hook_entry_conflict: 409
+    native_config_write_failed: 500
+  semantic_code_recovery:
+    instance_mismatch: reconnect_to_the_exact_instance
+    stale_precondition: reload_the_exact_resource_and_do_not_replay
+    validation_error: correct_the_reported_fields_before_a_new_request
+    invalid_lifecycle: reload_the_session_and_choose_a_valid_command
+    tmux_identity_mismatch: stop_automation_and_repair_the_recorded_tmux_identity
+    operation_timeout: reload_the_exact_resource_before_any_explicit_retry
+    operation_unknown: reload_the_exact_resource_and_never_replay_the_command
+    resume_unavailable: reload_the_session_and_start_a_new_native_session_explicitly
+    session_process_active: wait_for_verified_process_exit_then_reload_the_session
+    operation_error: reload_the_operation_surface_before_an_explicit_retry
+    credential_not_found: reload_the_masked_credential_view
+    session_not_found: reload_the_session_list
+    secret_denied: change_the_locator_or_local_authorization_then_submit_explicitly
+    publish_conflict: reload_the_active_snapshot_then_rebuild_the_candidate
+    secret_unavailable: repair_the_selected_secret_source_then_request_explicitly
+    admission_rejected: wait_for_admission_state_change_before_a_new_probe
+    target_not_found: reload_targets
+    preview_unavailable: reload_the_session_and_verified_pane_state
+    attachment_unavailable: return_to_Deck_reload_the_session_and_request_a_new_grant
+    hook_unavailable: reload_hook_health_after_reconciling_the_managed_entry
+    observation_cursor_stale: perform_one_zero_cursor_resync
+    active_config_invalid: repair_and_publish_a_valid_complete_config
+    native_config_root_denied: select_a_policy_valid_root_and_publish_explicitly
+    native_config_root_conflict: remove_the_root_overlap_and_publish_explicitly
+    native_hook_entry_conflict: resolve_the_unowned_entry_and_publish_explicitly
+    native_config_write_failed: repair_the_filesystem_and_publish_explicitly
+  authentication_state:
+    status_401: denied_no_retry_until_credentials_change
+    status_403: denied_transport_or_authorization_no_fallback
+x-deck-snapshot-bundle:
+  trigger_events:
+    - snapshot_published
+    - resync_required
+  candidate_operations:
+    - getReadiness
+    - getConfig
+    - getRuntimeStatus
+  identity_paths:
+    getReadiness: identity.instance_id
+    getConfig: instance_id
+    getRuntimeStatus: identity.instance_id
+  generation_paths:
+    getReadiness: snapshot.generation
+    getConfig: active_generation
+    getRuntimeStatus: snapshot.generation
+  accept: all_candidates_succeeded_and_three_instance_ids_equal_pinned_instance_and_three_generations_equal
+  sessions: RuntimeStatus.sessions_is_the_only_Deck_session_source
+  commit: one_atomic_reducer_swap_of_readiness_config_and_runtime_including_runtime_sessions
+  reject: discard_entire_candidate_keep_prior_presentation_mark_one_dirty_follow_up
+  coalescing: one_bundle_in_flight_one_dirty_bit_exactly_one_immediate_follow_up_per_completion
+  observations: independent_frozen_cursor_loader_never_part_of_bundle_commit

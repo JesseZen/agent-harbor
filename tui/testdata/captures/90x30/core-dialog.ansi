@@ -1,0 +1,30 @@
+ Overview   Sessions   Routes   Targets   Quotas   Observations   Placeholder 
+                                                                                          
+                                                                                          
+                                                                                          
+    ╭────────────────────────────────────────────────────────────────────────────────╮    
+    │                                                                                │    
+    │                                                                                │    
+    │    New Session                                                                 │    
+    │                                                                                │    
+    │      Route: Interactive                                                        │    
+    │                                                                                │    
+    │    ▶ Name:                                                                     │    
+    │      > session-name                                                            │    
+    │                                                                                │    
+    │      Client Profile:                                                           │    
+    │        Claude    Codex    OpenCode                                             │    
+    │                                                                                │    
+    │      Workspace:                                                                │    
+    │      > .                                                                       │    
+    │                                                                                │    
+    │                                                                                │    
+    │                                                                                │    
+    │    Tab next │ ↑↓ navigate │ ^S create │ Esc cancel                             │    
+    │                                                                                │    
+    │                                                                                │    
+    ╰────────────────────────────────────────────────────────────────────────────────╯    
+                                                                                          
+                                                                                          
+                                                                                          
+                                                                                          

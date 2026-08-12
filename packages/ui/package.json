@@ -1,9 +1,0 @@
-{
-  "name": "@agent-inn/ui",
-  "private": true,
-  "type": "module",
-  "exports": {
-    "./audio/*": "./src/assets/audio/*"
-  },
-  "version": "0.0.0"
-}

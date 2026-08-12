@@ -1,0 +1,30 @@
+ Upstreams  │ Limit Policies 
+  ╭────────────────────────────────────────────────────────────────────────────────────╮  
+  │                                                                                    │  
+  │   Create Upstream                                                                  │  
+  │   Connect to an API provider                                                       │  
+  │                                                                                    │  
+  │     Connection  ────────────────────────                                           │  
+  │   ▶ Name *              > Enter Name...                                            │  
+  │     CLI                 [ codex                                            ▾ ]     │  
+  │     Supported API for...[ openai_responses                                 ▾ ]     │  
+  │     Base URL            > Enter Base URL...                                        │  
+  │     API key *           > Paste secret                                             │  
+  │     Limit policy        [ Private default                                  ▾ ]     │  
+  │                                                                                    │  
+  │     Advanced · 1 fields · Tab to show                                              │  
+  │                                                                                    │  
+  │                                                                                    │  
+  │                                                                                    │  
+  │                                                                                    │  
+  │                                                                                    │  
+  │                                                                                    │  
+  │                                                                                    │  
+  │                                                                                    │  
+  │                                                                                    │  
+  │   ────────────────────────────────────────────────────────────────────────────     │  
+  │   Tab/Shift+Tab move  │  Enter select  │  Space toggle                             │  
+  │   Ctrl+S save and apply  │  Esc cancel                                             │  
+  │                                                                                    │  
+  ╰────────────────────────────────────────────────────────────────────────────────────╯  
+                                                                                          

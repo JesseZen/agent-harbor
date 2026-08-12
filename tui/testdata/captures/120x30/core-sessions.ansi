@@ -1,0 +1,30 @@
+ Overview   Sessions   Routes   Targets   Quotas   Observations   Placeholder 
+ ⟨ ● │ ● │ ○ ⟩  Agent Deck  ● 2 running • ○ 1 idle • ✕ 1 error                                                   v0.0.0 
+  All    ● 2   ◐ 0   ○ 1   ✕ 1   !@#$ filter • 0 all • % open • ^ archived • t view                                     
+SESSIONS                                   │ PREVIEW                                                                    
+────────────────────────────────────────── │ ───────────────────────────────────────────────────────────────────────────
+1·▾ Background (2) ● 1                     │ 📁 route_batch                                                             
+    ▾ route_batch (2) ● 1                  │                                                                            
+     ├─ ● Prepare release notes opencode   │ 2 sessions                                                                 
+     └─ ✕ Repair target health codex       │                                                                            
+2·▾ Interactive (2) ● 1                    │ ● 1 running  ✕ 1 error                                                     
+    ▾ route_primary (2) ● 1                │                                                                            
+     ├─ ● Review routing rollout codex     │ ────────────────────────────── Sessions ──────────────────────────────     
+     └─ ○ Investigate quota pressure claud │   ● Prepare release notes opencode                                         
+                                           │   ✕ Repair target health codex                                             
+                                           │                                                                            
+                                           │ Tab toggle                                                                 
+                                           │                                                                            
+                                           │                                                                            
+                                           │                                                                            
+                                           │                                                                            
+                                           │                                                                            
+                                           │                                                                            
+                                           │                                                                            
+                                           │                                                                            
+                                           │                                                                            
+                                           │                                                                            
+                                           │                                                                            
+                                           │                                                                            
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Group:  Tab  Toggle                                                                       ↑↓ Nav │ +/- Move │ G Global  

@@ -1,0 +1,30 @@
+ Advanced Resources / Endpoints 
+Managed members are read-only · u unlock
+┌─ *Endpoints(all)[1] ───────────────────────────────────────────────┐
+│  ID        ┊NAME      ┊BASE_URL               ┊PROXY   ┊HTTP2      │
+│  ep-1      │endpoint-1│https://api.example.com│        │true       │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+│                                                                    │
+├────────────────────────────────────────────────────────────────────┤
+│1/1  n  new │  e  edit │  d  del │  /  filter │  [ ]  column │  s  …│
+└────────────────────────────────────────────────────────────────────┘

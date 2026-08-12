@@ -1,27 +1,11 @@
-# Go binary
-ainn
-*.exe
-
-# Environment files with secrets
-.env*
-!.env*.example
-
-# Claude session & reference
-.claude/
-.ref/
-.trae/
-.superpowers/
-.specs/
-
-# Internal dev docs (kept local only)
-docs/
-.worktrees/
-
-# Dependencies
-node_modules/
-
-# OS / editor
+/dist/
 .DS_Store
-*.swp
-.idea/
-.vscode/
+
+# Local work and design material never belongs in the release repository.
+/docs/
+/.worktrees/
+/.claude/
+/.codex/
+/.superpowers/
+/typescript
+node_modules/

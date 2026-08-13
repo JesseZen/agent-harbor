@@ -17,19 +17,24 @@ case "$OUTPUT" in
   *) printf 'build: output directory must be absolute\n' >&2; exit 1 ;;
 esac
 
-CORE="$CORE_DIR/$TARGET/agent-harbor-core"
-test -x "$CORE" || {
-  printf 'build: missing Core binary for %s\n' "$TARGET" >&2
-  exit 1
-}
-
 mkdir -p "$OUTPUT" /tmp/agent-harbor-trash
 STAGING=$(mktemp -d "$OUTPUT/.build.XXXXXX")
 trap 'test ! -d "$STAGING" || mv "$STAGING" /tmp/agent-harbor-trash/build.$$' EXIT HUP INT TERM
 
 go build -C "$ROOT/tui" -trimpath -buildvcs=false \
   -o "$STAGING/agent-harbor-tui" ./cmd/agent-harbor-tui
-cp "$CORE" "$STAGING/agent-harbor-core"
+if test -z "${AGENT_HARBOR_CORE_DIR+x}" && test -f "$ROOT/core/go.mod"; then
+  GOOS=${TARGET%-*} GOARCH=${TARGET#*-} CGO_ENABLED=0 \
+    go build -C "$ROOT/core" -trimpath -buildvcs=false \
+      -o "$STAGING/agent-harbor-core" ./cmd/agent-harbor-core
+else
+  CORE="$CORE_DIR/$TARGET/agent-harbor-core"
+  test -x "$CORE" || {
+    printf 'build: missing Core binary for %s\n' "$TARGET" >&2
+    exit 1
+  }
+  cp "$CORE" "$STAGING/agent-harbor-core"
+fi
 cp "$SCRIPT_DIR/agent-harbor" "$STAGING/agent-harbor"
 chmod 755 \
   "$STAGING/agent-harbor" \

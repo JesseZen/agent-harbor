@@ -43,7 +43,7 @@ func TestReplacementStatusExcludesPrivateWriterLock(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &view); err != nil {
 		t.Fatal(err)
 	}
-	if view.Status != "Exited" {
+	if view.Runtime.Presence != "historical_exit" {
 		t.Fatalf("replacement depends on legacy rollout or lock: %s", out)
 	}
 	out, err = b.command("resume", s.ID)

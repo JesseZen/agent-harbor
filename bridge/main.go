@@ -227,7 +227,7 @@ func listSessions(jsonOutput bool) error {
 			fmt.Println("  Warning    " + s.DiscoveryWarning)
 		}
 		if s.Reason != "" {
-			fmt.Printf("  Reason     %q\n", s.Reason)
+			fmt.Printf("  Health     %q\n  Reason     %q\n", "Needs attention", s.Reason)
 		}
 		if s.Mode == "magpie" {
 			fmt.Printf("  Instance   %q\n  Address    %q\n  Model      %q\n", s.InstanceID, s.MagpieURL, s.MagpieModel)

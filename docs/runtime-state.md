@@ -1,0 +1,39 @@
+# Runtime state contract
+
+Harbor reads the supported Herdr public `agent.list` response once per list or
+show query. The supported source baseline is `ee5bfb5041bb3e4a49d591c72308aae3c81ecdde`.
+The public `AgentInfo` contract supplies `agent_status`, workspace, terminal,
+tab and pane IDs, optional `agent_session`, `launch_pending` and
+`interactive_ready`. No client files or process scanning supply activity.
+
+`runtime.activity` preserves `idle`, `working`, `blocked`, `done` and `unknown`.
+Missing or future values become `unknown`. `done` describes completed work in a
+live agent, not process termination. Launch pending is shown as Starting;
+interactive readiness is independent of activity.
+
+`runtime.presence` is `observed`, `not_observed`, `not_started` or
+`historical_exit`. A runner's saved exit has source `harbor.runner.history` and
+its recorded time; it is not a current Herdr observation. Absence from a successful
+list does not prove exit. Discovery errors preserve recorded sessions, mark
+activity unknown, and expose `discovery_warning`; an empty list reports the
+error directly. Observation timestamps apply to the response, not client work.
+
+A runtime attaches to a record only when workspace socket instance, pane, tab,
+client and the official conversation reference agree with the current run's
+stored evidence. Terminal/workspace IDs must be available. Process liveness is
+an additional ownership safeguard, never an activity source. Insufficient
+association leaves the record unassociated and the live agent unmanaged.
+External agents never acquire the record's connection or conversation intent.
+Their IDs include instance, terminal and conversation identity, so replacement
+invalidates an old target.
+
+JSON remains additive: records retain existing fields and add `runtime` and
+`health`. `status` now labels authoritative activity instead of replacing it
+with a connection warning. `running` means a current associated Herdr observation
+(or an observed external agent), including done; false includes unknown and is
+not permission to recover. Callers must migrate decisions to `runtime.presence`
+and `runtime.activity` and retain explicit recovery checks. `reason`, `health`,
+`recovery`, `external` and `runtime.associated` describe separate dimensions.
+
+The recovery-command query bundled with the development candidate is a local
+patch. It has not been accepted or released upstream.

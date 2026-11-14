@@ -30,7 +30,7 @@ func TestSessionStatusExplainsMissingIdentity(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &view); err != nil {
 		t.Fatal(err)
 	}
-	if view.Status != "Needs attention" || view.Reason == "" {
+	if view.Status != "Unknown" || view.Reason == "" {
 		t.Fatalf("unexplained status: %s", out)
 	}
 }
@@ -91,7 +91,7 @@ func TestStopTerminatesOnlyItsCodexGroup(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &liveView); err != nil {
 		t.Fatal(err)
 	}
-	if !liveView.Running || liveView.Status != "Needs attention" || liveView.Reason == "" {
+	if liveView.Running || liveView.Status != "Unknown" || liveView.Reason == "" {
 		t.Fatalf("lost live process behind health warning: %s", out)
 	}
 	if out, err := b.command("stop-session", record.ID); err != nil {

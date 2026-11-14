@@ -46,7 +46,7 @@ func TestSessionsIncludeExternalHerdrAgentsWithoutAdopting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(views) != 1 || views[0].Name != "Manual" || views[0].Mode != "unknown" || views[0].Status != "External / unmanaged" {
+	if len(views) != 1 || views[0].Name != "Manual" || views[0].Mode != "unknown" || views[0].Status != "Unknown" {
 		t.Fatalf("external agent missing or intent inferred: %+v", views)
 	}
 	var records []session
@@ -60,7 +60,7 @@ func TestSessionsIncludeExternalHerdrAgentsWithoutAdopting(t *testing.T) {
 		t.Fatal(err)
 	}
 	views, err = (harborService{}).List()
-	if err != nil || len(views) != 1 || views[0].ID != "owned" {
+	if err != nil || len(views) != 2 || views[0].ID != "owned" || !views[1].External {
 		t.Fatalf("owned pane duplicated: %+v %v", views, err)
 	}
 

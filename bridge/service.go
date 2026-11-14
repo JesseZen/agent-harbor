@@ -11,8 +11,10 @@ import (
 )
 
 type sessionView struct {
-	External         bool   `json:"external,omitempty"`
-	DiscoveryWarning string `json:"discovery_warning,omitempty"`
+	Runtime          runtimeObservation `json:"runtime"`
+	Health           string             `json:"health"`
+	External         bool               `json:"external,omitempty"`
+	DiscoveryWarning string             `json:"discovery_warning,omitempty"`
 	session
 	Running         bool   `json:"running"`
 	WriterLockCheck string `json:"writer_lock_check"`
@@ -137,7 +139,12 @@ func (harborService) List() ([]sessionView, error) {
 	})
 	views := make([]sessionView, 0, len(all))
 	for _, s := range all {
-		views = append(views, deriveSession(s))
+		v := deriveSession(s)
+		v.Health = "not_checked"
+		if v.Reason != "" {
+			v.Health = "needs_review"
+		}
+		views = append(views, v)
 	}
 	views, discoveryErr := mergeHerdrAgents(views)
 	if discoveryErr != nil {
@@ -151,23 +158,16 @@ func (harborService) List() ([]sessionView, error) {
 	return views, nil
 }
 func (harborService) Get(id string) (sessionView, error) {
-	if strings.HasPrefix(id, "external:") {
-		views, err := (harborService{}).List()
-		if err != nil {
-			return sessionView{}, err
-		}
-		for _, v := range views {
-			if v.ID == id && v.External {
-				return v, nil
-			}
-		}
-		return sessionView{}, errors.New("external agent is no longer available; refresh")
-	}
-	s, err := getSession(id)
+	views, err := (harborService{}).List()
 	if err != nil {
 		return sessionView{}, err
 	}
-	return deriveSession(s), nil
+	for _, v := range views {
+		if v.ID == id {
+			return v, nil
+		}
+	}
+	return sessionView{}, errors.New("session no longer available; refresh")
 }
 func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
 	if d.Client == "" {

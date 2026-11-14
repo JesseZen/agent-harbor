@@ -16,6 +16,7 @@ from fixture_negative_ui import exercise as negative_ui
 def main():
     p=argparse.ArgumentParser()
     p.add_argument('--replacement',action='store_true')
+    p.add_argument('--state-probe',action='store_true',help='stop after real runtime state comparison')
     p.add_argument('--renamed-codex',action='store_true',help='exercise native Codex symlink with a nonstandard target basename')
     for name in ('binary','herdr','magpie','codex'): p.add_argument('--'+name,required=True)
     p.add_argument('--onboarding',choices=['local','managed','external'],default='local')
@@ -205,6 +206,22 @@ def main():
         assert 'routing group' in run([binary,'models','--instance','managed','--json']).stdout, 'real group label missing'
         (root/'connections-before.json').write_text(json.dumps(saved,indent=2))
         print('PASS three interactive UI-created Codex sessions, separate Magpie providers and native connection',flush=True)
+        upstream=json.loads(run([wrapper,'agent','list']).stdout)['result']['agents']
+        observed=json.loads(run([binary,'sessions','--json']).stdout)
+        comparisons=[]
+        for rec in records():
+            row=next(x for x in upstream if x['pane_id']==rec['herdr_pane'])
+            view=next(x for x in observed if x['id']==rec['id'])
+            assert view['runtime']['associated'], 'live owned client is unassociated'
+            assert view['runtime']['activity']==row['agent_status'], 'Harbor activity differs from Herdr'
+            assert view['runtime']['terminal_id']==row['terminal_id']
+            detail=json.loads(run([binary,'show',rec['id']]).stdout)
+            assert detail['runtime']['activity']==view['runtime']['activity']
+            comparisons.append({'client':rec['cli'],'herdr':row['agent_status'],'harbor':view['runtime']['activity']})
+        (root/'runtime-comparison.json').write_text(json.dumps(comparisons,indent=2))
+        print('PASS real Herdr agent.list matches Harbor CLI list/show for three native clients',flush=True)
+        if a.state_probe:return 0
+
         # Exit each CLI through Harbor's stop review and restart both Harbor and
         # its gateway. Conversation records must remain exact.
         # A server restart while CLIs are live exercises Herdr's actual shell

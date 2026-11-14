@@ -15,6 +15,7 @@ from fixture_negative_ui import exercise as negative_ui
 
 def main():
     p=argparse.ArgumentParser()
+    p.add_argument('--full-state',action='store_true',help='include unmanaged client and live refresh in full acceptance')
     p.add_argument('--replacement',action='store_true')
     p.add_argument('--live-state-probe',action='store_true',help='exercise automatic popup refresh and reconnect')
     p.add_argument('--state-probe',action='store_true',help='stop after real runtime state comparison')
@@ -67,9 +68,9 @@ def main():
         class RecordingHandler(handler):
             def do_POST(self):
                 raw=self.rfile.read(int(self.headers.get('Content-Length','0')))
-                if b'AH_LIVE_STATUS' in raw:time.sleep(4)
+                if evidence(raw)['current']==['AH_LIVE_STATUS']:time.sleep(4)
                 self.rfile=io.BytesIO(raw)
-                marks=[m for m in ('AH_LOCAL_FIRST','AH_LOCAL_SECOND','AH_RELAY_B','AH_RESUME_B','AH_LOCAL_C','AH_RESUME_C') if m.encode() in raw]
+                marks=[m for m in ('AH_LOCAL_FIRST','AH_LOCAL_SECOND','AH_RELAY_B','AH_RESUME_B','AH_LOCAL_C','AH_RESUME_C','AH_EXTERNAL_STATUS','AH_LIVE_STATUS') if m.encode() in raw]
                 event=evidence(raw)
                 event['session']=self.headers.get('session-id','')
                 self.server.journal.append(event)
@@ -222,7 +223,27 @@ def main():
             comparisons.append({'client':rec['cli'],'herdr':row['agent_status'],'harbor':view['runtime']['activity']})
         (root/'runtime-comparison.json').write_text(json.dumps(comparisons,indent=2))
         print('PASS real Herdr agent.list matches Harbor CLI list/show for three native clients',flush=True)
-        if a.live_state_probe:
+        external_session_id=None
+        if a.full_state:
+            previous={x['pane_id'] for x in json.loads(run([wrapper,'pane','list']).stdout)['result']['panes']}
+            run([wrapper,'pane','split',three['herdr_pane'],'--direction','down','--focus','--cwd',root/'project'])
+            manual=next(x['pane_id'] for x in json.loads(run([wrapper,'pane','list']).stdout)['result']['panes'] if x['pane_id'] not in previous)
+            run([wrapper,'pane','run',manual,'codex --no-daemon -c check_for_update_on_startup=false'])
+            screen('Ask Codex');turn('AH_EXTERNAL_STATUS',native)
+            def external_ready():
+                views=json.loads(run([binary,'sessions','--json']).stdout)
+                return next((x for x in views if x.get('external') and x['herdr_pane']==manual and x['runtime'].get('observed_reference')),None)
+            extview=wait(external_ready,'manual external client in authoritative runtime')
+            external_session_id=extview['runtime']['observed_reference']['value']
+            assert extview['mode']=='unknown' and len(records())==3,'external client adopted'
+            assert run([binary,'rename',extview['id'],'forbidden'],check=False).returncode!=0
+            focus_result=run([binary,'focus',extview['id']],check=False)
+            assert focus_result.returncode==0,focus_result.stdout+focus_result.stderr+json.dumps(extview['runtime'])
+            upstream_external=next(x for x in json.loads(run([wrapper,'agent','list']).stdout)['result']['agents'] if x['pane_id']==manual)
+            assert extview['runtime']['activity']==upstream_external['agent_status']
+            run([wrapper,'agent','focus',three['herdr_pane']])
+            print('PASS ordinary terminal manually launched external Codex is observable, focusable and read-only',flush=True)
+        if a.live_state_probe or a.full_state:
             popup();key('/');text('UI-Native');key('Tab');screen('Idle')
             run([wrapper,'agent','prompt',three['herdr_pane'],'AH_LIVE_STATUS'])
             started_refresh=time.monotonic()
@@ -234,12 +255,12 @@ def main():
             sockpath.rename(offline)
             try:wait(lambda:'discovery unavailable' in capture(),'automatic disconnect unknown',timeout=4)
             finally:offline.rename(sockpath)
-            wait(lambda:'discovery unavailable' not in capture() and ('Idle' in capture() or 'Done' in capture()),'automatic reconnect',timeout=4)
+            wait(lambda:'discovery unavailable' not in capture() and ('Idle' in capture() or 'Done' in capture()),'automatic reconnect',timeout=6)
             assert 'UI-Native' in capture(),'refresh lost search or selection'
             (root/'live-state.json').write_text(json.dumps({'working_delay_seconds':working_delay,'reconnected':True}))
             key('q')
             print('PASS automatic real-client working/completion and owned socket disconnect/reconnect with selection retained',flush=True)
-        if a.state_probe or a.live_state_probe:return 0
+        if (a.state_probe or a.live_state_probe) and not a.full_state:return 0
 
         # Exit each CLI through Harbor's stop review and restart both Harbor and
         # its gateway. Conversation records must remain exact.
@@ -254,6 +275,11 @@ def main():
         key('Escape');key('c');screen('Close previous idle shell');key('Enter');time.sleep(.5)
         if 'HARBOR' in capture():key('q')
         print('PASS restored idle shell review, cancellation and explicit close',flush=True)
+        for ended_name in ['UI-B','UI-Native']:
+            popup();key('/');text(ended_name);key('Tab');key('c');screen('Close previous idle shell');key('Enter');time.sleep(.5)
+            if 'HARBOR' in capture():key('q')
+        print('PASS explicit restored-shell end evidence for all three original runs',flush=True)
+
         if a.replacement:
             assert not any(r['running'] for r in json.loads(run([binary,'sessions','--json']).stdout)), 'restart silently recovered a client'
             for rec in records():
@@ -370,7 +396,7 @@ def main():
         if 'HARBOR' in capture():key('q')
         assert sum(e['kind']=='auxiliary-title' for relay in servers for e in relay.journal)>0, 'no real auxiliary request exercised'
         for label,relay,name in [('A',relay_a,'UI-A'),('B',relay_b,'UI-B'),('C',native,'UI-Native')]:
-            assert all(e['session']==saved[name][0] for e in relay.journal if e['kind']=='main'), 'main request thread differs from recorded conversation'
+            assert all(e['session'] in ({saved[name][0],external_session_id} if label=='C' else {saved[name][0]}) for e in relay.journal if e['kind']=='main'), 'main request thread differs from recorded conversation'
             (root/('requests-'+label+'.json')).write_text(json.dumps(relay.journal,indent=2))
             assert not any(e['kind']=='unclassified' and e['history'] for e in relay.journal), 'marked request could not be classified'
         print('PASS structured main/auxiliary classification and main markers absent from wrong upstreams',flush=True)

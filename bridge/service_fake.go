@@ -1,6 +1,9 @@
 package main
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 // UI tests can seed results and inspect calls without starting any process.
 // This fake is intentionally independent of disk, HTTP and the production store.
@@ -43,7 +46,7 @@ func (f *fakeApplicationService) Create(d sessionDraft) (session, error) {
 		return session{}, err
 	}
 	s := session{ID: "0123456789abcdef0123456789abcdef", Name: d.Name, WorkingDirectory: d.Directory, Mode: d.Connection, MagpieModel: d.Model, InstanceID: d.Instance}
-	f.Sessions = append(f.Sessions, sessionView{session: s, Status: "Not started"})
+	f.Sessions = append(f.Sessions, sessionView{session: s, Status: "Not started", Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}})
 	return s, nil
 }
 func (f *fakeApplicationService) Start(a sessionApproval) error {
@@ -148,4 +151,13 @@ func (f *fakeApplicationService) ClosePreviousPane(p previousPane) error {
 
 func (f *fakeApplicationService) Reassociate(a sessionApproval, r herdrIdentity, reason string) error {
 	return f.call("reassociate")
+}
+
+func (f *fakeApplicationService) FocusObserved(v sessionView) error { return f.Focus(v.ID) }
+func (f *fakeApplicationService) RenameObserved(v sessionView, name string) error {
+	return f.Rename(v.ID, name)
+}
+
+func (f *fakeApplicationService) GetContext(ctx context.Context, id string) (sessionView, error) {
+	return f.Get(id)
 }

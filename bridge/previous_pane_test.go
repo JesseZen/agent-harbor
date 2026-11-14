@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -27,6 +28,21 @@ func TestPreviousPaneReviewRefusesForegroundWorkAndChangedReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer listener.Close()
+	go func() {
+		for {
+			c, e := listener.Accept()
+			if e != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				var req any
+				json.NewDecoder(c).Decode(&req)
+				json.NewEncoder(c).Encode(map[string]any{"result": map[string]any{"agents": []any{}}})
+			}()
+		}
+	}()
+
 	s := session{Version: 2, ID: "0123456789abcdef0123456789abcdef", Name: "API", HerdrPane: "w1:p2", HerdrTab: "w1:t2", HerdrSocket: socket, HerdrSocketIdentity: "previous-server", Started: true}
 	if err := withSessions(func([]session) ([]session, error) { return []session{s}, nil }); err != nil {
 		t.Fatal(err)
@@ -38,7 +54,7 @@ func TestPreviousPaneReviewRefusesForegroundWorkAndChangedReview(t *testing.T) {
 	}
 	stub := `#!/bin/sh
 case "$3 $4" in
- 'pane get') printf '%s\n' '{"result":{"pane":{"pane_id":"w1:p2","tab_id":"w1:t2"}}}' ;;
+ 'pane get') printf '%s\n' '{"result":{"pane":{"pane_id":"w1:p2","tab_id":"w1:t2","terminal_id":"term-original"}}}' ;;
  'pane process-info') cat '` + process + `' ;;
  'tab list') printf '%s\n' '{"result":{"tabs":[{"tab_id":"w1:t2","label":"API"}]}}' ;;
  'session list') printf '%s\n' '{"sessions":[{"name":"agent-harbor","running":true}]}' ;;
@@ -81,5 +97,13 @@ esac
 	}
 	if _, err := os.Stat(filepath.Join(root, "closed")); err != nil {
 		t.Fatal(err)
+	}
+	ended, err := getSession(s.ID)
+	if err != nil || ended.Ended == nil || ended.Ended.Source != "herdr.reviewed_idle_shell" {
+		t.Fatal("approved idle shell did not preserve ended evidence", ended, err)
+	}
+	view, err := h.Get(s.ID)
+	if err != nil || view.Runtime.Presence != "confirmed_exit" {
+		t.Fatal("approved end not visible through service", view, err)
 	}
 }

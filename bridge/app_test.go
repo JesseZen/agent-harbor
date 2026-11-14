@@ -9,6 +9,11 @@ import (
 )
 
 func appKey(m tea.Model, key string) tea.Model {
+	if h, ok := m.(harborModel); ok {
+		if f, ok := h.service.(*fakeApplicationService); ok && f.Sessions == nil {
+			f.Sessions = append([]sessionView{}, h.sessions...)
+		}
+	}
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 	switch key {
 	case "enter":
@@ -30,7 +35,7 @@ func appKey(m tea.Model, key string) tea.Model {
 }
 func TestHarborSessionsAtPracticalSizes(t *testing.T) {
 	for _, size := range [][2]int{{60, 20}, {100, 30}, {160, 45}} {
-		f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "Harbor API", WorkingDirectory: "/projects/harbor", CLI: "codex", Mode: "magpie", MagpieModel: "relay-a/test-model"}, Status: "Needs attention", Reason: "gateway offline"}}}
+		f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "Harbor API", WorkingDirectory: "/projects/harbor", CLI: "codex", Mode: "magpie", MagpieModel: "relay-a/test-model"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}, Status: "Needs attention", Reason: "gateway offline"}}}
 		m := newHarborModel(f)
 		var model tea.Model = m
 		model, _ = model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
@@ -61,7 +66,7 @@ func TestHarborSessionsAtPracticalSizes(t *testing.T) {
 
 func TestHarborStopAndRemoveRequireReview(t *testing.T) {
 	for _, action := range []struct{ key, call, note string }{{"s", "stop one", "conversation stays resumable"}, {"x", "remove one", "Codex history is kept"}} {
-		f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", WorkingDirectory: "/projects/api", Mode: "local"}, Status: "Running"}}}
+		f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", WorkingDirectory: "/projects/api", Mode: "local"}, Runtime: runtimeObservation{Presence: "observed", Activity: "working"}, Status: "Running"}}}
 		m := newHarborModel(f)
 		var model tea.Model = m
 		model, _ = model.Update(m.Init()())
@@ -145,7 +150,7 @@ func TestHarborResumeShowsServiceRefusals(t *testing.T) {
 	for _, size := range [][2]int{{60, 20}, {100, 30}, {160, 45}} {
 
 		for _, reason := range []string{"directory missing", "instance changed", "identity unknown", "model missing", "gateway offline", "ID ambiguous", "conversation open elsewhere"} {
-			f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", Started: true, WorkingDirectory: "/projects/api", Mode: "local", CodexSessionID: "01912345-6789-7abc-8def-0123456789ab"}, Status: "Exited"}}}
+			f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", Started: true, WorkingDirectory: "/projects/api", Mode: "local", CodexSessionID: "01912345-6789-7abc-8def-0123456789ab"}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Exited"}}}
 			m := newHarborModel(f)
 			var model tea.Model = m
 			model, _ = model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
@@ -165,7 +170,7 @@ func TestHarborResumeShowsServiceRefusals(t *testing.T) {
 }
 
 func TestHarborLongRefusalIsReadable(t *testing.T) {
-	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", Started: true}, Status: "Exited"}}}
+	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", Started: true}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Exited"}}}
 	m := newHarborModel(f)
 	var model tea.Model = m
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
@@ -270,7 +275,7 @@ func TestHarborMagpieWarningCanBeReadAndCancelReturns(t *testing.T) {
 }
 
 func TestHarborRouteBelongsToSelectedSession(t *testing.T) {
-	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "a", Name: "A", Mode: "magpie"}}, {session: session{ID: "b", Name: "B", Mode: "magpie"}}}, Route: observedRoute{Observed: true, Main: "PROVIDER_A"}}
+	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "a", Name: "A", Mode: "magpie"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}, {session: session{ID: "b", Name: "B", Mode: "magpie"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}, Route: observedRoute{Observed: true, Main: "PROVIDER_A"}}
 	m := newHarborModel(f)
 	var model tea.Model = m
 	model, _ = model.Update(m.Init()())
@@ -286,7 +291,7 @@ func TestHarborRouteBelongsToSelectedSession(t *testing.T) {
 }
 
 func TestHarborBusyIgnoresEscapeAndNewActions(t *testing.T) {
-	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "a", Name: "A"}}}}
+	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "a", Name: "A"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}}
 	m := newHarborModel(f)
 	var model tea.Model = m
 	model, _ = model.Update(m.Init()())
@@ -343,7 +348,7 @@ func TestHarborCancelledCatalogResponseCannotReplaceNewInstance(t *testing.T) {
 }
 
 func TestHarborFocusesLiveSessionDespiteConnectionWarning(t *testing.T) {
-	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "a", Name: "A"}, Running: true, Status: "Needs attention", Reason: "gateway offline"}}}
+	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "a", Name: "A"}, Runtime: runtimeObservation{Presence: "observed", Activity: "working"}, Running: true, Status: "Needs attention", Reason: "gateway offline"}}}
 	m := newHarborModel(f)
 	var model tea.Model = m
 	model, _ = model.Update(m.Init()())
@@ -447,7 +452,7 @@ func TestHarborInstanceDetailsFitAndScroll(t *testing.T) {
 }
 
 func TestHarborMagpieStartsAtSelectedSessionsInstance(t *testing.T) {
-	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Mode: "magpie", InstanceID: "b"}}}, Reports: []instanceReport{{magpieInstance: magpieInstance{ID: "a", Name: "Alpha"}, Health: instanceVerified}, {magpieInstance: magpieInstance{ID: "b", Name: "Beta"}, Health: instanceVerified}}}
+	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Mode: "magpie", InstanceID: "b"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}, Reports: []instanceReport{{magpieInstance: magpieInstance{ID: "a", Name: "Alpha"}, Health: instanceVerified}, {magpieInstance: magpieInstance{ID: "b", Name: "Beta"}, Health: instanceVerified}}}
 	m := newHarborModel(f)
 	var model tea.Model = m
 	model, _ = model.Update(m.Init()())
@@ -516,7 +521,7 @@ func TestHarborSelectsRecentProjectWithoutTyping(t *testing.T) {
 }
 
 func TestHarborDetailsSeparateMainAuxiliaryAndIdentityEvidence(t *testing.T) {
-	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "a", Name: "API", Mode: "magpie", MagpieModel: "selected-group", HerdrAgentName: "harbor-api", ConversationIDSource: "captured", Candidates: []candidateEvidence{{ID: "candidate-one", Directory: "/projects/api"}}}}}, Route: observedRoute{Observed: true, Main: routeRecord{Model: "provider-a/model-a", Kind: "main", Tries: []routeAttempt{{Model: "provider-a/model-a", Status: 200}}}, Auxiliary: []any{routeRecord{Model: "provider-b/title", Kind: "title"}}}}
+	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "a", Name: "API", Mode: "magpie", MagpieModel: "selected-group", HerdrAgentName: "harbor-api", ConversationIDSource: "captured", Candidates: []candidateEvidence{{ID: "candidate-one", Directory: "/projects/api"}}}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}, Route: observedRoute{Observed: true, Main: routeRecord{Model: "provider-a/model-a", Kind: "main", Tries: []routeAttempt{{Model: "provider-a/model-a", Status: 200}}}, Auxiliary: []any{routeRecord{Model: "provider-b/title", Kind: "title"}}}}
 	m := newHarborModel(f)
 	m.height = 100
 	var model tea.Model = m
@@ -593,7 +598,7 @@ func TestMagpiePopupUsesVerifiedCurrentPaneContext(t *testing.T) {
 }
 
 func TestPreviousShellCloseRequiresReviewAndCancelDoesNotClose(t *testing.T) {
-	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "Previous API", HerdrPane: "w1:p2"}, Status: "Exited"}}}
+	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "Previous API", HerdrPane: "w1:p2"}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Exited"}}}
 	m := newHarborModel(f)
 	var model tea.Model = m
 	model, _ = model.Update(m.Init()())
@@ -616,7 +621,7 @@ func TestPreviousShellCloseRequiresReviewAndCancelDoesNotClose(t *testing.T) {
 }
 
 func TestRetiredHistoryShortcutExplainsNativeTools(t *testing.T) {
-	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API"}, Status: "Exited"}}}
+	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API"}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Exited"}}}
 	m := newHarborModel(f)
 	var model tea.Model = m
 	model, _ = model.Update(m.Init()())
@@ -633,7 +638,7 @@ func TestRetiredHistoryShortcutExplainsNativeTools(t *testing.T) {
 
 func TestDeletionReviewAndManagementRefusalAtPracticalSizes(t *testing.T) {
 	for _, size := range [][2]int{{60, 20}, {100, 30}, {160, 45}} {
-		f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", CodexSessionID: "01912345-6789-7abc-8def-0123456789ab"}}}, Reports: []instanceReport{{magpieInstance: magpieInstance{ID: "external", Name: "External"}, Health: instanceUnknown, Detail: "configuration identity unknown"}}}
+		f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", CodexSessionID: "01912345-6789-7abc-8def-0123456789ab"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}, Reports: []instanceReport{{magpieInstance: magpieInstance{ID: "external", Name: "External"}, Health: instanceUnknown, Detail: "configuration identity unknown"}}}
 		m := newHarborModel(f)
 		var model tea.Model = m
 		model, _ = model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
@@ -782,7 +787,7 @@ func TestEveryHarborScreenFitsPracticalSizes(t *testing.T) {
 func TestSessionConfirmationsAtThreeSizes(t *testing.T) {
 	for _, size := range [][2]int{{60, 20}, {100, 30}, {160, 45}} {
 		for _, action := range []struct{ key, call, note string }{{"s", "stop one", "conversation stays resumable"}, {"x", "remove one", "Codex history is kept"}} {
-			f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", WorkingDirectory: "/project", CLI: "codex"}}}}
+			f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", WorkingDirectory: "/project", CLI: "codex"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}}
 			m := newHarborModel(f)
 			var model tea.Model = m
 			model, _ = model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})

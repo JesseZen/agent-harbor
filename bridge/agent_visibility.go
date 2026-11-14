@@ -10,21 +10,23 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 )
 
 type runtimeObservation struct {
-	SnapshotAt       time.Time `json:"snapshot_at"`
-	Instance         string    `json:"instance,omitempty"`
-	Activity         string    `json:"activity"`
-	Presence         string    `json:"presence"`
-	Source           string    `json:"source"`
-	ObservedAt       time.Time `json:"observed_at"`
-	Workspace        string    `json:"workspace_id,omitempty"`
-	Terminal         string    `json:"terminal_id,omitempty"`
-	LaunchPending    bool      `json:"launch_pending"`
-	InteractiveReady bool      `json:"interactive_ready"`
-	Associated       bool      `json:"associated"`
+	Reference        *herdrIdentity `json:"observed_reference,omitempty"`
+	SnapshotAt       time.Time      `json:"snapshot_at"`
+	Instance         string         `json:"instance,omitempty"`
+	Activity         string         `json:"activity"`
+	Presence         string         `json:"presence"`
+	Source           string         `json:"source"`
+	ObservedAt       time.Time      `json:"observed_at"`
+	Workspace        string         `json:"workspace_id,omitempty"`
+	Terminal         string         `json:"terminal_id,omitempty"`
+	LaunchPending    bool           `json:"launch_pending"`
+	InteractiveReady bool           `json:"interactive_ready"`
+	Associated       bool           `json:"associated"`
 }
 
 type herdrAgent struct {
@@ -114,6 +116,15 @@ func unknownRuntime(s session) runtimeObservation {
 		r.Source = "harbor.runner.history"
 		r.ObservedAt = *s.LastExitAt
 	}
+	var ref *herdrIdentity
+	if s.Conversation != nil {
+		ref = &s.Conversation.Reference
+	}
+	if e := s.Ended; e != nil && e.Source == "herdr.reviewed_idle_shell" && reflect.DeepEqual(e.StartedAt, s.LastStartedAt) && reflect.DeepEqual(e.Reference, ref) && (s.LastStartedAt != nil || e.RunToken == s.RunToken) && !processGroupActive(s.ProcessGroup) && r.Presence != "historical_exit" {
+		r.Presence = "confirmed_exit"
+		r.Source = e.Source
+		r.ObservedAt = e.At
+	}
 	return r
 }
 
@@ -124,7 +135,7 @@ func agentObservation(a herdrAgent, at time.Time, associated bool) runtimeObserv
 	default:
 		activity = "unknown"
 	}
-	return runtimeObservation{Activity: activity, Presence: "observed", Source: "herdr.agent.list", ObservedAt: at, Workspace: a.Workspace, Terminal: a.Terminal, LaunchPending: a.LaunchPending, InteractiveReady: a.InteractiveReady, Associated: associated}
+	return runtimeObservation{Reference: a.Reference, Activity: activity, Presence: "observed", Source: "herdr.agent.list", ObservedAt: at, Workspace: a.Workspace, Terminal: a.Terminal, LaunchPending: a.LaunchPending, InteractiveReady: a.InteractiveReady, Associated: associated}
 }
 
 func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, error) {
@@ -150,6 +161,13 @@ func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, 
 	if result.Agents == nil || identity == "" || socketIdentity(socket) != identity {
 		return views, errors.New(agentDiscoveryWarning)
 	}
+	unique := map[string]bool{}
+	for _, agent := range *result.Agents {
+		if agent.Pane == "" || unique[agent.Pane] {
+			return views, errors.New(agentDiscoveryWarning)
+		}
+		unique[agent.Pane] = true
+	}
 	at := time.Now().UTC()
 	for i := range views {
 		views[i].Runtime.SnapshotAt = at
@@ -167,7 +185,7 @@ func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, 
 			// A pane number alone can be reused. Fresh official conversation evidence
 			// must agree with this run before attaching its connection intent.
 			c := v.Conversation
-			if v.HerdrSocket == socket && v.HerdrSocketIdentity == identity && v.HerdrPane == agent.Pane && v.HerdrTab == agent.Tab && v.CLI == agent.Client && v.RunToken != "" && c != nil && c.RunToken == v.RunToken && c.SocketIdentity == identity && c.Pane == agent.Pane && agent.Reference != nil && c.Reference == *agent.Reference && agent.Terminal != "" && agent.Workspace != "" && processGroupActive(v.ProcessGroup) {
+			if v.HerdrSocket == socket && v.HerdrSocketIdentity == identity && v.HerdrPane == agent.Pane && v.HerdrTab == agent.Tab && v.CLI == agent.Client && v.RunToken != "" && c != nil && c.Status == "observed" && c.RunToken == v.RunToken && c.SocketIdentity == identity && c.Pane == agent.Pane && agent.Reference != nil && c.Reference == *agent.Reference && agent.Terminal != "" && agent.Workspace != "" && processGroupActive(v.ProcessGroup) {
 				v.Runtime = agentObservation(agent, at, true)
 				v.Runtime.SnapshotAt = at
 				v.Runtime.Instance = identity

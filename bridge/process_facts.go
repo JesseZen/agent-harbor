@@ -38,7 +38,7 @@ func (f processFacts) startedAt() time.Time {
 	return started.UTC()
 }
 
-var keptProcessVariables = []string{"HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "MAGPIE_ADDR", "APPIMAGE", "APPDIR", "AH_MANAGED_STARTED_AT", "AH_SESSION_RUN_TOKEN"}
+var keptProcessVariables = []string{"HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "MAGPIE_ADDR", "APPIMAGE", "APPDIR", "AH_MANAGED_STARTED_AT", "AH_SESSION_RUN_TOKEN", "AGENT_HARBOR_BRIDGE_SESSION", "HERDR_PANE_ID", "HERDR_SOCKET_PATH"}
 
 // selectProcessVariables keeps only the variables Harbor reasons from.
 func selectProcessVariables(environ []string) map[string]string {

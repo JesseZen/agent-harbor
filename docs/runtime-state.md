@@ -12,7 +12,7 @@ live agent, not process termination. Launch pending is shown as Starting;
 interactive readiness is independent of activity.
 
 `runtime.presence` is `observed`, `not_observed`, `not_started` or
-`historical_exit`. A runner's saved exit has source `harbor.runner.history` and
+`historical_exit` or explicitly reviewed `confirmed_exit`. A runner's saved exit has source `harbor.runner.history` and
 its recorded time; it is not a current Herdr observation. Absence from a successful
 list does not prove exit. Discovery errors preserve recorded sessions, mark
 activity unknown, and expose `discovery_warning`; an empty list reports the
@@ -20,7 +20,7 @@ error directly. Observation timestamps apply to the response, not client work.
 
 A runtime attaches to a record only when workspace socket instance, pane, tab,
 client and the official conversation reference agree with the current run's
-stored evidence. Terminal/workspace IDs must be available. Process liveness is
+stored, observed evidence. Initial unverified evidence cannot associate live intent. Terminal/workspace IDs must be available. Process liveness is
 an additional ownership safeguard, never an activity source. Insufficient
 association leaves the record unassociated and the live agent unmanaged.
 External agents never acquire the record's connection or conversation intent.
@@ -46,3 +46,34 @@ Reconnect retries automatically. Health checks run in one bounded background
 worker with a ten-second cache so they cannot delay activity or keyboard input.
 Search, forms and review intent survive refreshes. A vanished selection requires
 an explicit new selection before any action.
+
+Before entering recovery review, Harbor re-reads the selected record and runtime.
+Confirmations retain their observed instance, workspace, terminal and reference;
+changes invalidate approval. Focus rechecks the same target, including done.
+An observed agent whose activity is unknown may still be focused after its target
+identity is established. Unknown activity never authorizes launch or recovery.
+Launch requires a never-started record or a recorded exit and a reachable workspace,
+then repeats existing directory, connection, conversation, ownership and duplicate
+checks at execution. A matching conversation observed in an unmanaged terminal
+also prevents duplicate recovery. External agents remain read-only.
+
+The supported Herdr agent action target is a pane ID or assigned agent name,
+not its returned terminal ID. Harbor compares terminal identity before sending
+the supported target. Herdr does not offer an identity-conditioned action
+transaction; the observation and action are separate public requests.
+
+After an abrupt workspace shutdown, absence alone can leave the previous run
+unconfirmed. Inspect its restored idle shell with `c`; confirming the existing
+close review records `confirmed_exit` evidence with source
+`herdr.reviewed_idle_shell`. That review rechecks socket, terminal, tab, label,
+shell process and approved record before closing. The evidence belongs to the
+reviewed run and reference; a later start invalidates it. It is a historical,
+explicit review decision, not a live activity observation. Normal runner exit
+bookkeeping remains `historical_exit`. Both still require fresh workspace and
+full recovery preflight before execution.
+
+For isolated real runtime acceptance, run `tests/app_acceptance.py` with
+`--full-state --replacement --renamed-codex`, the candidate executables, a native
+Codex binary, and the built Herdr MCP entry point. It exercises a manually
+started external client alongside the three owned connections, live refresh,
+owned-socket disconnect/reconnect and explicit restored-shell end review.

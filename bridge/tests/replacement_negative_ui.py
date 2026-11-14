@@ -44,7 +44,8 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
     try:
         duplicate=copy.deepcopy(next(r for r in original if r['name']=='UI-A'))
         duplicate.update(id='replacement-known-duplicate',name='Known duplicate fixture',process_group=sleeper.pid)
-        record_file.write_text(json.dumps(original+[duplicate]));expected_running=1
+        # This process is a safety fixture, not an observed Herdr agent.
+        record_file.write_text(json.dumps(original+[duplicate]));expected_running=0
         refusal('UI-A','still running in another session')
     finally:
         record_file.write_text(json.dumps(original));os.killpg(sleeper.pid,signal.SIGTERM);sleeper.wait();expected_running=0

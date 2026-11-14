@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -10,6 +11,10 @@ import (
 )
 
 type appRefreshTick struct{}
+type appSessionInspected struct {
+	expected, current sessionView
+	err               error
+}
 
 type appContextReady struct {
 	id  string
@@ -51,54 +56,55 @@ type harborModel struct {
 	selectionMissing bool
 	discoveryNotice  string
 
-	settings         *settingsModel
-	mouse            mouseClick
-	mouseListScreen  string
-	mouseListStart   int
-	detailScroll     int
-	picker           directoryPicker
-	previousPane     previousPane
-	directoryChoices []string
-	directoryCursor  int
-	scroll           int
-	generation       uint64
-	listGeneration   uint64
-	routeSessionID   string
-	service          applicationService
-	width, height    int
-	sessions         []sessionView
-	cursor           int
-	searchFocus      string
-	filter           string
-	input            textinput.Model
-	screen           string
-	previous         string
-	action           string
-	reviewed         session
-	notice           string
-	noticeID         uint64
-	noticeTransient  bool
-	errorReturn      string
-	noticeCanStart   bool
-	route            observedRoute
-	environment      appEnvironment
-	formActive       bool
-	formFocus        int
-	formSaved        sessionDraft
-	creating         bool
-	draft            sessionDraft
-	reports          []instanceReport
-	instanceCursor   int
-	instanceID       string
-	contextInstance  string
-	newInstances     []instanceReport
-	instanceFilter   string
-	models           []catalogModel
-	catalogFilter    string
-	catalogCursor    int
-	connectionCursor int
-	clientCursor     int
-	queryAccepted    bool
+	settings            *settingsModel
+	mouse               mouseClick
+	mouseListScreen     string
+	mouseListStart      int
+	detailScroll        int
+	picker              directoryPicker
+	previousPane        previousPane
+	directoryChoices    []string
+	directoryCursor     int
+	scroll              int
+	generation          uint64
+	listGeneration      uint64
+	routeSessionID      string
+	service             applicationService
+	width, height       int
+	sessions            []sessionView
+	cursor              int
+	searchFocus         string
+	filter              string
+	input               textinput.Model
+	screen              string
+	previous            string
+	action              string
+	reviewed            session
+	reviewedObservation *runtimeObservation
+	notice              string
+	noticeID            uint64
+	noticeTransient     bool
+	errorReturn         string
+	noticeCanStart      bool
+	route               observedRoute
+	environment         appEnvironment
+	formActive          bool
+	formFocus           int
+	formSaved           sessionDraft
+	creating            bool
+	draft               sessionDraft
+	reports             []instanceReport
+	instanceCursor      int
+	instanceID          string
+	contextInstance     string
+	newInstances        []instanceReport
+	instanceFilter      string
+	models              []catalogModel
+	catalogFilter       string
+	catalogCursor       int
+	connectionCursor    int
+	clientCursor        int
+	queryAccepted       bool
 }
 
 func newHarborModel(s applicationService) harborModel {
@@ -288,6 +294,45 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.refreshTimer()
 		}
 		return m, nil
+	case appSessionInspected:
+		if m.refreshContext.Err() != nil || m.screen != "busy" {
+			return m, nil
+		}
+		for _, row := range m.sessions {
+			if row.ID == msg.expected.ID && !sameRuntimeTarget(row.Runtime, msg.current.Runtime) {
+				msg.err = errors.New("runtime changed during inspection; refresh and review")
+			}
+		}
+		if msg.err != nil || !sameSession(msg.expected.session, msg.current.session) || !sameRuntimeTarget(msg.expected.Runtime, msg.current.Runtime) {
+			m.screen = "sessions"
+			m.notice = "Target changed or is unavailable; refresh and review again."
+			if msg.err != nil {
+				m.notice = msg.err.Error()
+			}
+			return m, nil
+		}
+		s := msg.current
+		if s.Runtime.Presence == "observed" {
+			return m, func() tea.Msg { return appOpened{m.service.FocusObserved(s)} }
+		}
+		m.screen = "sessions"
+		if s.Runtime.Presence != "not_started" && s.Runtime.Presence != "historical_exit" && s.Runtime.Presence != "confirmed_exit" {
+			m.notice = "Runtime unknown or not confirmed ended; use c to inspect a restored shell, then review recovery."
+			return m, nil
+		}
+		m.reviewed = s.session
+		observation := s.Runtime
+		m.reviewedObservation = &observation
+		m.action = "resume"
+		m.queryAccepted = false
+		if s.Conversation != nil {
+			m.action = "query-resume"
+		}
+		if !s.Started {
+			m.action = "start"
+		}
+		m.screen = "confirm"
+		return m, nil
 	case appResult:
 		m.screen = "sessions"
 		m.notice = "Action completed"
@@ -455,6 +500,12 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		key := msg.String()
+		if key == "ctrl+c" {
+			if m.cancelRefresh != nil {
+				m.cancelRefresh()
+			}
+			return m, tea.Quit
+		}
 		if m.screen == "busy" || m.screen == "magpie-busy" {
 			return m, nil
 		}
@@ -475,12 +526,6 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = "error"
 			m.scroll = 0
 			return m, nil
-		}
-		if key == "ctrl+c" {
-			if m.cancelRefresh != nil {
-				m.cancelRefresh()
-			}
-			return m, tea.Quit
 		}
 		if m.screen == "error" || m.screen == "detail" || m.screen == "magpie-detail" || m.screen == "new-instance-detail" {
 			if key == "esc" {
@@ -631,8 +676,12 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.screen = "sessions"
 					return m, nil
 				}
-				id, name := m.reviewed.ID, m.input.Value()
-				return m, func() tea.Msg { return appResult{m.service.Rename(id, name)} }
+				name := m.input.Value()
+				reviewed := sessionView{session: m.reviewed}
+				if m.reviewedObservation != nil {
+					reviewed.Runtime = *m.reviewedObservation
+				}
+				return m, func() tea.Msg { return appResult{m.service.RenameObserved(reviewed, name)} }
 			}
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
@@ -661,7 +710,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if key != "enter" {
 				return m, nil
 			}
-			a := sessionApproval{Session: m.reviewed, Confirmed: true, DevelopmentQuery: m.action == "query-resume", QueryUncertaintyAccepted: m.queryAccepted}
+			a := sessionApproval{Session: m.reviewed, Observation: m.reviewedObservation, Confirmed: true, DevelopmentQuery: m.action == "query-resume", QueryUncertaintyAccepted: m.queryAccepted}
 			action := m.action
 			m.screen = "busy"
 			return m, func() tea.Msg {
@@ -738,6 +787,8 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch key {
 			case "d":
 				m.reviewed = s.session
+				observation := s.Runtime
+				m.reviewedObservation = &observation
 				m.screen = "delete-history"
 				m.scroll = 0
 				m.notice = ""
@@ -753,31 +804,27 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, func() tea.Msg { r, e := m.service.ObservedRoute(id); return appRoute{id, r, e} }
 			case "e":
 				m.reviewed = s.session
+				observation := s.Runtime
+				m.reviewedObservation = &observation
 				m.screen = "rename"
 				m.input.SetValue(s.Name)
 				m.input.Focus()
 			case "s", "x":
 				m.reviewed = s.session
+				observation := s.Runtime
+				m.reviewedObservation = &observation
 				m.action = "stop"
 				if key == "x" {
 					m.action = "remove"
 				}
 				m.screen = "confirm"
 			case "enter":
-				if s.Running || s.Status == "Running" {
-					id := s.ID
-					return m, func() tea.Msg { return appOpened{m.service.Focus(id)} }
+				m.screen = "busy"
+				return m, func() tea.Msg {
+					v, e := m.service.GetContext(m.refreshContext, s.ID)
+					return appSessionInspected{expected: s, current: v, err: e}
 				}
-				m.reviewed = s.session
-				m.action = "resume"
-				m.queryAccepted = false
-				if s.Conversation != nil {
-					m.action = "query-resume"
-				}
-				if !s.Started {
-					m.action = "start"
-				}
-				m.screen = "confirm"
+
 			}
 		}
 	}

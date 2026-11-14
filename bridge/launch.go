@@ -123,6 +123,9 @@ func launchWithPlan(s session, kind launchKind, overrideReason string, query *re
 	if err := checkSession(s, kind, overrideReason); err != nil {
 		return err
 	}
+	if err := validateLaunchState(s); err != nil {
+		return err
+	}
 	if err := beginRun(s, kind, plan); err != nil {
 		return err
 	}
@@ -151,6 +154,7 @@ func launchWithPlan(s session, kind launchKind, overrideReason string, query *re
 			if all[i].ID == s.ID && all[i].RunToken == plan.Token {
 				now := time.Now().UTC()
 				all[i].ProcessGroup = cmd.Process.Pid
+				all[i].RunnerPID = os.Getpid()
 				all[i].LastStartedAt = &now
 				all[i].CLIVersion = version
 				all[i].HerdrPane = os.Getenv("HERDR_PANE_ID")

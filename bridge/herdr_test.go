@@ -216,6 +216,21 @@ func TestLaunchedSessionReportsConnectionToOwnedHerdrPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer listener.Close()
+	go func() {
+		for {
+			c, e := listener.Accept()
+			if e != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				var req any
+				json.NewDecoder(c).Decode(&req)
+				json.NewEncoder(c).Encode(map[string]any{"result": map[string]any{"agents": []any{}}})
+			}()
+		}
+	}()
+
 	herdr := filepath.Join(b.root, "bin", "herdr")
 	stub := `#!/bin/sh
 case "$*" in

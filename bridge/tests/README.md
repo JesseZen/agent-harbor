@@ -43,3 +43,15 @@ copied native Codex (updates disabled), three terminal sizes, configuration
 save/reload, all three shortcut remaps including directCtrl, reentry and restart.
 Uses the same owned discovery guard and full state isolation as mouse_popup.py.
 Settings transaction failure/rollback/recovery tests live in settings_test.go.
+
+For authoritative runtime state acceptance, run the isolated application gate:
+
+```
+python3 bridge/tests/app_acceptance.py --full-state --replacement --renamed-codex --binary HARBOR --herdr HERDR --magpie MAGPIE --codex NATIVE_CODEX --mcp HERDR_MCP_DIST_INDEX_JS
+```
+
+This adds a manually started external Codex, compares public Herdr observations
+with CLI list/show, checks live activity and socket disconnect/reconnect while the
+popup stays open, and reviews restored shells before exact recovery. Use the
+locally patched development candidate described in `docs/herdr-integration.md`;
+this is not evidence of official upstream acceptance or release.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -16,6 +17,7 @@ type previousPane struct {
 	SocketIdentity       string
 	ShellPID             int
 	PaneID, TabID, Label string
+	TerminalID           string
 }
 
 func previousPaneCommand(s session, args ...string) ([]byte, error) {
@@ -67,13 +69,14 @@ func (harborService) PreviousPane(s session) (previousPane, error) {
 	var info struct {
 		Result struct {
 			Pane struct {
-				ID    string  `json:"pane_id"`
-				Tab   string  `json:"tab_id"`
-				Agent *string `json:"agent"`
+				ID       string  `json:"pane_id"`
+				Terminal string  `json:"terminal_id"`
+				Tab      string  `json:"tab_id"`
+				Agent    *string `json:"agent"`
 			} `json:"pane"`
 		}
 	}
-	if json.Unmarshal(out, &info) != nil || info.Result.Pane.ID != s.HerdrPane || info.Result.Pane.Tab != s.HerdrTab || info.Result.Pane.Agent != nil {
+	if json.Unmarshal(out, &info) != nil || info.Result.Pane.ID != s.HerdrPane || info.Result.Pane.Tab != s.HerdrTab || info.Result.Pane.Agent != nil || info.Result.Pane.Terminal == "" {
 		return result, errors.New("previous pane cannot be verified as an idle shell")
 	}
 	out, err = previousPaneCommand(s, "tab", "list")
@@ -91,6 +94,7 @@ func (harborService) PreviousPane(s session) (previousPane, error) {
 	if json.Unmarshal(out, &tabs) != nil {
 		return result, errors.New("previous tab cannot be verified")
 	}
+	result.TerminalID = info.Result.Pane.Terminal
 	matched := false
 	for _, t := range tabs.Result.Tabs {
 		if t.ID == s.HerdrTab && t.Label == s.Name {
@@ -144,5 +148,75 @@ func (h harborService) ClosePreviousPane(review previousPane) error {
 	// currently inspected socket, rather than the socket from the original run.
 	target := review.Session
 	target.HerdrSocketIdentity = review.SocketIdentity
-	return sessionHerdr(target, "pane", "close", review.PaneID)
+	if err := sessionHerdr(target, "pane", "close", review.PaneID); err != nil {
+		return err
+	}
+	return withSessions(func(all []session) ([]session, error) {
+		for i := range all {
+			if all[i].ID != review.Session.ID {
+				continue
+			}
+			s := &all[i]
+			if !sameSession(*s, review.Session) {
+				return nil, errors.New("shell closed, but record changed; inspect recovery evidence")
+			}
+			var ref *herdrIdentity
+			if s.Conversation != nil {
+				copy := s.Conversation.Reference
+				ref = &copy
+			}
+			s.Ended = &endedEvidence{Source: "herdr.reviewed_idle_shell", At: time.Now().UTC(), StartedAt: s.LastStartedAt, Reference: ref, RunToken: s.RunToken, SocketIdentity: review.SocketIdentity, Pane: review.PaneID}
+			return all, nil
+		}
+		return nil, errors.New("shell closed, but record disappeared")
+	})
+}
+
+// A native client can leave Harbor's own error prompt in the pane after its
+// exit was recorded. Close only that exact runner, established from the public
+// foreground PID plus its executable and managed session context.
+func closeFinishedRunner(s session) error {
+	if s.RunnerPID < 2 || s.ProcessGroup != 0 || s.LastExitAt == nil {
+		return errors.New("finished runner evidence unavailable")
+	}
+	out, err := previousPaneCommand(s, "pane", "process-info", "--pane", s.HerdrPane)
+	if err != nil {
+		return err
+	}
+	var response struct {
+		Result struct {
+			Process struct {
+				Pane       string `json:"pane_id"`
+				Foreground []struct {
+					PID int `json:"pid"`
+				} `json:"foreground_processes"`
+			} `json:"process_info"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(out, &response) != nil || response.Result.Process.Pane != s.HerdrPane || len(response.Result.Process.Foreground) != 1 || response.Result.Process.Foreground[0].PID != s.RunnerPID {
+		return errors.New("pane has other foreground work")
+	}
+	facts, err := readProcessFacts(s.RunnerPID)
+	if err != nil {
+		return err
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return err
+	}
+	if facts.Executable != executable || facts.Variables["AGENT_HARBOR_BRIDGE_SESSION"] != s.ID || facts.Variables["HERDR_PANE_ID"] != s.HerdrPane || facts.Variables["HERDR_SOCKET_PATH"] != s.HerdrSocket {
+		return errors.New("foreground runner ownership is unproven")
+	}
+	current, err := getSession(s.ID)
+	if err != nil {
+		return err
+	}
+	if !sameSession(current, s) {
+		return errors.New("record changed before runner close")
+	}
+	return sessionHerdr(s, "pane", "close", s.HerdrPane)
 }

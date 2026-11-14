@@ -63,6 +63,25 @@ func renameSession(id, name string) error {
 	})
 }
 
+func renameSessionReviewed(expected session, name string) error {
+	if err := validateSessionName(name); err != nil {
+		return err
+	}
+	return withSessions(func(all []session) ([]session, error) {
+		for i := range all {
+			if all[i].ID == expected.ID {
+				if !sameSession(all[i], expected) {
+					return nil, errors.New("session changed; review again")
+				}
+				all[i].Name = strings.TrimSpace(name)
+				all[i].HerdrAgentName = agentName(name, expected.ID)
+				return all, nil
+			}
+		}
+		return nil, errors.New("session not found")
+	})
+}
+
 func removeSession(expected session) error {
 	return changeSessionRecord(expected.ID, func(s session) (*session, error) {
 		if !sameSession(s, expected) {
@@ -85,7 +104,8 @@ func recordCommand(args []string) error {
 	if len(args) != 2 {
 		return errors.New("usage: remove SESSION_ID")
 	}
-	s, err := getSession(args[1])
+	view, err := appService.Get(args[1])
+	s := view.session
 	if err != nil {
 		return err
 	}
@@ -94,7 +114,7 @@ func recordCommand(args []string) error {
 	if _, err := fmt.Scanln(&reply); err != nil || reply != "yes" {
 		return errors.New("removal cancelled")
 	}
-	return appService.Remove(sessionApproval{Session: s, Confirmed: true})
+	return appService.Remove(sessionApproval{Session: s, Observation: &view.Runtime, Confirmed: true})
 }
 
 // Herdr requires unique ASCII agent handles of at most 32 characters.

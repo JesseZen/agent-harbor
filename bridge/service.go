@@ -24,6 +24,7 @@ type sessionView struct {
 }
 type sessionDraft struct{ Directory, Name, Connection, Instance, Model, Client string }
 type sessionApproval struct {
+	Observation              *runtimeObservation
 	Session                  session
 	DevelopmentQuery         bool
 	QueryUncertaintyAccepted bool
@@ -54,6 +55,7 @@ type applicationService interface {
 	Open(sessionApproval) error
 	List() ([]sessionView, error)
 	Get(string) (sessionView, error)
+	GetContext(context.Context, string) (sessionView, error)
 	Draft(sessionDraft) (sessionDraft, error)
 	Create(sessionDraft) (session, error)
 	Start(sessionApproval) error
@@ -63,6 +65,8 @@ type applicationService interface {
 	Remove(sessionApproval) error
 	DeleteHistory(sessionApproval, string) error
 	Focus(string) error
+	FocusObserved(sessionView) error
+	RenameObserved(sessionView, string) error
 	ObservedRoute(string) (observedRoute, error)
 	Instances() ([]magpieInstance, error)
 	Catalog(string) ([]catalogModel, error)
@@ -75,53 +79,26 @@ type harborService struct{}
 var appService applicationService = harborService{}
 
 func deriveSession(s session) sessionView {
-	v := sessionView{session: s, WriterLockCheck: "unavailable for this recorded CLI version"}
-	v.WriterLockCheck = "not inspected; explicitly review external writer uncertainty"
-	if !processGroupActive(s.ProcessGroup) && s.Conversation == nil && (s.Started || s.CodexSessionID != "" || len(s.Reassociations) > 0) {
-		v.Status = "Needs attention"
+	v := sessionView{session: s, WriterLockCheck: "not inspected; explicitly review external writer uncertainty"}
+	if s.Conversation == nil && (s.Started || s.CodexSessionID != "" || len(s.Reassociations) > 0) {
 		v.Reason = "Legacy conversation needs review: unassociated; inspect Herdr identity and use reassociate SESSION_ID REFERENCE_JSON REVIEW_REASON, then explicitly approve query recovery."
 		return v
 	}
-	if processGroupActive(s.ProcessGroup) {
-		v.Running = true
-		v.Status = "Running"
-		// Inspect connection/directory health without treating this session's
-		// own live group as an attempted concurrent resume.
-		inspect := s
-		inspect.ProcessGroup = 0
-		if err := checkSession(inspect, newConversation, ""); err != nil {
-			v.Status = "Needs attention"
-			v.Reason = err.Error()
-		}
-		return v
-	}
-	if sessionLaunchPending(s) {
-		v.Status = "Starting"
-		return v
-	}
+	inspect := s
+	inspect.ProcessGroup = 0
 	kind := newConversation
-	if s.Started || s.CodexSessionID != "" {
+	if s.Started {
 		kind = resumeConversation
 	}
-	if err := checkSession(s, kind, ""); err != nil {
-		v.Status = "Needs attention"
+	if err := checkSession(inspect, kind, ""); err != nil {
 		v.Reason = err.Error()
-		return v
 	}
-	if s.Started && s.Recovery != "ready" {
-		v.Status = "Needs attention"
+	if v.Reason == "" && s.Started && s.Recovery != "ready" {
 		v.Reason = "session identity and directory need verification"
-		return v
-	}
-	if !s.Started {
-		v.Status = "Not started"
-	} else if s.LastStartedAt == nil && s.LastExitAt == nil && s.RunToken != "" {
-		v.Status = "Starting"
-	} else {
-		v.Status = "Exited"
 	}
 	return v
 }
+
 func (h harborService) List() ([]sessionView, error) { return h.list(context.Background(), false) }
 func (h harborService) ListContext(ctx context.Context) ([]sessionView, error) {
 	return h.list(ctx, true)
@@ -169,8 +146,14 @@ func (harborService) list(ctx context.Context, backgroundHealth bool) ([]session
 	}
 	return views, nil
 }
-func (harborService) Get(id string) (sessionView, error) {
-	views, err := (harborService{}).List()
+func (h harborService) Get(id string) (sessionView, error) {
+	return h.get(context.Background(), id, false)
+}
+func (h harborService) GetContext(ctx context.Context, id string) (sessionView, error) {
+	return h.get(ctx, id, true)
+}
+func (h harborService) get(ctx context.Context, id string, cached bool) (sessionView, error) {
+	views, err := h.list(ctx, cached)
 	if err != nil {
 		return sessionView{}, err
 	}
@@ -249,6 +232,9 @@ func (harborService) Start(a sessionApproval) error {
 	if !a.Confirmed {
 		return errors.New("start cancelled")
 	}
+	if err := validateApprovalRuntime(a); err != nil {
+		return err
+	}
 	if a.Session.CodexSessionID != "" || a.Session.Conversation != nil || len(a.Session.Reassociations) > 0 {
 		return errors.New("existing conversation intent; use reassociate to review legacy identity, then resume")
 	}
@@ -258,34 +244,45 @@ func (harborService) Resume(a sessionApproval) error {
 	if !a.Confirmed {
 		return errors.New("recovery cancelled")
 	}
+	if err := validateApprovalRuntime(a); err != nil {
+		return err
+	}
 	if a.DevelopmentQuery || a.Session.Conversation != nil && a.Session.Conversation.Provenance == "reviewed-compatibility" {
 		return launchQuery(a)
 	}
 	return launchReviewed(a.Session, resumeConversation, a.OverrideReason)
 }
-func (harborService) Rename(id, name string) error {
-	if err := renameSession(id, name); err != nil {
-		return err
-	}
-	s, err := getSession(id)
+func (h harborService) Rename(id, name string) error {
+	v, _, err := currentRuntime(id)
 	if err != nil {
 		return err
 	}
-	if s.HerdrTab != "" {
-		if err := sessionHerdr(s, "tab", "rename", s.HerdrTab, name); err != nil {
-			return fmt.Errorf("name saved; Herdr tab was not renamed: %w", err)
-		}
-	}
-	if s.HerdrPane != "" && processGroupActive(s.ProcessGroup) {
-		if err := sessionHerdr(s, "agent", "rename", s.HerdrPane, s.HerdrAgentName); err != nil {
-			return fmt.Errorf("name saved; Herdr agent name could not be updated: %w", err)
-		}
-	}
-	return nil
+	return h.RenameObserved(v, name)
 }
+func (h harborService) RenameObserved(expected sessionView, name string) error {
+	if err := validateApprovalRuntime(sessionApproval{Session: expected.session, Observation: &expected.Runtime}); err != nil {
+		return err
+	}
+	if err := renameSessionReviewed(expected.session, name); err != nil {
+		return err
+	}
+	if expected.Runtime.Presence != "observed" || !expected.Runtime.Associated {
+		return nil
+	}
+	// The public agent target accepts pane IDs; the terminal identity was checked above.
+	var result map[string]any
+	if err := agentRPC(expected.HerdrSocket, "agent.rename", map[string]any{"target": expected.HerdrPane, "name": agentName(name, expected.ID)}, &result); err != nil {
+		return err
+	}
+	return agentRPC(expected.HerdrSocket, "tab.rename", map[string]any{"tab_id": expected.HerdrTab, "label": name}, &result)
+}
+
 func (harborService) Remove(a sessionApproval) error {
 	if !a.Confirmed {
 		return errors.New("removal cancelled")
+	}
+	if err := validateApprovalRuntime(a); err != nil {
+		return err
 	}
 	return removeSession(a.Session)
 }
@@ -312,6 +309,9 @@ func (harborService) Catalog(id string) ([]catalogModel, error) {
 func (harborService) Stop(a sessionApproval) error {
 	if !a.Confirmed {
 		return errors.New("stop cancelled; the conversation stays resumable")
+	}
+	if err := validateApprovalRuntime(a); err != nil {
+		return err
 	}
 	s, err := getSession(a.Session.ID)
 	if err != nil {
@@ -366,33 +366,28 @@ func (harborService) Stop(a sessionApproval) error {
 			}
 			time.Sleep(25 * time.Millisecond)
 		}
-		return sessionHerdr(s, "pane", "close", s.HerdrPane)
-	}
-	return nil
-}
-func (harborService) Focus(id string) error {
-	if strings.HasPrefix(id, "external:") {
-		v, err := (harborService{}).Get(id)
+		current, err := getSession(s.ID)
 		if err != nil {
 			return err
 		}
-		if socketIdentity(v.HerdrSocket) != v.HerdrSocketIdentity {
-			return errors.New("workspace changed; refresh")
+		h := harborService{}
+		review, err := h.PreviousPane(current)
+		if err != nil {
+			if closeErr := closeFinishedRunner(current); closeErr == nil {
+				return nil
+			}
+			return fmt.Errorf("client stopped; pane retained for review: %w", err)
 		}
-		var result map[string]any
-		return agentRPC(v.HerdrSocket, "agent.focus", map[string]any{"target": v.HerdrPane}, &result)
+		return h.ClosePreviousPane(review)
 	}
-	s, err := getSession(id)
+	return nil
+}
+func (h harborService) Focus(id string) error {
+	v, _, err := currentRuntime(id)
 	if err != nil {
 		return err
 	}
-	if !processGroupActive(s.ProcessGroup) {
-		return errors.New("session is not running; choose resume instead")
-	}
-	if s.HerdrTab == "" {
-		return errors.New("this session has no recorded Herdr tab")
-	}
-	return sessionHerdr(s, "tab", "focus", s.HerdrTab)
+	return h.FocusObserved(v)
 }
 
 // Commands require the managed workspace paths, never an arbitrary ambient

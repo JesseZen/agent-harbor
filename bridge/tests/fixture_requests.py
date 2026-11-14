@@ -1,6 +1,6 @@
 """Record only synthetic marker evidence, with explicit request classification."""
 import json,re
-MARKERS=('AH_LOCAL_FIRST','AH_LOCAL_SECOND','AH_RELAY_B','AH_RESUME_B','AH_LOCAL_C','AH_RESUME_C','AH_MCP_PROBE')
+MARKERS=('AH_LOCAL_FIRST','AH_LOCAL_SECOND','AH_RELAY_B','AH_RESUME_B','AH_LOCAL_C','AH_RESUME_C','AH_MCP_PROBE','AH_EXTERNAL_STATUS','AH_LIVE_STATUS')
 
 def evidence(raw):
     body=json.loads(raw)

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestMagpieCatalogPreservesExactModelAndGroupIDs(t *testing.T) {
@@ -59,7 +60,8 @@ func TestMagpieRecoveryPinsConnectionAndRejectsMissingModel(t *testing.T) {
 	b.sessions() // initialize owned state
 	const id = "0123456789abcdef0123456789abcdef"
 	const codexID = "01912345-6789-7abc-8def-0123456789ab"
-	record := []session{{ID: id, WorkingDirectory: b.project, CLI: "codex", Mode: "magpie", MagpieURL: server.URL, MagpieModel: "relay/model", CodexSessionID: codexID, Recovery: "ready", Started: true}}
+	ended := time.Now().UTC()
+	record := []session{{LastExitAt: &ended, ID: id, WorkingDirectory: b.project, CLI: "codex", Mode: "magpie", MagpieURL: server.URL, MagpieModel: "relay/model", CodexSessionID: codexID, Recovery: "ready", Started: true}}
 	data, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)

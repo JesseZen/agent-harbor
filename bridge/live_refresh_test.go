@@ -162,3 +162,70 @@ func TestRuntimeQueryCancellationClosesSocketRead(t *testing.T) {
 		t.Fatal("connection remained open")
 	}
 }
+
+func TestVanishedSelectionCanBeExplicitlySelectedAgain(t *testing.T) {
+	m := newHarborModel(&fakeApplicationService{})
+	m.sessions = []sessionView{{session: session{ID: "old"}}, {session: session{ID: "next"}}}
+	next, _ := m.Update(appLoaded{sessions: []sessionView{m.sessions[1]}})
+	m = next.(harborModel)
+	if _, ok := m.selected(); ok {
+		t.Fatal("vanished target inherited another row")
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(harborModel)
+	if s, ok := m.selected(); !ok || s.ID != "next" {
+		t.Fatal("explicit selection could not recover", s, ok)
+	}
+}
+
+func TestVanishedSelectionCanBeReplacedByExplicitClick(t *testing.T) {
+	m := newHarborModel(&fakeApplicationService{})
+	m.sessions = []sessionView{{session: session{ID: "old"}}, {session: session{ID: "next"}}}
+	next, _ := m.Update(appLoaded{sessions: []sessionView{m.sessions[1]}})
+	m = next.(harborModel)
+	next, _ = m.Update(tea.MouseMsg{X: 2, Y: 6, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	m = next.(harborModel)
+	if s, ok := m.selected(); !ok || s.ID != "next" {
+		t.Fatal("explicit click could not choose current row", s, ok)
+	}
+}
+
+type cancelInspectionService struct {
+	fakeApplicationService
+	entered, exited chan struct{}
+}
+
+func (s *cancelInspectionService) GetContext(ctx context.Context, id string) (sessionView, error) {
+	close(s.entered)
+	<-ctx.Done()
+	close(s.exited)
+	return sessionView{}, ctx.Err()
+}
+func TestEnterInspectionCanBeCancelled(t *testing.T) {
+	f := &cancelInspectionService{entered: make(chan struct{}), exited: make(chan struct{})}
+	m := newHarborModel(f)
+	m.sessions = []sessionView{{session: session{ID: "a"}, Runtime: runtimeObservation{Presence: "observed"}}}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(harborModel)
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+	select {
+	case <-f.entered:
+	case <-time.After(time.Second):
+		t.Fatal("inspection did not use cancellable service")
+	}
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = next.(harborModel)
+	if cmd == nil {
+		t.Fatal("busy inspection ignored exit")
+	}
+	select {
+	case <-f.exited:
+	case <-time.After(time.Second):
+		t.Fatal("inspection read not cancelled")
+	}
+	next, cmd = m.Update(<-done)
+	if cmd != nil || next.(harborModel).screen != "busy" {
+		t.Fatal("late cancelled inspection changed intent")
+	}
+}

@@ -142,7 +142,7 @@ func run(args []string) error {
 		if s.Started {
 			return errors.New("session was already started; use explicit recovery")
 		}
-		return appService.Start(sessionApproval{Session: s, Confirmed: true})
+		return appService.Start(sessionApproval{Session: s, Observation: &view.Runtime, Confirmed: true})
 	case "help", "--help", "-h":
 		fmt.Println("agent-harbor-bridge: open, stop, settings, settings-recover, create, start, sessions, show, bind, verify, reassociate, resume, stop-session, rename, remove, focus, route, new, models, magpie")
 		fmt.Println("  magpie status|bind|start|stop|manage|web|use  verified Magpie instances")

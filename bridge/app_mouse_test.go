@@ -12,12 +12,18 @@ import (
 )
 
 func mouseAt(m harborModel, x, y int, at time.Time) harborModel {
-	n, _ := m.updateMouse(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, at)
+	if f, ok := m.service.(*fakeApplicationService); ok && f.Sessions == nil {
+		f.Sessions = append([]sessionView{}, m.sessions...)
+	}
+	n, cmd := m.updateMouse(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, at)
+	for cmd != nil {
+		n, cmd = n.Update(cmd())
+	}
 	return n.(harborModel)
 }
 func TestMouseDoubleClickSafety(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
-	m.sessions = []sessionView{{session: session{ID: "a", Name: "中文 🚢", Mode: "local"}}}
+	m.sessions = []sessionView{{session: session{ID: "a", Name: "中文 🚢", Mode: "local"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}
 	at := time.Now()
 	for _, tc := range []struct {
 		name    string
@@ -83,7 +89,7 @@ func TestMouseFormAndBounds(t *testing.T) {
 	}
 	m := newHarborModel(&fakeApplicationService{})
 	m.width = 160
-	m.sessions = []sessionView{{session: session{ID: "a", Name: "one"}}}
+	m.sessions = []sessionView{{session: session{ID: "a", Name: "one"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}
 	n, _ := m.updateMouse(tea.MouseMsg{X: 80, Y: 8, Button: tea.MouseButtonWheelDown}, time.Now())
 	if n.(harborModel).detailScroll != 1 || n.(harborModel).cursor != 0 {
 		t.Fatal("detail wheel scope")
@@ -119,7 +125,7 @@ func TestMouseVisual(t *testing.T) {
 		form = appKey(form, "enter").(harborModel)
 		list := newHarborModel(&fakeApplicationService{})
 		list.width, list.height = size[0], size[1]
-		list.sessions = []sessionView{{session: session{ID: "a", Name: "Harbor API", CLI: "codex", Mode: "magpie", WorkingDirectory: "/projects/harbor", MagpieModel: "route-a"}, Status: "Stopped"}, {session: session{ID: "b", Name: "中文 🚢 Review", CLI: "codex", Mode: "local", WorkingDirectory: "/projects/docs"}, Status: "Stopped"}}
+		list.sessions = []sessionView{{session: session{ID: "a", Name: "Harbor API", CLI: "codex", Mode: "magpie", WorkingDirectory: "/projects/harbor", MagpieModel: "route-a"}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Stopped"}, {session: session{ID: "b", Name: "中文 🚢 Review", CLI: "codex", Mode: "local", WorkingDirectory: "/projects/docs"}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Stopped"}}
 		list = mouseAt(list, 3, 9, time.Now())
 		for _, plain := range []bool{false, true} {
 			os.Unsetenv("NO_COLOR")
@@ -135,7 +141,7 @@ func TestMouseVisual(t *testing.T) {
 
 func TestMouseUnselectedAndRepaint(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
-	m.sessions = []sessionView{{session: session{ID: "first", Name: "First"}}, {session: session{ID: "second", Name: "Second 🚢"}}}
+	m.sessions = []sessionView{{session: session{ID: "first", Name: "First"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}, {session: session{ID: "second", Name: "Second 🚢"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}
 	at := time.Now()
 	lines := strings.Split(m.View(), "\n")
 	y := -1
@@ -158,7 +164,7 @@ func TestMouseUnselectedAndRepaint(t *testing.T) {
 	}
 	m = appKey(m, "esc").(harborModel)
 	m = mouseAt(m, 3, y, at)
-	next, _ := m.Update(appLoaded{sessions: []sessionView{{session: session{ID: "third", Name: "Replacement"}}}})
+	next, _ := m.Update(appLoaded{sessions: []sessionView{{session: session{ID: "third", Name: "Replacement"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}})
 	if next.(harborModel).mouse.id != "" {
 		t.Fatal("async replacement retained history")
 	}
@@ -167,7 +173,7 @@ func TestMouseUnselectedAndRepaint(t *testing.T) {
 func TestMouseShortPopupVisibleCells(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	m.width, m.height = 45, 12
-	m.sessions = []sessionView{{session: session{ID: "a", Name: "Visible"}}}
+	m.sessions = []sessionView{{session: session{ID: "a", Name: "Visible"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}
 	at := time.Now()
 	m = mouseAt(m, 3, 6, at)
 	if m.mouse.id != "a" {
@@ -240,7 +246,7 @@ func TestMouseEveryFormControl(t *testing.T) {
 }
 func TestMouseDetailScrollSelectionParity(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
-	m.sessions = []sessionView{{session: session{ID: "a"}}, {session: session{ID: "b"}}}
+	m.sessions = []sessionView{{session: session{ID: "a"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}, {session: session{ID: "b"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}
 	m.detailScroll = 4
 	n := appKey(m, "down").(harborModel)
 	if n.detailScroll != 0 {
@@ -258,7 +264,7 @@ func TestMouseScrolledSelectionStaysUnderPointer(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	m.height = 30
 	for i := 0; i < 20; i++ {
-		m.sessions = append(m.sessions, sessionView{session: session{ID: fmt.Sprint(i), Name: fmt.Sprintf("Row %02d", i)}})
+		m.sessions = append(m.sessions, sessionView{session: session{ID: fmt.Sprint(i), Name: fmt.Sprintf("Row %02d", i)}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}})
 	}
 	m.cursor = 10
 	lines := strings.Split(m.View(), "\n")

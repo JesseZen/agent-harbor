@@ -80,7 +80,7 @@ func resumeCommand(args []string) error {
 	if *query && os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") != "codex" && os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") != "session" {
 		return openQueryPane(s, *override)
 	}
-	return appService.Resume(sessionApproval{Session: s, Confirmed: true, OverrideReason: *override, DevelopmentQuery: *query, QueryUncertaintyAccepted: *query})
+	return appService.Resume(sessionApproval{Session: s, Observation: &view.Runtime, Confirmed: true, OverrideReason: *override, DevelopmentQuery: *query, QueryUncertaintyAccepted: *query})
 }
 func stopSessionCommand(args []string) error {
 	if len(args) != 1 {
@@ -95,5 +95,5 @@ func stopSessionCommand(args []string) error {
 	if _, err := fmt.Scanln(&reply); err != nil || reply != "yes" {
 		return errors.New("stop cancelled")
 	}
-	return appService.Stop(sessionApproval{Session: view.session, Confirmed: true})
+	return appService.Stop(sessionApproval{Session: view.session, Observation: &view.Runtime, Confirmed: true})
 }

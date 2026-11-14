@@ -24,7 +24,20 @@ type candidateEvidence struct {
 	LastSeen  time.Time `json:"last_seen"`
 }
 
+type endedEvidence struct {
+	Source         string         `json:"source"`
+	At             time.Time      `json:"at"`
+	StartedAt      *time.Time     `json:"started_at,omitempty"`
+	Reference      *herdrIdentity `json:"reference,omitempty"`
+	RunToken       string         `json:"run_token,omitempty"`
+	SocketIdentity string         `json:"socket_identity"`
+	Pane           string         `json:"pane"`
+}
+
 type session struct {
+	RunnerPID int            `json:"runner_pid,omitempty"`
+	Ended     *endedEvidence `json:"ended_evidence,omitempty"`
+
 	Reassociations []reassociationDecision `json:"reassociations,omitempty"`
 	Conversation   *conversationEvidence   `json:"conversation,omitempty"`
 

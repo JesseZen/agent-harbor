@@ -103,6 +103,14 @@ func TestOwnedActivityKeepsHealthAndAbsenceSeparate(t *testing.T) {
 	if !strings.Contains(newHarborModel(h).details(v), "Idle") || !strings.Contains(newHarborModel(h).details(v), "Needs attention") {
 		t.Fatal("UI hid activity or health")
 	}
+	s.Conversation.Status = "initial_unverified"
+	withSessions(func([]session) ([]session, error) { return []session{s}, nil })
+	v, err = h.Get("owned")
+	if err != nil || v.Runtime.Associated || v.Runtime.Activity != "unknown" {
+		t.Fatalf("unverified initial identity attached live intent: %+v %v", v, err)
+	}
+	s.Conversation.Status = "observed"
+	withSessions(func([]session) ([]session, error) { return []session{s}, nil })
 	present.Store(false)
 	v, err = h.Get("owned")
 	if err != nil || v.Runtime.Presence != "not_observed" || v.Running {

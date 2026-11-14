@@ -52,7 +52,7 @@ func TestNeutralRecoveryRequiresSeparateUncertaintyAcceptance(t *testing.T) {
 	m, _ := formFixture()
 	m.formActive = false
 	m.screen = "sessions"
-	m.sessions = []sessionView{{session: session{ID: "neutral", CLI: "future-kind", Started: true, Conversation: &conversationEvidence{Reference: herdrIdentity{Agent: "future-kind", Kind: "path", Value: "/opaque/conversation"}}}}}
+	m.sessions = []sessionView{{session: session{ID: "neutral", CLI: "future-kind", Started: true, Conversation: &conversationEvidence{Reference: herdrIdentity{Agent: "future-kind", Kind: "path", Value: "/opaque/conversation"}}}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}}}
 	m = appKey(m, "enter").(harborModel)
 	if !strings.Contains(m.View(), "Query proves syntax only") {
 		t.Fatal(m.View())
@@ -157,7 +157,8 @@ func TestRecoveryConfirmationShowsSavedNeutralReferenceAndApprovesSameRecord(t *
 			m.screen = "sessions"
 			m.width = width
 			m.height = 45
-			m.sessions = []sessionView{{session: original}}
+			m.sessions = []sessionView{{session: original, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}}}
+			f.Sessions = m.sessions
 			m = appKey(m, "enter").(harborModel)
 			view := m.View()
 			for _, want := range []string{"Client", "future-kind", "Reference kind", "path", "/saved/project with spaces/chat.json"} {

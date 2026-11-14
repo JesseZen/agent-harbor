@@ -131,7 +131,7 @@ func TestAgentDiscoveryFailureWithoutRecordsIsExplicit(t *testing.T) {
 }
 
 func TestAgentDiscoveryRejectsMalformedAndOversizedFrames(t *testing.T) {
-	for _, body := range []string{`{"result":{}}`, strings.Repeat(" ", 65537) + `{"result":{"agents":[]}}`} {
+	for _, body := range []string{`{"result":{}}`, `{"result":{"agents":[{"pane_id":"w:p1"},{"pane_id":"w:p1"}]}}`, strings.Repeat(" ", 65537) + `{"result":{"agents":[]}}`} {
 		t.Run(fmt.Sprint(len(body)), func(t *testing.T) {
 			root := visibilityTestRoot(t)
 			os.Chmod(root, 0700)

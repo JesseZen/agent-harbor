@@ -15,7 +15,7 @@ import (
 func searchFixture() harborModel {
 	m := newHarborModel(&fakeApplicationService{})
 	for i, n := range []string{"Harbor 日本語 🚢", "Harbor API", "Other project"} {
-		m.sessions = append(m.sessions, sessionView{session: session{ID: fmt.Sprint(i), Name: n, WorkingDirectory: "/projects/日本語/harbor-api", CLI: "codex", Mode: "local"}, Status: "Exited"})
+		m.sessions = append(m.sessions, sessionView{session: session{ID: fmt.Sprint(i), Name: n, WorkingDirectory: "/projects/日本語/harbor-api", CLI: "codex", Mode: "local"}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Exited"})
 	}
 	m.reports = []instanceReport{{magpieInstance: magpieInstance{ID: "alpha", Name: "Alpha gateway", Kind: "external"}, Health: "offline"}, {magpieInstance: magpieInstance{ID: "beta", Name: "Beta gateway", Kind: "external"}, Health: "verified"}}
 	m.newInstances = m.reports
@@ -38,7 +38,13 @@ func keySearch(m harborModel, k string) harborModel {
 	default:
 		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
 	}
-	n, _ := m.Update(msg)
+	if f, ok := m.service.(*fakeApplicationService); ok && f.Sessions == nil {
+		f.Sessions = append([]sessionView{}, m.sessions...)
+	}
+	n, cmd := m.Update(msg)
+	for cmd != nil {
+		n, cmd = n.Update(cmd())
+	}
 	return n.(harborModel)
 }
 func TestInlineSearchOwnershipAndActions(t *testing.T) {
@@ -232,8 +238,8 @@ func TestSearchLongQueryKeepsCountAndCursor(t *testing.T) {
 func TestQueryEditSelectsBestMatch(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	m.sessions = []sessionView{
-		{session: session{ID: "native", Name: "UI-Native", Mode: "local"}},
-		{session: session{ID: "alpha", Name: "UI-A", Mode: "magpie"}},
+		{session: session{ID: "native", Name: "UI-Native", Mode: "local"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}},
+		{session: session{ID: "alpha", Name: "UI-A", Mode: "magpie"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}},
 	}
 	m = keySearch(m, "/")
 	m = keySearch(m, "UI-A")

@@ -238,6 +238,9 @@ func (m harborModel) updateMouse(msg tea.MouseMsg, now time.Time) (tea.Model, te
 		m.mouse = mouseClick{}
 		return m, nil
 	}
+	if m.screen == "sessions" {
+		m.selectionMissing = false
+	}
 	double := m.mouse.id == r.id && m.mouse.x == msg.X && m.mouse.y == msg.Y && !now.Before(m.mouse.at) && now.Sub(m.mouse.at) <= 350*time.Millisecond
 	// Selecting an already visible row must not move it out from under
 	// the pointer before the second press. View and highlighting share this offset.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -139,16 +140,19 @@ func TestCandidateStopWaitsForFinalExitBookkeeping(t *testing.T) {
 	h := filepath.Join(b.root, "bin", "herdr")
 	os.WriteFile(h, []byte(`#!/bin/sh
 case "$*" in
+ *"tab list"*) cat "$HOME/tab-info.json";;
+ *"pane process-info"*) echo '{"result":{"process_info":{"pane_id":"opaque-pane","shell_pid":321,"foreground_processes":[{"pid":321,"name":"sh"}]}}}';;
+
  *"session list --json"*) echo '{"sessions":[{"name":"agent-harbor","running":true}]}';;
  *"pane close"*)
    if grep -q '"process_group":' "$AGENT_HARBOR_BRIDGE_HOME/sessions.json"; then exit 1; fi
    touch "$HOME/closed";;
- *"pane get"*) sleep .2; echo '{"result":{"pane":{}}}';;
+ *"pane get"*) sleep .2; echo '{"result":{"pane":{"pane_id":"opaque-pane","tab_id":"opaque-tab","terminal_id":"fixture-terminal"}}}';;
  *) echo '{}';;
 esac
 `), 0700)
 	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply\n"), 0700)
-	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h, "AGENT_HARBOR_HERDR_BIN="+h)
+	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_TAB_ID=opaque-tab", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h, "AGENT_HARBOR_HERDR_BIN="+h)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "create", "--dir", b.project)
 	cmd.Env = b.env
 	in, _ := cmd.StdinPipe()
@@ -169,6 +173,8 @@ esac
 	if record.ID == "" {
 		t.Fatal("runner never started")
 	}
+	tabInfo, _ := json.Marshal(map[string]any{"result": map[string]any{"tabs": []map[string]any{{"tab_id": "opaque-tab", "label": record.Name}}}})
+	os.WriteFile(filepath.Join(b.root, "tab-info.json"), tabInfo, 0600)
 	if out, err := b.command("stop-session", record.ID); err != nil {
 		t.Fatal(out, err)
 	}
@@ -259,16 +265,19 @@ func TestCandidateRepeatedOfficialObservationPreservesStopApproval(t *testing.T)
 	h := filepath.Join(b.root, "bin", "herdr")
 	os.WriteFile(h, []byte(`#!/bin/sh
 case "$*" in
+ *"tab list"*) cat "$HOME/tab-info.json";;
+ *"pane process-info"*) echo '{"result":{"process_info":{"pane_id":"opaque-pane","shell_pid":321,"foreground_processes":[{"pid":321,"name":"sh"}]}}}';;
+
  *"session list --json"*) echo '{"sessions":[{"name":"agent-harbor","running":true}]}';;
  *"pane close"*)
    if grep -q '"process_group":' "$AGENT_HARBOR_BRIDGE_HOME/sessions.json"; then exit 1; fi
    touch "$HOME/closed";;
- *"pane get"*) if test -f "$CAPTURE"; then echo '{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"01912345-6789-7abc-8def-0123456789ab"}}}}'; else echo '{"result":{"pane":{}}}'; fi;;
+ *"pane get"*) if test -f "$CAPTURE"; then echo '{"result":{"pane":{"pane_id":"opaque-pane","tab_id":"opaque-tab","terminal_id":"fixture-terminal","agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"01912345-6789-7abc-8def-0123456789ab"}}}}'; else echo '{"result":{"pane":{"pane_id":"opaque-pane","tab_id":"opaque-tab","terminal_id":"fixture-terminal"}}}'; fi;;
  *) echo '{}';;
 esac
 `), 0700)
 	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply\n"), 0700)
-	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h, "AGENT_HARBOR_HERDR_BIN="+h)
+	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_TAB_ID=opaque-tab", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h, "AGENT_HARBOR_HERDR_BIN="+h)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "create", "--dir", b.project)
 	cmd.Env = b.env
 	in, _ := cmd.StdinPipe()
@@ -289,6 +298,8 @@ esac
 	if record.ID == "" {
 		t.Fatal("runner never started")
 	}
+	tabInfo, _ := json.Marshal(map[string]any{"result": map[string]any{"tabs": []map[string]any{{"tab_id": "opaque-tab", "label": record.Name}}}})
+	os.WriteFile(filepath.Join(b.root, "tab-info.json"), tabInfo, 0600)
 	deadline = time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		if v := b.sessions()[0]; v.Conversation != nil && v.Conversation.Status == "observed" {

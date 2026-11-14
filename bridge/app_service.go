@@ -79,6 +79,15 @@ func (harborService) Open(a sessionApproval) error {
 	if !a.Confirmed {
 		return errors.New("launch cancelled")
 	}
+	if a.DevelopmentQuery && !a.QueryUncertaintyAccepted {
+		return errors.New("query proves syntax only; explicitly accept conversation, login and external writer uncertainty")
+	}
+	if err := validateApprovalRuntime(a); err != nil {
+		return err
+	}
+	if err := validateLaunchState(a.Session); err != nil {
+		return err
+	}
 	if a.DevelopmentQuery {
 		if !a.QueryUncertaintyAccepted {
 			return errors.New("query proves syntax only; explicitly accept conversation, login and external writer uncertainty")

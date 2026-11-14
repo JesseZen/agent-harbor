@@ -126,7 +126,8 @@ try:
  rec=records()[0]
  assert rec['cli']=='claude' and rec['conversation']['reference']['agent']=='claude'
  assert rec['codex_session_id']=='' if 'codex_session_id' in rec else True
- runstop=subprocess.run([root/'bin/agent-harbor','stop-session',rec['id']],env=env,input='yes\n',text=True,capture_output=True,check=True)
+ runstop=subprocess.run([root/'bin/agent-harbor','stop-session',rec['id']],env=env,input='yes\n',text=True,capture_output=True,check=False)
+ assert runstop.returncode==0,runstop.stdout+runstop.stderr
  until(lambda:records()[0].get('process_group',0)==0,'exit')
  assert records()[0]['recovery']=='ready'
  script=root/'resume.sh';script.write_text('#!/bin/sh\nprintf "accept\\nyes\\n" | '+shlex.quote(str(root/'bin/agent-harbor'))+' resume --development-query '+rec['id']+'\n');script.chmod(0o700)

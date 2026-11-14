@@ -73,6 +73,10 @@ func TestFutureKindUsesSharedNativeIdentityAndQuery(t *testing.T) {
 						defer c.Close()
 						var request map[string]any
 						json.NewDecoder(c).Decode(&request)
+						if request["method"] == "agent.list" {
+							json.NewEncoder(c).Encode(map[string]any{"result": map[string]any{"agents": []any{}}})
+							return
+						}
 						json.NewEncoder(c).Encode(map[string]any{"result": map[string]any{"integrations": []map[string]any{{"target": ref.Agent, "command": ref.Agent, "available": true, "state": "current"}}}})
 					}()
 				}

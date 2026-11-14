@@ -12,3 +12,4 @@ build/
 .scratch/
 !/AGENTS.md
 /AGENTS.local.md
+/local/

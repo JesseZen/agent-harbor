@@ -1,0 +1,714 @@
+package main
+
+import (
+	"strings"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+type appContextReady struct {
+	id  string
+	err error
+}
+
+type appLoaded struct {
+	generation uint64
+	sessions   []sessionView
+	err        error
+}
+type appNewReady struct {
+	generation  uint64
+	environment appEnvironment
+	err         error
+}
+type appCreated struct {
+	record session
+	err    error
+}
+type appPreviousPane struct {
+	pane previousPane
+	err  error
+}
+type appOpened struct{ err error }
+type appResult struct{ err error }
+type appRoute struct {
+	id    string
+	route observedRoute
+	err   error
+}
+
+// harborModel owns interaction only. All product effects cross the service seam.
+type harborModel struct {
+	settings         *settingsModel
+	mouse            mouseClick
+	mouseListScreen  string
+	mouseListStart   int
+	detailScroll     int
+	picker           directoryPicker
+	previousPane     previousPane
+	directoryChoices []string
+	directoryCursor  int
+	scroll           int
+	generation       uint64
+	listGeneration   uint64
+	routeSessionID   string
+	service          applicationService
+	width, height    int
+	sessions         []sessionView
+	cursor           int
+	searchFocus      string
+	filter           string
+	input            textinput.Model
+	screen           string
+	previous         string
+	action           string
+	reviewed         session
+	notice           string
+	noticeID         uint64
+	noticeTransient  bool
+	errorReturn      string
+	noticeCanStart   bool
+	route            observedRoute
+	environment      appEnvironment
+	formActive       bool
+	formFocus        int
+	formSaved        sessionDraft
+	creating         bool
+	draft            sessionDraft
+	reports          []instanceReport
+	instanceCursor   int
+	instanceID       string
+	contextInstance  string
+	newInstances     []instanceReport
+	instanceFilter   string
+	models           []catalogModel
+	catalogFilter    string
+	catalogCursor    int
+	connectionCursor int
+	clientCursor     int
+	queryAccepted    bool
+}
+
+func newHarborModel(s applicationService) harborModel {
+	input := textinput.New()
+	input.CharLimit = 1024
+	return harborModel{service: s, width: 80, height: 24, input: input, screen: "sessions"}
+}
+func newMagpieModel(s applicationService) harborModel {
+	m := newHarborModel(s)
+	m.screen = "magpie-context-loading"
+	return m
+}
+func (m harborModel) Init() tea.Cmd {
+	if m.screen == "magpie-context-loading" {
+		return func() tea.Msg { id, err := m.service.ManagementContext(); return appContextReady{id, err} }
+	}
+
+	if m.screen == "magpie" {
+		return m.loadInstances()
+	}
+	return m.load()
+}
+func (m harborModel) load() tea.Cmd {
+	return func() tea.Msg {
+		s, e := m.service.List()
+		return appLoaded{sessions: s, err: e, generation: m.listGeneration}
+	}
+}
+func (m harborModel) visible() []sessionView {
+	out := []sessionView{}
+	texts := make([]string, len(m.sessions))
+	for i, s := range m.sessions {
+		texts[i] = s.Name + " " + s.WorkingDirectory + " " + s.MagpieModel
+	}
+	for _, hit := range searchMatches(m.filter, texts) {
+		out = append(out, m.sessions[hit.Index])
+	}
+	return out
+}
+func (m harborModel) selected() (sessionView, bool) {
+	rows := m.visible()
+	if len(rows) == 0 {
+		return sessionView{}, false
+	}
+	return rows[min(m.cursor, len(rows)-1)], true
+}
+func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.settings != nil {
+		next, cmd := m.settings.Update(msg)
+		settings := next.(settingsModel)
+		if settings.closed {
+			m.settings = nil
+			return m, nil
+		}
+		m.settings = &settings
+		return m, cmd
+	}
+	// Help overlays the underlying model; async responses still advance it.
+	if m.screen == "help" {
+		_, key := msg.(tea.KeyMsg)
+		_, resize := msg.(tea.WindowSizeMsg)
+		if !key && !resize {
+			m.screen = m.previous
+			next, cmd := m.Update(msg)
+			underlying := next.(harborModel)
+			underlying.previous = underlying.screen
+			underlying.screen = "help"
+			return underlying, cmd
+		}
+	}
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = max(20, msg.Width)
+		m.height = max(10, msg.Height)
+		return m, nil
+	case directoryPreviewResult:
+		p := &m.picker
+		if m.screen != "new-directory" || msg.generation != p.previewGeneration || msg.path != p.previewPath {
+			return m, nil
+		}
+		rows := p.matches()
+		if len(rows) == 0 || rows[min(p.cursor, len(rows)-1)].path != msg.path {
+			return m, nil
+		}
+		p.preview = msg.text
+		return m, nil
+	case directoryResult:
+		if m.screen != "new-directory" || msg.generation != m.picker.generation {
+			return m, nil
+		}
+		m.picker.entries = msg.entries
+		m.picker.searching = false
+		m.picker.err = msg.err
+		m.picker.truncated = msg.truncated
+		return m, m.requestDirectoryPreview()
+	case appDirectoryValidated:
+		if m.screen != "new-project" || msg.generation != m.generation || msg.path != m.input.Value() {
+			return m, nil
+		}
+		m.notice = "Directory ready. Enter continues."
+		if msg.err != nil {
+			m.notice = msg.err.Error()
+		}
+		return m, nil
+	case appContextReady:
+		if m.screen != "magpie-context-loading" {
+			return m, nil
+		}
+		m.screen = "magpie"
+		m.contextInstance = msg.id
+		if msg.err != nil {
+			m.screen = "magpie-context"
+			m.notice = msg.err.Error() + ". Enter to list instances; Esc returns."
+			return m, nil
+		}
+		return m, m.loadInstances()
+	case appLoaded:
+		if msg.generation != m.listGeneration {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.notice = msg.err.Error()
+		} else {
+			m.sessions = msg.sessions
+			for _, s := range msg.sessions {
+				if s.DiscoveryWarning != "" {
+					m.notice = s.DiscoveryWarning
+					break
+				}
+			}
+			m.cursor = min(m.cursor, max(0, len(m.visible())-1))
+		}
+		return m, nil
+	case appResult:
+		m.screen = "sessions"
+		m.notice = "Action completed"
+		if msg.err != nil {
+			m.notice = msg.err.Error()
+			m.screen = "error"
+		}
+		return m, m.load()
+	case appNewInstances:
+		if msg.generation != m.generation || m.screen != "new-instance-loading" {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.notice = msg.err.Error()
+			m.screen = "new-connection"
+			return m, nil
+		}
+		m.newInstances = msg.instances
+		m.instanceFilter = ""
+		m.instanceCursor = 0
+		for i, r := range m.newInstances {
+			if r.ID == m.environment.DefaultInstance {
+				m.instanceCursor = i
+				break
+			}
+		}
+		m.screen = "new-instance"
+		return m, nil
+	case appCatalog:
+		if msg.generation != m.generation || msg.instance != m.draft.Instance || m.screen != "new-catalog-loading" {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.notice = msg.err.Error()
+			if m.formActive {
+				m.draft = m.formSaved
+				m.screen = "new-form"
+				m.formFocus = 3
+				return m, nil
+			}
+			m.screen = "new-instance"
+			return m, nil
+		}
+		m.models = msg.models
+		m.catalogCursor = 0
+		m.catalogFilter = ""
+		m.screen = "new-catalog"
+		return m, nil
+	case appPreviousPane:
+		if m.screen != "busy" {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.screen = "error"
+			m.notice = msg.err.Error()
+			return m, nil
+		}
+		m.previousPane = msg.pane
+		m.reviewed = msg.pane.Session
+		m.action = "close-previous"
+		m.screen = "confirm"
+		return m, nil
+	case appOpened:
+		if msg.err == nil {
+			return m, tea.Quit
+		}
+		m.notice = msg.err.Error()
+		m.screen = "error"
+		return m, m.load()
+	case appInstances:
+		if msg.generation != m.generation || m.screen != "magpie" {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.notice = msg.err.Error()
+		} else {
+			m.reports = msg.reports
+			if m.contextInstance != "" {
+				id := m.contextInstance
+				m.contextInstance = ""
+				found := false
+				for i, r := range m.reports {
+					if r.ID == id {
+						m.instanceCursor = i
+						found = true
+						break
+					}
+				}
+				if !found {
+					m.notice = "Session instance " + id + " is no longer registered. Enter to choose another instance for management; Esc returns. The session connection stays unchanged."
+					m.screen = "magpie-context"
+					return m, nil
+				}
+			}
+			m.instanceCursor = min(m.instanceCursor, max(0, len(m.instanceRows())-1))
+		}
+		m.screen = "magpie"
+		return m, nil
+	case appMagpieDone:
+		m.screen = "magpie"
+		m.generation++
+		if msg.err != nil {
+			m.notice = msg.err.Error()
+		} else {
+			m.notice = "Magpie action completed"
+		}
+		return m, m.loadInstances()
+	case appNewReady:
+		if msg.generation != m.generation || m.screen != "new-project-loading" {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.notice = msg.err.Error()
+			m.screen = "sessions"
+			return m, nil
+		}
+		m.environment = msg.environment
+		m.draft = sessionDraft{Connection: "local", Directory: msg.environment.Directory}
+		m.formActive = true
+		m.formFocus = 5
+		m.creating = false
+		m.screen = "new-form"
+		m.input.SetValue(msg.environment.Directory)
+		m.input.Focus()
+		return m, nil
+	case appFormCreated:
+		if !m.formActive || !m.creating || msg.generation != m.generation || m.screen != "busy" {
+			return m, nil
+		}
+		return m.update(msg.result)
+	case appCreated:
+		if m.formActive {
+			if !m.creating || m.screen != "busy" {
+				return m, nil
+			}
+			m.creating = false
+			if msg.err != nil {
+				m.screen = "new-form"
+				m.formFocus = 5
+				m.notice = msg.err.Error()
+				return m, nil
+			}
+		}
+		if msg.err != nil {
+			m.notice = msg.err.Error()
+			m.screen = "sessions"
+			return m, m.load()
+		}
+		m.reviewed = msg.record
+		return m, func() tea.Msg {
+			return appOpened{m.service.Open(sessionApproval{Session: msg.record, Confirmed: true})}
+		}
+	case appRoute:
+		s, ok := m.selected()
+		if ok && s.ID == msg.id {
+			m.routeSessionID = msg.id
+			m.route = msg.route
+			if msg.err != nil {
+				m.route = observedRoute{Reason: msg.err.Error()}
+			}
+		}
+		return m, nil
+	case tea.KeyMsg:
+		key := msg.String()
+		if m.screen == "busy" || m.screen == "magpie-busy" {
+			return m, nil
+		}
+		if key == "ctrl+g" {
+			m.notice = ""
+			m.noticeID++
+			if m.screen == "error" {
+				m.screen = m.errorReturn
+				if m.screen == "" {
+					m.screen = "sessions"
+				}
+				m.scroll = 0
+			}
+			return m, nil
+		}
+		if !m.editingText() && key == "!" && m.notice != "" && m.screen != "error" {
+			m.errorReturn = m.screen
+			m.screen = "error"
+			m.scroll = 0
+			return m, nil
+		}
+		if key == "ctrl+c" {
+			return m, tea.Quit
+		}
+		if m.screen == "error" || m.screen == "detail" || m.screen == "magpie-detail" || m.screen == "new-instance-detail" {
+			if key == "esc" {
+				switch m.screen {
+				case "error":
+					m.screen = m.errorReturn
+					if m.screen == "" {
+						m.screen = "sessions"
+					}
+					m.notice = ""
+				case "magpie-detail":
+					m.screen = "magpie"
+				case "new-instance-detail":
+					m.screen = "new-instance"
+				default:
+					m.screen = "sessions"
+				}
+				m.scroll = 0
+				return m, nil
+			}
+			if m.screen == "error" && key == "r" {
+				m.screen = m.errorReturn
+				m.notice = ""
+				if strings.HasPrefix(m.screen, "magpie") {
+					m.screen = "magpie"
+					m.generation++
+					return m, m.loadInstances()
+				}
+				m.screen = "sessions"
+				return m, m.load()
+			}
+			if m.screen == "error" && key == "s" && m.errorReturn == "magpie" && m.noticeCanStart {
+				m.screen = "magpie"
+				return m.updateMagpie(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+			}
+			if key == "j" || key == "down" {
+				m.scroll = min(m.scroll+1, m.scrollLimit())
+				return m, nil
+			}
+			if key == "k" || key == "up" {
+				m.scroll = max(0, min(m.scroll, m.scrollLimit())-1)
+				return m, nil
+			}
+			if key != "?" && key != "q" {
+				return m, nil
+			}
+		}
+		if m.screen == "help" {
+			if key == "down" || key == "j" {
+				m.scroll = min(m.scroll+1, m.scrollLimit())
+				return m, nil
+			}
+			if key == "up" || key == "k" {
+				m.scroll = max(0, min(m.scroll, m.scrollLimit())-1)
+				return m, nil
+			}
+			if key == "esc" || key == "?" {
+				m.screen = m.previous
+				m.scroll = 0
+			}
+			if key == "q" {
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+		if m.formActive && (key != "?" || m.screen == "new-name") && (m.screen == "new-form" || m.screen == "new-name" || m.screen == "new-cli" || m.screen == "new-connection" || m.screen == "new-notice") {
+			return m.updateNew(msg)
+		}
+		if m.screen == "new-directory" {
+			return m.updateDirectory(msg)
+		}
+		if key == "?" {
+			m.scroll = 0
+			m.previous = m.screen
+			m.screen = "help"
+			return m, nil
+		}
+		if key == "q" && m.screen != "magpie-bind" && m.screen != "magpie-filter" && (!strings.HasPrefix(m.screen, "new-") || (m.screen != "new-project" && m.screen != "new-name" && m.screen != "new-instance-filter" && m.screen != "new-catalog-filter")) && m.screen != "filter" && m.screen != "rename" && m.screen != "delete-history" {
+			return m, tea.Quit
+		}
+		if m.screen == "magpie-confirm" || m.screen == "confirm" || m.screen == "new-review" || m.screen == "new-notice" {
+			if key == "down" || key == "j" {
+				m.scroll = min(m.scroll+1, m.scrollLimit())
+				return m, nil
+			}
+			if key == "up" || key == "k" {
+				m.scroll = max(0, min(m.scroll, m.scrollLimit())-1)
+				return m, nil
+			}
+		}
+		if m.screen == "magpie-filter" || m.screen == "new-instance-filter" {
+			if key == "esc" || key == "enter" {
+				if key == "enter" {
+					m.instanceFilter = m.input.Value()
+					m.instanceCursor = 0
+				}
+				if m.screen == "magpie-filter" {
+					m.screen = "magpie"
+				} else {
+					m.screen = "new-instance"
+				}
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
+		}
+		if m.screen == "magpie" || m.screen == "new-instance" {
+			if key == "/" {
+				m.screen += "-filter"
+				m.input.SetValue(m.instanceFilter)
+				m.input.Focus()
+				return m, nil
+			}
+			if key == "i" && len(m.instanceRows()) > 0 {
+				m.screen += "-detail"
+				m.scroll = 0
+				return m, nil
+			}
+		}
+		if strings.HasPrefix(m.screen, "magpie") {
+			return m.updateMagpie(msg)
+		}
+		if strings.HasPrefix(m.screen, "new-") {
+			return m.updateNew(msg)
+		}
+		if m.screen == "delete-history" {
+			if key == "esc" || key == "enter" {
+				m.screen = "sessions"
+			}
+			return m, nil
+		}
+		if m.screen == "filter" || m.screen == "rename" {
+			if key == "esc" {
+				m.screen = "sessions"
+				return m, nil
+			}
+			if key == "enter" {
+				if m.screen == "filter" {
+					m.filter = m.input.Value()
+					m.cursor = 0
+					m.screen = "sessions"
+					return m, nil
+				}
+				id, name := m.reviewed.ID, m.input.Value()
+				return m, func() tea.Msg { return appResult{m.service.Rename(id, name)} }
+			}
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
+		}
+		if key == "q" {
+			return m, tea.Quit
+		}
+		if key == "esc" {
+			m.screen = "sessions"
+			m.notice = ""
+			return m, nil
+		}
+		if m.screen == "confirm" {
+			if m.action == "query-resume" && key == "a" {
+				m.queryAccepted = true
+				return m, nil
+			}
+			if m.action == "query-resume" && key == "enter" && !m.queryAccepted {
+				m.notice = "Press a to explicitly accept query uncertainty, or Esc to cancel."
+				return m, nil
+			}
+			if key != "enter" {
+				return m, nil
+			}
+			a := sessionApproval{Session: m.reviewed, Confirmed: true, DevelopmentQuery: m.action == "query-resume", QueryUncertaintyAccepted: m.queryAccepted}
+			action := m.action
+			m.screen = "busy"
+			return m, func() tea.Msg {
+				var e error
+				switch action {
+				case "stop":
+					e = m.service.Stop(a)
+				case "remove":
+					e = m.service.Remove(a)
+				case "close-previous":
+					e = m.service.ClosePreviousPane(m.previousPane)
+				case "resume", "start", "query-resume":
+					e = m.service.Open(a)
+				}
+				if action == "resume" || action == "start" || action == "query-resume" {
+					return appOpened{e}
+				}
+				return appResult{e}
+			}
+		}
+		if m.screen == "busy" {
+			return m, nil
+		}
+		switch key {
+		case "j", "down":
+			m.cursor = min(m.cursor+1, max(0, len(m.visible())-1))
+			m.route = observedRoute{}
+		case "k", "up":
+			m.cursor = max(0, m.cursor-1)
+			m.route = observedRoute{}
+		case "/":
+			m.screen = "filter"
+			m.input.SetValue(m.filter)
+			m.input.Focus()
+		case ",":
+			settings := newSettingsModel()
+			settings.width = m.width
+			settings.height = m.height
+			m.settings = &settings
+			return m, nil
+		case "m":
+			m.contextInstance = ""
+			if s, ok := m.selected(); ok && s.Mode == "magpie" {
+				m.contextInstance = s.InstanceID
+			}
+			m.generation++
+			m.instanceFilter = ""
+			m.instanceCursor = 0
+			m.screen = "magpie"
+			return m, m.loadInstances()
+		case "n":
+			m.generation++
+			generation := m.generation
+			m.screen = "new-project-loading"
+			return m, func() tea.Msg {
+				env, e := m.service.Environment()
+				return appNewReady{environment: env, err: e, generation: generation}
+			}
+		case "r":
+			m.listGeneration++
+			return m, m.load()
+		case "enter", "s", "x", "e", "i", "c", "d":
+			s, ok := m.selected()
+			if !ok {
+				return m, nil
+			}
+			if s.External && key != "enter" && key != "i" {
+				m.notice = "External / unmanaged agent: manage it in its terminal. Harbor has no recorded connection intent."
+				return m, nil
+			}
+			if s.External && key == "i" {
+				m.screen = "detail"
+				return m, nil
+			}
+			switch key {
+			case "d":
+				m.reviewed = s.session
+				m.screen = "delete-history"
+				m.scroll = 0
+				m.notice = ""
+				m.input.SetValue("")
+				m.input.Focus()
+				return m, nil
+			case "c":
+				m.screen = "busy"
+				return m, func() tea.Msg { pane, err := m.service.PreviousPane(s.session); return appPreviousPane{pane, err} }
+			case "i":
+				m.screen = "detail"
+				id := s.ID
+				return m, func() tea.Msg { r, e := m.service.ObservedRoute(id); return appRoute{id, r, e} }
+			case "e":
+				m.reviewed = s.session
+				m.screen = "rename"
+				m.input.SetValue(s.Name)
+				m.input.Focus()
+			case "s", "x":
+				m.reviewed = s.session
+				m.action = "stop"
+				if key == "x" {
+					m.action = "remove"
+				}
+				m.screen = "confirm"
+			case "enter":
+				if s.Running || s.Status == "Running" {
+					id := s.ID
+					return m, func() tea.Msg { return appOpened{m.service.Focus(id)} }
+				}
+				m.reviewed = s.session
+				m.action = "resume"
+				m.queryAccepted = false
+				if s.Conversation != nil {
+					m.action = "query-resume"
+				}
+				if !s.Started {
+					m.action = "start"
+				}
+				m.screen = "confirm"
+			}
+		}
+	}
+	return m, nil
+}
+func runHarborApp() error {
+	_, err := tea.NewProgram(newHarborModel(appService), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	return err
+}
+
+func runMagpieApp() error {
+	m := newMagpieModel(appService)
+	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	return err
+}

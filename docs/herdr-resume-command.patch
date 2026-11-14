@@ -1,0 +1,367 @@
+diff --git a/src/cli/agent.rs b/src/cli/agent.rs
+index 195233eb..1e33077a 100644
+--- a/src/cli/agent.rs
++++ b/src/cli/agent.rs
+@@ -12,6 +12,7 @@ const PANE_SHELL_READINESS_RETRY_TIMEOUT: Duration = Duration::from_secs(2);
+ pub(crate) mod bindings;
+ #[cfg(test)]
+ mod bindings_tests;
++mod resume_command;
+
+ pub(crate) fn command() -> clap::Command {
+     bindings::command()
+@@ -50,6 +51,7 @@ pub(super) fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
+         Err(ParseError::Io(error)) => return Err(error),
+     };
+     match operation {
++        Operation::ResumeCommand => resume_command::run(),
+         Operation::List => agent_list(),
+         Operation::Get(params) => agent_get(params),
+         Operation::Focus(params) => agent_focus(params),
+diff --git a/src/cli/agent/bindings.rs b/src/cli/agent/bindings.rs
+index 04d85c89..0a7f3f81 100644
+--- a/src/cli/agent/bindings.rs
++++ b/src/cli/agent/bindings.rs
+@@ -225,6 +225,7 @@ cli_projection! {
+ }
+
+ pub(crate) enum Operation {
++    ResumeCommand,
+     List,
+     Get(AgentTarget),
+     Focus(AgentTarget),
+@@ -246,6 +247,7 @@ pub(crate) fn command() -> Command {
+     Command::new("agent")
+         .about("Control and inspect agent panes")
+         .subcommand_required(true)
++        .subcommand(leaf("resume-command", Vec::new(), "Plan native recovery from a saved JSON reference on stdin (no server)"))
+         .subcommand(leaf("list", Vec::new(), "List agents"))
+         .subcommand(leaf("get", TargetProjection::arguments(), "Show an agent"))
+         .subcommand(leaf("focus", TargetProjection::arguments(), "Focus an agent"))
+@@ -277,6 +279,7 @@ pub(crate) fn from_matches(matches: &ArgMatches) -> Result<Operation, ParseError
+         return Err(ParseError::Usage("missing agent command".into()));
+     };
+     Ok(match name {
++        "resume-command" => Operation::ResumeCommand,
+         "list" => Operation::List,
+         "get" => Operation::Get(TargetProjection::from_matches(matches)?),
+         "focus" => Operation::Focus(TargetProjection::from_matches(matches)?),
+diff --git a/src/cli/agent/resume_command.rs b/src/cli/agent/resume_command.rs
+new file mode 100644
+index 00000000..42bf44bd
+--- /dev/null
++++ b/src/cli/agent/resume_command.rs
+@@ -0,0 +1,85 @@
++//! Local native-plan query. Never opens a socket or reads client state.
++use crate::agent_resume::{self, AgentSessionRef, AgentSessionRefKind};
++use serde::Deserialize;
++use std::io::{self, Read};
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Reference {
++    source: String,
++    agent: String,
++    kind: String,
++    value: String,
++}
++
++fn reject(code: &str, message: &str) -> io::Result<i32> {
++    eprintln!(
++        "{}",
++        serde_json::json!({"version": 1, "error": {"code": code, "message": message}})
++    );
++    Ok(2)
++}
++
++pub(super) fn run() -> io::Result<i32> {
++    let mut input = Vec::new();
++    if io::stdin().take(16385).read_to_end(&mut input).is_err() || input.len() > 16384 {
++        return reject(
++            "malformed_request",
++            "Expected one JSON reference, at most 16384 bytes",
++        );
++    }
++    let reference: Reference = match serde_json::from_slice(&input) {
++        Ok(value) => value,
++        Err(_) => {
++            return reject(
++                "malformed_request",
++                "Expected source, agent, kind and value strings",
++            )
++        }
++    };
++    let kind = match reference.kind.as_str() {
++        "id" => AgentSessionRefKind::Id,
++        "path" => AgentSessionRefKind::Path,
++        _ => return reject("unsupported_reference", "Unknown reference kind"),
++    };
++    let valid = match kind {
++        AgentSessionRefKind::Id => AgentSessionRef::id(reference.value.clone()),
++        AgentSessionRefKind::Path => AgentSessionRef::path(reference.value.clone()),
++    };
++    // Native plans may split composite IDs at a colon into separate operands.
++    // Conservatively reject option-like components before planning, regardless
++    // of client. This affects only the query, never automatic restoration.
++    let option_like_id = kind == AgentSessionRefKind::Id
++        && reference.value.split(":").any(|part| part.starts_with("-"));
++    if valid.is_none() || option_like_id {
++        return reject("invalid_reference", "Invalid reference value");
++    }
++    let Some(saved) = agent_resume::session_ref_from_snapshot(
++        &reference.source,
++        &reference.agent,
++        kind,
++        &reference.value,
++    ) else {
++        return reject(
++            "unsupported_reference",
++            "Unsupported source, agent or reference combination",
++        );
++    };
++    let Some(plan) = agent_resume::plan(&saved.source, &saved.agent, &saved.session_ref) else {
++        return reject(
++            "unsupported_reference",
++            "No native recovery plan for this reference",
++        );
++    };
++    let Some(client) = crate::detect::parse_agent_label(&plan.agent) else {
++        return reject(
++            "unsupported_reference",
++            "Native recovery client has no managed kind",
++        );
++    };
++    println!(
++        "{}",
++        serde_json::json!({"version": 1, "kind": crate::detect::agent_label(client), "argv": plan.argv})
++    );
++    Ok(0)
++}
+diff --git a/tests/resume_command.rs b/tests/resume_command.rs
+new file mode 100644
+index 00000000..0565f59c
+--- /dev/null
++++ b/tests/resume_command.rs
+@@ -0,0 +1,222 @@
++use std::io::Write;
++use std::process::{Command, Stdio};
++
++fn query(input: &[u8]) -> std::process::Output {
++    static SEQUENCE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
++    let home = std::env::temp_dir().join(format!(
++        "herdr-query-{}-{}",
++        std::process::id(),
++        SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
++    ));
++
++    std::fs::create_dir_all(&home).unwrap();
++    // No socket/pane, real history or installed client is available.
++    std::fs::write(home.join("config-sentinel"), b"synthetic-config").unwrap();
++    std::fs::write(home.join("history-sentinel"), b"synthetic-history").unwrap();
++    let before = snapshot(&home);
++    let mut child = Command::new(env!("CARGO_BIN_EXE_herdr"))
++        .args(["agent", "resume-command"])
++        .env_clear()
++        .env("PATH", home.join("empty-bin"))
++        .env("TMPDIR", &home)
++        .env("CODEX_HOME", home.join("codex"))
++        .env("CLAUDE_CONFIG_DIR", home.join("claude"))
++        .env("PI_CODING_AGENT_DIR", home.join("pi"))
++        .env("OMP_CONFIG_DIR", home.join("omp"))
++        .env("HOME", &home)
++        .env("XDG_CONFIG_HOME", home.join("config"))
++        .env("XDG_DATA_HOME", home.join("data"))
++        .env("XDG_STATE_HOME", home.join("state"))
++        .env("XDG_CACHE_HOME", home.join("cache"))
++        .env("XDG_RUNTIME_DIR", home.join("runtime"))
++        .stdin(Stdio::piped())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped())
++        .spawn()
++        .unwrap();
++    child.stdin.take().unwrap().write_all(input).unwrap();
++    let out = child.wait_with_output().unwrap();
++    assert_eq!(snapshot(&home), before, "query changed isolated state");
++    out
++}
++
++#[test]
++fn codex_exact_reference_without_server() {
++    let out = query(br#"{"source":"herdr:codex","agent":"codex","kind":"id","value":"saved-id"}"#);
++    assert!(
++        out.status.success(),
++        "{}",
++        String::from_utf8_lossy(&out.stderr)
++    );
++    let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
++    assert_eq!(
++        result,
++        serde_json::json!({"version":1,"kind":"codex","argv":["codex","resume","saved-id"]})
++    );
++}
++
++#[test]
++fn option_like_id_never_becomes_latest_recovery() {
++    let out = query(br#"{"source":"herdr:codex","agent":"codex","kind":"id","value":"--last"}"#);
++    assert_eq!(out.status.code(), Some(2));
++    assert!(out.stdout.is_empty());
++    let error: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
++    assert_eq!(error["error"]["code"], "invalid_reference");
++}
++
++fn snapshot(path: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
++    let mut entries = Vec::new();
++    for entry in std::fs::read_dir(path).unwrap() {
++        let p = entry.unwrap().path();
++        if p.is_dir() {
++            entries.push((p.clone(), Vec::new()));
++            entries.extend(snapshot(&p));
++        } else {
++            entries.push((p.clone(), std::fs::read(&p).unwrap()));
++        }
++    }
++    entries.sort();
++    entries
++}
++
++#[test]
++fn native_commands_preserve_each_clients_reference_and_argument_boundaries() {
++    // Literal expectations from upstream native recovery semantics, not the planner.
++    for (source, agent, kind, value, argv) in [
++        (
++            "herdr:claude",
++            "claude",
++            "id",
++            "saved-id",
++            vec!["claude", "--resume", "saved-id"],
++        ),
++        (
++            "herdr:pi",
++            "pi",
++            "path",
++            "/synthetic project/session.jsonl",
++            vec!["pi", "--session", "/synthetic project/session.jsonl"],
++        ),
++        (
++            "herdr:omp",
++            "omp",
++            "path",
++            "/synthetic project/session.jsonl",
++            vec!["omp", "--resume=/synthetic project/session.jsonl"],
++        ),
++        (
++            "herdr:antigravity_cli",
++            "agy",
++            "id",
++            "saved-id",
++            vec!["agy", "--conversation", "saved-id"],
++        ),
++        (
++            "herdr:pi",
++            "pi",
++            "id",
++            "prefix-id",
++            vec!["pi", "--session", "prefix-id"],
++        ),
++        (
++            "herdr:omp",
++            "omp",
++            "id",
++            "prefix-id",
++            vec!["omp", "--resume=prefix-id"],
++        ),
++    ] {
++        let out = query(
++            serde_json::json!({"source":source,"agent":agent,"kind":kind,"value":value})
++                .to_string()
++                .as_bytes(),
++        );
++        assert!(
++            out.status.success(),
++            "{}",
++            String::from_utf8_lossy(&out.stderr)
++        );
++        assert!(out.stderr.is_empty());
++        let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
++        assert_eq!(
++            result,
++            serde_json::json!({"version":1,"kind":agent,"argv":argv})
++        );
++    }
++}
++
++#[test]
++fn invalid_or_unsupported_references_fail_without_echoing_input() {
++    for (input, code) in [
++        (b"not-json".as_slice(), "malformed_request"),
++        (br#"{"source":"herdr:codex"}"#, "malformed_request"),
++        (br#"{"source":"herdr:codex","agent":"codex","kind":"id","value":null}"#, "malformed_request"),
++        (br#"{"source":"herdr:codex","agent":"codex","kind":"id","value":"secret-marker","extra":true}"#, "malformed_request"),
++        (br#"{"source":"herdr:codex","agent":"codex","kind":"id","value":""}"#, "invalid_reference"),
++        (br#"{"source":"herdr:pi","agent":"pi","kind":"path","value":"relative/secret-marker"}"#, "invalid_reference"),
++        (br#"{"source":"herdr:codex","agent":"codex","kind":"id","value":"secret-marker\n"}"#, "invalid_reference"),
++        (br#"{"source":"custom","agent":"codex","kind":"id","value":"secret-marker"}"#, "unsupported_reference"),
++        (br#"{"source":"herdr:codex","agent":"claude","kind":"id","value":"secret-marker"}"#, "unsupported_reference"),
++        (br#"{"source":"herdr:future","agent":"future","kind":"id","value":"secret-marker"}"#, "unsupported_reference"),
++        (br#"{"source":"herdr:codex","agent":"codex","kind":"path","value":"/secret-marker"}"#, "unsupported_reference"),
++        (br#"{"source":"herdr:codex","agent":"codex","kind":"url","value":"secret-marker"}"#, "unsupported_reference"),
++        (br#"{"source":"herdr:agy","agent":"agy","kind":"id","value":"secret-marker"}"#, "unsupported_reference"),
++        (br#"{"source":"herdr:antigravity_cli","agent":"antigravity","kind":"id","value":"secret-marker"}"#, "unsupported_reference"),
++    ] {
++        let out = query(input);
++        assert_eq!(out.status.code(), Some(2));
++        assert!(out.stdout.is_empty());
++        assert!(!String::from_utf8_lossy(&out.stderr).contains("secret-marker"));
++        let error: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
++        assert_eq!(error["version"], 1);
++        assert_eq!(error["error"]["code"], code);
++    }
++    for (kind, value, code) in [
++        ("id", "s".repeat(513), "invalid_reference"),
++        (
++            "path",
++            format!("/{}", "s".repeat(4096)),
++            "invalid_reference",
++        ),
++        ("id", "s".repeat(17000), "malformed_request"),
++    ] {
++        let out = query(
++            serde_json::json!({"source":"herdr:pi","agent":"pi","kind":kind,"value":value})
++                .to_string()
++                .as_bytes(),
++        );
++        assert_eq!(out.status.code(), Some(2));
++        assert!(out.stdout.is_empty());
++        let error: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
++        assert_eq!(error["error"]["code"], code);
++    }
++}
++
++#[test]
++fn transformed_composite_ids_cannot_supply_options_as_operands() {
++    for value in [
++        "default:--help",
++        "default:-h",
++        "default:--continue",
++        "default:--",
++    ] {
++        let out = query(
++            serde_json::json!({"source":"herdr:letta","agent":"letta","kind":"id","value":value})
++                .to_string()
++                .as_bytes(),
++        );
++        assert_eq!(out.status.code(), Some(2), "unsafe composite ID accepted");
++        assert!(out.stdout.is_empty());
++        let error: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
++        assert_eq!(error["error"]["code"], "invalid_reference");
++    }
++    let out = query(
++        br#"{"source":"herdr:letta","agent":"letta","kind":"id","value":"default:saved-agent"}"#,
++    );
++    assert!(out.status.success());
++    let plan: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
++    assert_eq!(
++        plan,
++        serde_json::json!({"version":1,"kind":"letta","argv":["letta","--conversation","default","--agent","saved-agent"]})
++    );
++}

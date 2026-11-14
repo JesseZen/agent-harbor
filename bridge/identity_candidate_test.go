@@ -1,0 +1,328 @@
+package main
+
+import (
+	"bufio"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestCandidateShortSessionUsesOfficialFinalReport(t *testing.T) {
+	b := newTestBridge(t)
+	// Initialize ownership before queryTestSocket creates the managed directory.
+	if out, err := b.command("sessions"); err != nil {
+		t.Fatal(out, err)
+	}
+	h := filepath.Join(b.root, "bin", "herdr")
+	os.WriteFile(h, []byte(`#!/bin/sh
+case "$*" in
+ "integration status") echo "Codex: current (test)";;
+ *) if test -f "$CAPTURE"; then
+ if ! test -f "$HOME/retried"; then touch "$HOME/retried"; exit 1; fi
+ echo '{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"01912345-6789-7abc-8def-0123456789ab"}}}}'
+ else echo '{"result":{"pane":{}}}'; fi;;
+esac
+`), 0700)
+	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CAPTURE\"\n"), 0700)
+	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h)
+	out, err := b.command("create", "--dir", b.project)
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	got := b.sessions()[0]
+	if got.Conversation == nil || got.Conversation.Reference.Value != "01912345-6789-7abc-8def-0123456789ab" || got.Recovery != "ready" {
+		t.Fatalf("final upstream reference not recoverable: %+v", got)
+	}
+	args, _ := os.ReadFile(filepath.Join(b.root, "capture"))
+	if strings.Contains(string(args), "notify=") {
+		t.Fatal("candidate injected notify")
+	}
+	if _, err := os.Stat(filepath.Join(b.root, "retried")); err != nil {
+		t.Fatal("transient failure fixture not exercised", err)
+	}
+}
+
+func TestCandidateInitialIdentityNeedsExplicitChoice(t *testing.T) {
+	b := newTestBridge(t)
+	if out, err := b.command("sessions"); err != nil {
+		t.Fatal(out, err)
+	}
+	h := filepath.Join(b.root, "bin", "herdr")
+	os.WriteFile(h, []byte(`#!/bin/sh
+echo '{"result":{"pane":{"agent_session":{"source":"official:opaque-source/v2","agent":"codex","kind":"path","value":"/opaque/conversation with spaces"}}}}'
+`), 0700)
+	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h)
+	if out, err := b.command("create", "--dir", b.project); err != nil {
+		t.Fatal(out, err)
+	}
+	got := b.sessions()[0]
+	if got.Conversation == nil || got.Conversation.Reference.Source != "official:opaque-source/v2" || got.Conversation.Reference.Kind != "path" || got.Conversation.Reference.Value != "/opaque/conversation with spaces" || got.Conversation.Status != "initial_unverified" || got.Recovery == "ready" {
+		t.Fatalf("initial report silently trusted or lost: %+v", got)
+	}
+}
+func TestCandidateMissingContextIsVisibleWithoutNotify(t *testing.T) {
+	b := newTestBridge(t)
+	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1")
+	if out, err := b.command("create", "--dir", b.project); err != nil {
+		t.Fatal(out, err)
+	}
+	got := b.sessions()[0]
+	if got.Recovery == "ready" || !strings.Contains(got.IdentityWarning, "missing managed pane/socket context") {
+		t.Fatalf("missing context hidden: %+v", got)
+	}
+	args, _ := os.ReadFile(filepath.Join(b.root, "capture"))
+	if strings.Contains(string(args), "notify=") {
+		t.Fatal("missing context fell back to notify")
+	}
+}
+
+func TestCandidateChangedIdentityAndLostSocketRequireReview(t *testing.T) {
+	for _, scenario := range []string{"changed", "lost"} {
+		t.Run(scenario, func(t *testing.T) {
+			b := newTestBridge(t)
+			if out, err := b.command("sessions"); err != nil {
+				t.Fatal(out, err)
+			}
+			h := filepath.Join(b.root, "bin", "herdr")
+			report := filepath.Join(b.root, "report")
+			os.WriteFile(h, []byte("#!/bin/sh\nif test -f \"$HOME/report\"; then cat \"$HOME/report\"; else echo '{\"result\":{\"pane\":{}}}'; fi\n"), 0700)
+			writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply\n"), 0700)
+			socket := queryTestSocket(t, b)
+			b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+socket, "HERDR_BIN_PATH="+h)
+			cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "create", "--dir", b.project)
+			cmd.Env = b.env
+			in, _ := cmd.StdinPipe()
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { in.Close(); cmd.Wait() }()
+			wait := func(predicate func(session) bool) session {
+				deadline := time.Now().Add(8 * time.Second)
+				for time.Now().Before(deadline) {
+					all := b.sessions()
+					if len(all) == 1 && predicate(all[0]) {
+						return all[0]
+					}
+					time.Sleep(30 * time.Millisecond)
+				}
+				t.Fatal("observation transition not visible")
+				return session{}
+			}
+			wait(func(s session) bool { return s.ProcessGroup != 0 })
+			first := `{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"01912345-6789-7abc-8def-0123456789ab"}}}}`
+			os.WriteFile(report, []byte(first), 0600)
+			accepted := wait(func(s session) bool { return s.Conversation != nil && s.Conversation.Status == "observed" })
+			if scenario == "changed" {
+				os.WriteFile(report, []byte(strings.Replace(first, "6789ab", "6789ac", 1)), 0600)
+			} else {
+				os.Remove(socket)
+			}
+			got := wait(func(s session) bool { return s.Recovery == "needs_review" })
+			if got.Conversation.Reference != accepted.Conversation.Reference {
+				t.Fatal("expected identity overwritten")
+			}
+			if scenario == "changed" && (got.Conversation.ObservedReference == nil || got.Conversation.ObservedReference.Value != "01912345-6789-7abc-8def-0123456789ac") {
+				t.Fatal("changed complete report lost")
+			}
+		})
+	}
+}
+
+func TestCandidateStopWaitsForFinalExitBookkeeping(t *testing.T) {
+	b := newTestBridge(t)
+	if out, err := b.command("sessions"); err != nil {
+		t.Fatal(out, err)
+	}
+	h := filepath.Join(b.root, "bin", "herdr")
+	os.WriteFile(h, []byte(`#!/bin/sh
+case "$*" in
+ *"session list --json"*) echo '{"sessions":[{"name":"agent-harbor","running":true}]}';;
+ *"pane close"*)
+   if grep -q '"process_group":' "$AGENT_HARBOR_BRIDGE_HOME/sessions.json"; then exit 1; fi
+   touch "$HOME/closed";;
+ *"pane get"*) sleep .2; echo '{"result":{"pane":{}}}';;
+ *) echo '{}';;
+esac
+`), 0700)
+	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply\n"), 0700)
+	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h, "AGENT_HARBOR_HERDR_BIN="+h)
+	cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "create", "--dir", b.project)
+	cmd.Env = b.env
+	in, _ := cmd.StdinPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { in.Close(); cmd.Wait() }()
+	deadline := time.Now().Add(8 * time.Second)
+	var record session
+	for time.Now().Before(deadline) {
+		all := b.sessions()
+		if len(all) == 1 && all[0].ProcessGroup != 0 {
+			record = all[0]
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if record.ID == "" {
+		t.Fatal("runner never started")
+	}
+	if out, err := b.command("stop-session", record.ID); err != nil {
+		t.Fatal(out, err)
+	}
+	got := b.sessions()[0]
+	if got.LastExitAt == nil || got.ProcessGroup != 0 {
+		t.Fatal("stop returned before exit bookkeeping")
+	}
+	if _, err := os.Stat(filepath.Join(b.root, "closed")); err != nil {
+		t.Fatal("owned pane was not closed", err)
+	}
+}
+
+func TestCandidateFinalReadFailureRecovery(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		failures string
+		fresh    bool
+		ready    bool
+	}{
+		{"exhausted_then_empty", "3", false, false},
+		{"transient_within_budget", "2", false, true},
+		{"exhausted_then_fresh_identity", "3", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newTestBridge(t)
+			if out, err := b.command("sessions"); err != nil {
+				t.Fatal(out, err)
+			}
+			h := filepath.Join(b.root, "bin", "herdr")
+			stub := `#!/bin/sh
+if test -f "$HOME/final"; then
+ n=0; test ! -f "$HOME/count" || n=$(cat "$HOME/count")
+ n=$((n+1)); echo "$n" > "$HOME/count"
+ if test "$n" -le FAILURE_COUNT; then exit 1; fi
+ FINAL_RESPONSE; exit 0
+fi
+if test -f "$CAPTURE"; then
+ echo '{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"01912345-6789-7abc-8def-0123456789ab"}}}}'
+else echo '{"result":{"pane":{}}}'; fi
+`
+			finalResponse := `echo '{"result":{"pane":{}}}' `
+			if tc.fresh {
+				finalResponse = `echo '{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"01912345-6789-7abc-8def-0123456789ab"}}}}' `
+			}
+			os.WriteFile(h, []byte(strings.ReplaceAll(strings.ReplaceAll(stub, "FAILURE_COUNT", tc.failures), "FINAL_RESPONSE", finalResponse)), 0700)
+			writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply\ntouch \"$HOME/final\"\n"), 0700)
+			b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h)
+			cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "create", "--dir", b.project)
+			cmd.Env = b.env
+			in, _ := cmd.StdinPipe()
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(8 * time.Second)
+			accepted := false
+			for time.Now().Before(deadline) {
+				all := b.sessions()
+				if len(all) == 1 && all[0].Conversation != nil && all[0].Conversation.Status == "observed" {
+					accepted = true
+					break
+				}
+				time.Sleep(30 * time.Millisecond)
+			}
+			in.Close()
+			cmd.Wait()
+			if !accepted {
+				t.Fatal("no acceptance")
+			}
+			got := b.sessions()[0]
+			if (got.Recovery == "ready") != tc.ready {
+				t.Fatalf("final read errors followed by empty report incorrectly retained ready: status=%s warning=%s", got.Conversation.Status, got.IdentityWarning)
+			}
+			if got.Conversation.Reference.Value != "01912345-6789-7abc-8def-0123456789ab" {
+				t.Fatal("accepted reference lost")
+			}
+			if !tc.ready && (got.Conversation.Status != "final_observation_unavailable" || !strings.Contains(got.IdentityWarning, "final_observation_unavailable")) {
+				t.Fatal("unresolved final failure hidden", got.Conversation.Status, got.IdentityWarning)
+			}
+		})
+	}
+}
+
+func TestCandidateRepeatedOfficialObservationPreservesStopApproval(t *testing.T) {
+	b := newTestBridge(t)
+	if out, err := b.command("sessions"); err != nil {
+		t.Fatal(out, err)
+	}
+	h := filepath.Join(b.root, "bin", "herdr")
+	os.WriteFile(h, []byte(`#!/bin/sh
+case "$*" in
+ *"session list --json"*) echo '{"sessions":[{"name":"agent-harbor","running":true}]}';;
+ *"pane close"*)
+   if grep -q '"process_group":' "$AGENT_HARBOR_BRIDGE_HOME/sessions.json"; then exit 1; fi
+   touch "$HOME/closed";;
+ *"pane get"*) if test -f "$CAPTURE"; then echo '{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"01912345-6789-7abc-8def-0123456789ab"}}}}'; else echo '{"result":{"pane":{}}}'; fi;;
+ *) echo '{}';;
+esac
+`), 0700)
+	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply\n"), 0700)
+	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h, "AGENT_HARBOR_HERDR_BIN="+h)
+	cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "create", "--dir", b.project)
+	cmd.Env = b.env
+	in, _ := cmd.StdinPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { in.Close(); cmd.Wait() }()
+	deadline := time.Now().Add(8 * time.Second)
+	var record session
+	for time.Now().Before(deadline) {
+		all := b.sessions()
+		if len(all) == 1 && all[0].ProcessGroup != 0 {
+			record = all[0]
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if record.ID == "" {
+		t.Fatal("runner never started")
+	}
+	deadline = time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		if v := b.sessions()[0]; v.Conversation != nil && v.Conversation.Status == "observed" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if v := b.sessions()[0]; v.Conversation == nil || v.Conversation.Status != "observed" {
+		t.Fatal("official observation absent")
+	}
+	stop := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "stop-session", record.ID)
+	stop.Env = b.env
+	approval, _ := stop.StdinPipe()
+	output, _ := stop.StdoutPipe()
+	var diagnostics strings.Builder
+	stop.Stderr = &diagnostics
+	if err := stop.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bufio.NewReader(output).ReadString(':'); err != nil {
+		t.Fatal(err)
+	}
+	// Hold an actual user approval across multiple identical upstream samples.
+	time.Sleep(2200 * time.Millisecond)
+	approval.Write([]byte("yes\n"))
+	approval.Close()
+	if err := stop.Wait(); err != nil {
+		t.Fatal("stable official observation invalidated stop approval", diagnostics.String(), err)
+	}
+	got := b.sessions()[0]
+	if got.LastExitAt == nil || got.ProcessGroup != 0 {
+		t.Fatal("stop returned before exit bookkeeping")
+	}
+	if _, err := os.Stat(filepath.Join(b.root, "closed")); err != nil {
+		t.Fatal("owned pane was not closed", err)
+	}
+}

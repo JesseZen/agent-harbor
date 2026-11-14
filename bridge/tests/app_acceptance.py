@@ -16,6 +16,7 @@ from fixture_negative_ui import exercise as negative_ui
 def main():
     p=argparse.ArgumentParser()
     p.add_argument('--replacement',action='store_true')
+    p.add_argument('--live-state-probe',action='store_true',help='exercise automatic popup refresh and reconnect')
     p.add_argument('--state-probe',action='store_true',help='stop after real runtime state comparison')
     p.add_argument('--renamed-codex',action='store_true',help='exercise native Codex symlink with a nonstandard target basename')
     for name in ('binary','herdr','magpie','codex'): p.add_argument('--'+name,required=True)
@@ -66,6 +67,7 @@ def main():
         class RecordingHandler(handler):
             def do_POST(self):
                 raw=self.rfile.read(int(self.headers.get('Content-Length','0')))
+                if b'AH_LIVE_STATUS' in raw:time.sleep(4)
                 self.rfile=io.BytesIO(raw)
                 marks=[m for m in ('AH_LOCAL_FIRST','AH_LOCAL_SECOND','AH_RELAY_B','AH_RESUME_B','AH_LOCAL_C','AH_RESUME_C') if m.encode() in raw]
                 event=evidence(raw)
@@ -220,7 +222,24 @@ def main():
             comparisons.append({'client':rec['cli'],'herdr':row['agent_status'],'harbor':view['runtime']['activity']})
         (root/'runtime-comparison.json').write_text(json.dumps(comparisons,indent=2))
         print('PASS real Herdr agent.list matches Harbor CLI list/show for three native clients',flush=True)
-        if a.state_probe:return 0
+        if a.live_state_probe:
+            popup();key('/');text('UI-Native');key('Tab');screen('Idle')
+            run([wrapper,'agent','prompt',three['herdr_pane'],'AH_LIVE_STATUS'])
+            started_refresh=time.monotonic()
+            wait(lambda:'Working' in capture(),'automatic working state',timeout=3)
+            working_delay=time.monotonic()-started_refresh
+            wait(lambda:'Idle' in capture() or 'Done' in capture(),'automatic completion state',timeout=9)
+            sockpath=pathlib.Path(next(r for r in records() if r['name']=='UI-Native')['herdr_socket'])
+            offline=sockpath.with_name(sockpath.name+'.fixture-offline')
+            sockpath.rename(offline)
+            try:wait(lambda:'discovery unavailable' in capture(),'automatic disconnect unknown',timeout=4)
+            finally:offline.rename(sockpath)
+            wait(lambda:'discovery unavailable' not in capture() and ('Idle' in capture() or 'Done' in capture()),'automatic reconnect',timeout=4)
+            assert 'UI-Native' in capture(),'refresh lost search or selection'
+            (root/'live-state.json').write_text(json.dumps({'working_delay_seconds':working_delay,'reconnected':True}))
+            key('q')
+            print('PASS automatic real-client working/completion and owned socket disconnect/reconnect with selection retained',flush=True)
+        if a.state_probe or a.live_state_probe:return 0
 
         # Exit each CLI through Harbor's stop review and restart both Harbor and
         # its gateway. Conversation records must remain exact.

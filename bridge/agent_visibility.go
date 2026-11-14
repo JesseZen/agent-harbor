@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -73,11 +74,18 @@ func agentDiscoverySocket() (string, error) {
 }
 
 func agentRPC(socket, method string, params map[string]any, result any) error {
-	c, err := net.DialTimeout("unix", socket, time.Second)
+	return agentRPCContext(context.Background(), socket, method, params, result)
+}
+func agentRPCContext(ctx context.Context, socket, method string, params map[string]any, result any) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	c, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "unix", socket)
 	if err != nil {
 		return errors.New(agentDiscoveryWarning)
 	}
 	defer c.Close()
+	stop := context.AfterFunc(ctx, func() { c.Close() })
+	defer stop()
 	c.SetDeadline(time.Now().Add(2 * time.Second))
 	if json.NewEncoder(c).Encode(map[string]any{"id": "harbor-agents", "method": method, "params": params}) != nil {
 		return errors.New(agentDiscoveryWarning)
@@ -119,7 +127,7 @@ func agentObservation(a herdrAgent, at time.Time, associated bool) runtimeObserv
 	return runtimeObservation{Activity: activity, Presence: "observed", Source: "herdr.agent.list", ObservedAt: at, Workspace: a.Workspace, Terminal: a.Terminal, LaunchPending: a.LaunchPending, InteractiveReady: a.InteractiveReady, Associated: associated}
 }
 
-func mergeHerdrAgents(views []sessionView) ([]sessionView, error) {
+func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, error) {
 	for i := range views {
 		views[i].Runtime = unknownRuntime(views[i].session)
 		views[i].Running = false
@@ -136,7 +144,7 @@ func mergeHerdrAgents(views []sessionView) ([]sessionView, error) {
 	var result struct {
 		Agents *[]herdrAgent `json:"agents"`
 	}
-	if err := agentRPC(socket, "agent.list", map[string]any{}, &result); err != nil {
+	if err := agentRPCContext(ctx, socket, "agent.list", map[string]any{}, &result); err != nil {
 		return views, err
 	}
 	if result.Agents == nil || identity == "" || socketIdentity(socket) != identity {

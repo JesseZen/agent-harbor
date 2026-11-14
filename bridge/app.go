@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+type appRefreshTick struct{}
 
 type appContextReady struct {
 	id  string
@@ -40,6 +44,13 @@ type appRoute struct {
 
 // harborModel owns interaction only. All product effects cross the service seam.
 type harborModel struct {
+	refreshContext   context.Context
+	cancelRefresh    context.CancelFunc
+	refreshing       bool
+	pollScheduled    bool
+	selectionMissing bool
+	discoveryNotice  string
+
 	settings         *settingsModel
 	mouse            mouseClick
 	mouseListScreen  string
@@ -93,7 +104,8 @@ type harborModel struct {
 func newHarborModel(s applicationService) harborModel {
 	input := textinput.New()
 	input.CharLimit = 1024
-	return harborModel{service: s, width: 80, height: 24, input: input, screen: "sessions"}
+	ctx, cancel := context.WithCancel(context.Background())
+	return harborModel{refreshContext: ctx, cancelRefresh: cancel, refreshing: true, service: s, width: 80, height: 24, input: input, screen: "sessions"}
 }
 func newMagpieModel(s applicationService) harborModel {
 	m := newHarborModel(s)
@@ -112,8 +124,35 @@ func (m harborModel) Init() tea.Cmd {
 }
 func (m harborModel) load() tea.Cmd {
 	return func() tea.Msg {
-		s, e := m.service.List()
+		var s []sessionView
+		var e error
+		if h, ok := m.service.(interface {
+			ListContext(context.Context) ([]sessionView, error)
+		}); ok {
+			parent := m.refreshContext
+			if parent == nil {
+				parent = context.Background()
+			}
+			ctx, cancel := context.WithTimeout(parent, 2500*time.Millisecond)
+			defer cancel()
+			s, e = h.ListContext(ctx)
+		} else {
+			s, e = m.service.List()
+		}
 		return appLoaded{sessions: s, err: e, generation: m.listGeneration}
+	}
+}
+func (m harborModel) requestRefresh() (tea.Model, tea.Cmd) {
+	if m.refreshing || m.refreshContext != nil && m.refreshContext.Err() != nil {
+		return m, nil
+	}
+	m.refreshing = true
+	m.listGeneration++
+	return m, m.load()
+}
+func (m harborModel) refreshTimer() tea.Cmd {
+	return func() tea.Msg {
+		return tea.BatchMsg{tea.Tick(2*time.Second, func(time.Time) tea.Msg { return appRefreshTick{} })}
 	}
 }
 func (m harborModel) visible() []sessionView {
@@ -129,13 +168,13 @@ func (m harborModel) visible() []sessionView {
 }
 func (m harborModel) selected() (sessionView, bool) {
 	rows := m.visible()
-	if len(rows) == 0 {
+	if m.selectionMissing || len(rows) == 0 {
 		return sessionView{}, false
 	}
 	return rows[min(m.cursor, len(rows)-1)], true
 }
 func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.settings != nil {
+	if m.settings != nil && !isRuntimeRefresh(msg) {
 		next, cmd := m.settings.Update(msg)
 		settings := next.(settingsModel)
 		if settings.closed {
@@ -204,21 +243,49 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.loadInstances()
+	case appRefreshTick:
+		if m.refreshContext != nil && m.refreshContext.Err() != nil {
+			return m, nil
+		}
+		next, cmd := m.requestRefresh()
+		n := next.(harborModel)
+		n.pollScheduled = true
+		return n, tea.Batch(cmd, n.refreshTimer())
 	case appLoaded:
 		if msg.generation != m.listGeneration {
 			return m, nil
 		}
+		m.refreshing = false
+		previousDiscovery := m.discoveryNotice
+		m.discoveryNotice = ""
 		if msg.err != nil {
-			m.notice = msg.err.Error()
+			m.discoveryNotice = msg.err.Error()
+			for i := range m.sessions {
+				v := &m.sessions[i]
+				v.Running = false
+				v.Status = "Unknown"
+				v.Runtime.Activity = "unknown"
+				v.Runtime.Presence = "stale"
+				v.DiscoveryWarning = msg.err.Error()
+			}
 		} else {
 			m.sessions = msg.sessions
 			for _, s := range msg.sessions {
 				if s.DiscoveryWarning != "" {
-					m.notice = s.DiscoveryWarning
+					m.discoveryNotice = s.DiscoveryWarning
 					break
 				}
 			}
 			m.cursor = min(m.cursor, max(0, len(m.visible())-1))
+		}
+		if m.discoveryNotice != "" {
+			m.notice = m.discoveryNotice
+		} else if m.notice == previousDiscovery {
+			m.notice = ""
+		}
+		if !m.pollScheduled {
+			m.pollScheduled = true
+			return m, m.refreshTimer()
 		}
 		return m, nil
 	case appResult:
@@ -228,7 +295,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = msg.err.Error()
 			m.screen = "error"
 		}
-		return m, m.load()
+		return m.requestRefresh()
 	case appNewInstances:
 		if msg.generation != m.generation || m.screen != "new-instance-loading" {
 			return m, nil
@@ -285,11 +352,14 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case appOpened:
 		if msg.err == nil {
+			if m.cancelRefresh != nil {
+				m.cancelRefresh()
+			}
 			return m, tea.Quit
 		}
 		m.notice = msg.err.Error()
 		m.screen = "error"
-		return m, m.load()
+		return m.requestRefresh()
 	case appInstances:
 		if msg.generation != m.generation || m.screen != "magpie" {
 			return m, nil
@@ -367,7 +437,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.notice = msg.err.Error()
 			m.screen = "sessions"
-			return m, m.load()
+			return m.requestRefresh()
 		}
 		m.reviewed = msg.record
 		return m, func() tea.Msg {
@@ -407,6 +477,9 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if key == "ctrl+c" {
+			if m.cancelRefresh != nil {
+				m.cancelRefresh()
+			}
 			return m, tea.Quit
 		}
 		if m.screen == "error" || m.screen == "detail" || m.screen == "magpie-detail" || m.screen == "new-instance-detail" {
@@ -437,7 +510,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.loadInstances()
 				}
 				m.screen = "sessions"
-				return m, m.load()
+				return m.requestRefresh()
 			}
 			if m.screen == "error" && key == "s" && m.errorReturn == "magpie" && m.noticeCanStart {
 				m.screen = "magpie"
@@ -469,6 +542,9 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scroll = 0
 			}
 			if key == "q" {
+				if m.cancelRefresh != nil {
+					m.cancelRefresh()
+				}
 				return m, tea.Quit
 			}
 			return m, nil
@@ -486,6 +562,9 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if key == "q" && m.screen != "magpie-bind" && m.screen != "magpie-filter" && (!strings.HasPrefix(m.screen, "new-") || (m.screen != "new-project" && m.screen != "new-name" && m.screen != "new-instance-filter" && m.screen != "new-catalog-filter")) && m.screen != "filter" && m.screen != "rename" && m.screen != "delete-history" {
+			if m.cancelRefresh != nil {
+				m.cancelRefresh()
+			}
 			return m, tea.Quit
 		}
 		if m.screen == "magpie-confirm" || m.screen == "confirm" || m.screen == "new-review" || m.screen == "new-notice" {
@@ -560,6 +639,9 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		if key == "q" {
+			if m.cancelRefresh != nil {
+				m.cancelRefresh()
+			}
 			return m, tea.Quit
 		}
 		if key == "esc" {
@@ -639,8 +721,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return appNewReady{environment: env, err: e, generation: generation}
 			}
 		case "r":
-			m.listGeneration++
-			return m, m.load()
+			return m.requestRefresh()
 		case "enter", "s", "x", "e", "i", "c", "d":
 			s, ok := m.selected()
 			if !ok {
@@ -703,7 +784,9 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 func runHarborApp() error {
-	_, err := tea.NewProgram(newHarborModel(appService), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	m := newHarborModel(appService)
+	defer m.cancelRefresh()
+	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
 

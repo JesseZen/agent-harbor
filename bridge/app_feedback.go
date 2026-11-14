@@ -24,7 +24,7 @@ func (m harborModel) editingText() bool {
 }
 
 func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.settings != nil {
+	if m.settings != nil && !isRuntimeRefresh(msg) {
 		return m.update(msg)
 	}
 	if mouse, ok := msg.(tea.MouseMsg); ok {
@@ -65,11 +65,28 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if next, cmd, handled := m.updateSearch(msg); handled {
 		return deferReset(next, cmd)
 	}
+	if key, ok := msg.(tea.KeyMsg); ok && (key.String() == "up" || key.String() == "down" || key.String() == "j" || key.String() == "k" || key.String() == "/") {
+		m.selectionMissing = false
+	}
 	oldID := m.searchSelectedID()
 	next, cmd := m.update(msg)
 	n := next.(harborModel)
 	switch msg.(type) {
-	case appLoaded, appInstances:
+	case appLoaded:
+		if oldID != "" && !strings.HasPrefix(m.screen, "magpie") && m.screen != "new-instance" && m.screen != "new-catalog" {
+			found := false
+			for _, v := range n.sessions {
+				if v.ID == oldID {
+					found = true
+				}
+			}
+			if !found {
+				n.selectionMissing = true
+				n.notice = "Selected session disappeared or changed; refresh and select a target."
+			}
+		}
+		n.restoreSearchSelection(oldID)
+	case appInstances:
 		n.restoreSearchSelection(oldID)
 	}
 	if n.screen == "sessions" && n.searchSelectedID() != oldID {

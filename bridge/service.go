@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -121,7 +122,11 @@ func deriveSession(s session) sessionView {
 	}
 	return v
 }
-func (harborService) List() ([]sessionView, error) {
+func (h harborService) List() ([]sessionView, error) { return h.list(context.Background(), false) }
+func (h harborService) ListContext(ctx context.Context) ([]sessionView, error) {
+	return h.list(ctx, true)
+}
+func (harborService) list(ctx context.Context, backgroundHealth bool) ([]sessionView, error) {
 	var all []session
 	err := withSessions(func(records []session) ([]session, error) { all = append([]session{}, records...); return nil, nil })
 	if err != nil {
@@ -139,14 +144,21 @@ func (harborService) List() ([]sessionView, error) {
 	})
 	views := make([]sessionView, 0, len(all))
 	for _, s := range all {
-		v := deriveSession(s)
-		v.Health = "not_checked"
+		v := sessionView{session: s}
+		if backgroundHealth {
+			v = cachedSessionHealth(s)
+		} else {
+			v = deriveSession(s)
+		}
+		if !backgroundHealth {
+			v.Health = "not_checked"
+		}
 		if v.Reason != "" {
 			v.Health = "needs_review"
 		}
 		views = append(views, v)
 	}
-	views, discoveryErr := mergeHerdrAgents(views)
+	views, discoveryErr := mergeHerdrAgents(ctx, views)
 	if discoveryErr != nil {
 		if len(views) == 0 {
 			return views, discoveryErr

@@ -37,3 +37,12 @@ and `runtime.activity` and retain explicit recovery checks. `reason`, `health`,
 
 The recovery-command query bundled with the development candidate is a local
 patch. It has not been accepted or released upstream.
+
+The popup refreshes every two seconds through the same observation contract.
+Only one refresh runs at once. Socket requests have a two-second deadline, a
+64 KiB response bound and cancellation on popup exit. Errors invalidate cached
+activity immediately; a recent observation may remain visible only as stale.
+Reconnect retries automatically. Health checks run in one bounded background
+worker with a ten-second cache so they cannot delay activity or keyboard input.
+Search, forms and review intent survive refreshes. A vanished selection requires
+an explicit new selection before any action.

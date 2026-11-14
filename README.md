@@ -16,7 +16,7 @@ Start here when working on the project:
 - [Herdr integration](docs/herdr-integration.md): the upstream boundary and candidate recovery patch.
 - [Development candidate guide](bridge/PACKAGE-README.md): packaging and usage of the candidate.
 - [Acceptance guide](bridge/tests/README.md): tests and isolated runtime acceptance.
-- [Agent instructions](AGENTS.md): project guidance for coding agents. An optional, untracked `AGENTS.local.md` and `local/` directory can hold machine-specific guidance and documents.
+- [Agent instructions](AGENTS.md): project guidance for coding agents. An optional, untracked `AGENTS.local.md` and `.agents.local/` directory can hold machine-specific guidance and documents.
 
 This snapshot replaces a previous product direction. The former Core, TUI and launcher are not part of this product.
 

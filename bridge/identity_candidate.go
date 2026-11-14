@@ -68,9 +68,16 @@ func candidateIdentityCapture(id, token, client string) (func(), func() error) {
 					return nil, nil
 				} // a newer run or explicit choice owns the record
 				s.IdentityWarning = warning
-				if !validContext || socketIdentity(socket) != socketID || (s.ProcessGroup != 0 && (s.HerdrPane != pane || s.HerdrSocket != socket)) {
+				currentSocket := socketIdentity(socket)
+				recordChanged := s.ProcessGroup != 0 && (s.HerdrPane != pane || s.HerdrSocket != socket)
+				if !validContext || currentSocket != socketID || recordChanged {
 					state = "association_lost"
-					blocked = true
+					// Missing transport invalidates observation until a fresh same-run
+					// report. A different instance or association requires explicit review.
+					finalReadUnresolved = true
+					if !validContext || currentSocket != "" && currentSocket != socketID || recordChanged {
+						blocked = true
+					}
 					ref = nil
 				}
 				if ref != nil && (ref.Source == "" || ref.Agent != s.CLI || ref.Kind == "" || ref.Value == "") {

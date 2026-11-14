@@ -77,3 +77,9 @@ For isolated real runtime acceptance, run `tests/app_acceptance.py` with
 Codex binary, and the built Herdr MCP entry point. It exercises a manually
 started external client alongside the three owned connections, live refresh,
 owned-socket disconnect/reconnect and explicit restored-shell end review.
+
+A temporary missing socket invalidates identity observation. If the same socket
+instance returns, the same run must report its original reference afresh before
+association is restored. A final empty report cannot reuse pre-outage evidence.
+A different socket instance, conflicting reference or changed pane association
+continues to require explicit review.

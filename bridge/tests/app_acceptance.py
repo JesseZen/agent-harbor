@@ -255,7 +255,9 @@ def main():
             sockpath=pathlib.Path(next(r for r in records() if r['name']=='UI-Native')['herdr_socket'])
             offline=sockpath.with_name(sockpath.name+'.fixture-offline')
             sockpath.rename(offline)
-            try:wait(lambda:'discovery unavailable' in capture(),'automatic disconnect unknown',timeout=4)
+            try:
+                wait(lambda:'discovery unavailable' in capture(),'automatic disconnect unknown',timeout=4)
+                wait(lambda:next(r for r in records() if r['id']==three['id']).get('conversation',{}).get('status')=='association_lost','identity observer sees interrupted transport',timeout=6)
             finally:offline.rename(sockpath)
             wait(lambda:'discovery unavailable' not in capture() and ('Idle' in capture() or 'Done' in capture()),'automatic reconnect',timeout=6)
             assert 'UI-Native' in capture(),'refresh lost search or selection'

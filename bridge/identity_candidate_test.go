@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,7 +82,7 @@ func TestCandidateMissingContextIsVisibleWithoutNotify(t *testing.T) {
 }
 
 func TestCandidateChangedIdentityAndLostSocketRequireReview(t *testing.T) {
-	for _, scenario := range []string{"changed", "lost"} {
+	for _, scenario := range []string{"changed", "lost", "reconnect", "replacement", "reconnect_empty"} {
 		t.Run(scenario, func(t *testing.T) {
 			b := newTestBridge(t)
 			if out, err := b.command("sessions"); err != nil {
@@ -118,8 +119,12 @@ func TestCandidateChangedIdentityAndLostSocketRequireReview(t *testing.T) {
 			accepted := wait(func(s session) bool { return s.Conversation != nil && s.Conversation.Status == "observed" })
 			if scenario == "changed" {
 				os.WriteFile(report, []byte(strings.Replace(first, "6789ab", "6789ac", 1)), 0600)
-			} else {
+			} else if scenario == "lost" {
 				os.Remove(socket)
+			} else {
+				if err := os.Rename(socket, socket+".original"); err != nil {
+					t.Fatal(err)
+				}
 			}
 			got := wait(func(s session) bool { return s.Recovery == "needs_review" })
 			if got.Conversation.Reference != accepted.Conversation.Reference {
@@ -127,6 +132,42 @@ func TestCandidateChangedIdentityAndLostSocketRequireReview(t *testing.T) {
 			}
 			if scenario == "changed" && (got.Conversation.ObservedReference == nil || got.Conversation.ObservedReference.Value != "01912345-6789-7abc-8def-0123456789ac") {
 				t.Fatal("changed complete report lost")
+			}
+
+			if scenario == "reconnect" {
+				if err := os.Rename(socket+".original", socket); err != nil {
+					t.Fatal(err)
+				}
+				got = wait(func(s session) bool { return s.Conversation.Status == "observed" && s.Recovery == "ready" })
+				if got.Conversation.Reference != accepted.Conversation.Reference || got.RunToken != accepted.RunToken {
+					t.Fatal("reconnect changed original intent")
+				}
+			}
+
+			if scenario == "reconnect_empty" {
+				os.WriteFile(report, []byte(`{"result":{"pane":{}}}`), 0600)
+				if err := os.Rename(socket+".original", socket); err != nil {
+					t.Fatal(err)
+				}
+				in.Close()
+				_ = cmd.Wait() // EOF may be a nonzero client exit; identity must still stay gated.
+				got = b.sessions()[0]
+				if got.Recovery != "needs_review" || got.Conversation.Status == "observed" {
+					t.Fatal("empty final report reused identity across outage", got)
+				}
+			}
+			if scenario == "replacement" {
+				replacement, err := net.Listen("unix", socket)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer replacement.Close()
+				in.Close()
+				_ = cmd.Wait() // final samples inspect the different nonempty socket instance
+				got = b.sessions()[0]
+				if got.Conversation.Status == "observed" || got.Recovery != "needs_review" || got.Conversation.Reference != accepted.Conversation.Reference {
+					t.Fatal("replacement accepted old identity")
+				}
 			}
 		})
 	}

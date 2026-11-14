@@ -115,6 +115,7 @@ func newHarborModel(s applicationService) harborModel {
 }
 func newMagpieModel(s applicationService) harborModel {
 	m := newHarborModel(s)
+	m.refreshing = false
 	m.screen = "magpie-context-loading"
 	return m
 }

@@ -77,10 +77,11 @@ func resumeCommand(args []string) error {
 	if err := confirmRecoveryReview(s, bufio.NewReader(os.Stdin), *override); err != nil {
 		return err
 	}
+	approval := sessionApproval{Session: s, Observation: &view.Runtime, Confirmed: true, OverrideReason: *override, DevelopmentQuery: *query, QueryUncertaintyAccepted: *query}
 	if *query && os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") != "codex" && os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") != "session" {
-		return openQueryPane(s, *override)
+		return appService.Open(approval)
 	}
-	return appService.Resume(sessionApproval{Session: s, Observation: &view.Runtime, Confirmed: true, OverrideReason: *override, DevelopmentQuery: *query, QueryUncertaintyAccepted: *query})
+	return appService.Resume(approval)
 }
 func stopSessionCommand(args []string) error {
 	if len(args) != 1 {

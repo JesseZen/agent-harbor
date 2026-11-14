@@ -229,3 +229,23 @@ func TestEnterInspectionCanBeCancelled(t *testing.T) {
 		t.Fatal("late cancelled inspection changed intent")
 	}
 }
+
+func TestMagpiePopupReturnStartsSessionObservation(t *testing.T) {
+	for _, screen := range []string{"magpie-context-loading", "magpie"} {
+		t.Run(screen, func(t *testing.T) {
+			f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "a"}}}}
+			m := newMagpieModel(f)
+			m.screen = screen
+			next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+			m = next.(harborModel)
+			if cmd == nil {
+				t.Fatalf("return did not start observation: refreshing=%v", m.refreshing)
+			}
+			next, _ = m.Update(cmd())
+			m = next.(harborModel)
+			if len(m.sessions) != 1 || !m.pollScheduled || m.refreshing {
+				t.Fatal("session page did not start polling", m)
+			}
+		})
+	}
+}

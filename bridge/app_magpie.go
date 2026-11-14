@@ -39,6 +39,7 @@ func (m harborModel) updateMagpie(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.screen == "magpie-context-loading" {
 		if key == "esc" {
 			m.screen = "sessions"
+			return m.requestRefresh()
 		}
 		return m, nil
 	}
@@ -46,6 +47,7 @@ func (m harborModel) updateMagpie(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scroll = 0
 		if m.screen == "magpie" {
 			m.screen = "sessions"
+			return m.requestRefresh()
 		} else {
 			m.screen = "magpie"
 		}

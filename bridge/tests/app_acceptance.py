@@ -180,8 +180,10 @@ def main():
         status=json.loads(run([binary,'magpie','status','--json']).stdout)
         (root/'management-status.json').write_text(json.dumps(status,indent=2))
         assert 'verified' in json.dumps(status), 'management UI stopped the gateway'
-        key('q')
-        print('PASS contextual Magpie management opens the same providers and leaves gateway running',flush=True)
+        key('Escape')
+        wait(lambda:'UI-A' in capture() and ('Idle' in capture() or 'Done' in capture()),'live sessions after standalone Magpie popup')
+        key('r');screen('UI-A');(root/'magpie-return-sessions.txt').write_text(capture());key('q')
+        print('PASS contextual Magpie management leaves gateway running and returns to live sessions',flush=True)
         two=create('UI-B','relay-b/test-model');turn('AH_RELAY_B',relay_b)
         three=create('UI-Native');turn('AH_LOCAL_C',native)
         wait(lambda:len(records())==3 and all(r.get('codex_session_id') for r in records()),'three captured IDs')

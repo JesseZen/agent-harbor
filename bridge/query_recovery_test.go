@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestQueryRecoveryRequiresObservedReference(t *testing.T) {
@@ -262,5 +266,83 @@ func TestQueryRecoveryDefersOpaqueCodexReferenceToHerdr(t *testing.T) {
 	got := b.sessions()[0]
 	if got.CodexSessionID != s.CodexSessionID || got.Mode != s.Mode {
 		t.Fatal("conversation or connection replaced")
+	}
+}
+
+func TestCLIQueryApprovalRejectsRebuiltSocket(t *testing.T) {
+	b := newTestBridge(t)
+	if out, err := b.command("create", "--dir", b.project); err != nil {
+		t.Fatal(out, err)
+	}
+	s := b.sessions()[0]
+	if out, err := b.command("bind", s.ID, "11111111-1111-4111-8111-111111111111"); err != nil {
+		t.Fatal(out, err)
+	}
+	b.prepareQuery(s.ID)
+	socket := queryTestSocket(t, b)
+	b.env = append(b.env, "HERDR_PLUGIN_ENTRYPOINT_ID=popup")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestBridgeProcess$", "--", "resume", "--development-query", s.ID)
+	cmd.Env = b.env
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	input, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cmd.ProcessState == nil {
+			cmd.Process.Kill()
+			cmd.Wait()
+		}
+	}()
+	input.Write([]byte("accept\n"))
+	var before bytes.Buffer
+	for !strings.Contains(before.String(), "Type yes to resume: ") {
+		var b [1]byte
+		if _, err = output.Read(b[:]); err != nil {
+			t.Fatal("missing review prompt", before.String(), stderr.String(), err)
+		}
+		before.WriteByte(b[0])
+		if before.Len() > 65536 {
+			t.Fatal("unbounded review output")
+		}
+	}
+	if err = os.Rename(socket, socket+".before-review"); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			c, e := listener.Accept()
+			if e != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				var req any
+				json.NewDecoder(c).Decode(&req)
+				json.NewEncoder(c).Encode(map[string]any{"result": map[string]any{"agents": []any{}}})
+			}()
+		}
+	}()
+	input.Write([]byte("yes\n"))
+	input.Close()
+	rest, _ := io.ReadAll(output)
+	err = cmd.Wait()
+	if err == nil || !strings.Contains(string(rest)+stderr.String(), "runtime target changed") {
+		t.Fatalf("old approval crossed rebuilt socket: %s%s %v", rest, stderr.String(), err)
 	}
 }

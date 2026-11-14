@@ -8,7 +8,15 @@ This repository contains an **experimental development candidate**, not a suppor
 
 ## Code and testing
 
-The active Go module is in `bridge/`. Go 1.26 is required. Run `GOWORK=off go test ./...` from that directory using isolated HOME, XDG, temporary directories and client homes. Product runtime and packaging require Herdr, Magpie and a supported native client. See the [development candidate guide](bridge/PACKAGE-README.md) and [acceptance guide](bridge/tests/README.md).
+The active Go module is in `bridge/`. Go 1.26 is required. Run `GOWORK=off go test ./...` from that directory using isolated HOME, XDG, temporary directories and client homes. Product runtime and packaging require Herdr, Magpie and a supported native client.
+
+Start here when working on the project:
+
+- [Product outline](docs/spec.md) and [glossary](docs/glossary.md): intended behavior and terminology.
+- [Herdr integration](docs/herdr-integration.md): the upstream boundary and candidate recovery patch.
+- [Development candidate guide](bridge/PACKAGE-README.md): packaging and usage of the candidate.
+- [Acceptance guide](bridge/tests/README.md): tests and isolated runtime acceptance.
+- [Agent instructions](AGENTS.md): project guidance for coding agents. An optional, untracked `AGENTS.local.md` can record machine-specific constraints and the current task.
 
 This snapshot replaces a previous product direction. The former Core, TUI and launcher are not part of this product.
 

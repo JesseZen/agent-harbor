@@ -10,3 +10,5 @@ dist/
 build/
 .worktrees/
 .scratch/
+!/AGENTS.md
+/AGENTS.local.md

@@ -2,7 +2,7 @@
 
 This package is an experimental contraction build. Herdr's recovery query is a local contribution candidate, not accepted or released upstream. Install only into a new empty dedicated prefix; the installer refuses populated prefixes and existing PATH links. Do not replace a supported installation.
 
-The preserved `recovery/pre-contraction-20261114` source retains the prior supported workflow. This branch cannot build a normal supported package.
+The previous supported workflow is not included in this public snapshot. This snapshot builds development candidates, not a normal supported package.
 
 Provide a native executable named for the client on PATH. Harbor does not inspect npm/vendor layouts or execute wrappers to discover versions. Install the supported native client binary explicitly. Identity is observed from Herdr; recovery requires its query plus explicit uncertainty approval. Legacy IDs retain their original provenance and require review/reassociation, never automatic official trust. Harbor does not scan client histories or private writer locks, and does not delete conversation histories.
 
@@ -10,7 +10,7 @@ Build with `AGENT_HARBOR_DEVELOPMENT_CANDIDATE=1`, a candidate version, dependen
 
 The filename, version and packaged README identify the candidate. No automatic upgrades or process/configuration changes are performed by installation.
 
-Linux replacement runtime evidence predates contraction; final combined runtime regression is still required. macOS runtime, platform package validation and official upstream delivery remain open gates. Historical macOS checks do not validate this candidate.
+Selected candidate flows have been exercised on native Linux amd64 and macOS arm64; Linux arm64 and macOS amd64 have cross-build and package evidence only. These results apply to the revisions and flows that were exercised. Verify changes on the relevant targets, and keep official upstream acceptance and release as separate, open delivery gates.
 
 ## Using the candidate
 

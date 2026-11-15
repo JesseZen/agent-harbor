@@ -299,21 +299,36 @@ func TestMouseScrolledSelectionStaysUnderPointer(t *testing.T) {
 	}
 }
 
-func TestMouseDirectoryPreviewDoesNotCancelDoubleClick(t *testing.T) {
+func TestMouseDirectoryPreviewPreservesExplicitSelection(t *testing.T) {
 	m, _ := formFixture()
 	m.screen = "new-directory"
 	m.picker.entries = []directoryEntry{{path: "/projects/harbor", source: "fixture"}}
 	m.picker.previewPath = "/projects/harbor"
-	at := time.Now()
-	m = mouseAt(m, 3, 7, at)
-	// First selection schedules the preview. Its completion changes only the
-	// preview text, leaving the visible selectable row geometry unchanged.
+	p := m.directoryPage()
+	x, y := -1, -1
+	for _, r := range p.Hits {
+		if strings.HasPrefix(r.ID, "dir-path:") {
+			x, y = r.X, r.Y
+			break
+		}
+	}
+	if x < 0 {
+		t.Fatal("directory row missing")
+	}
+	m = mouseAt(m, x, y, time.Now())
+	// Preview completion must preserve selection; only Use commits the edit.
 	next, _ := m.Update(directoryPreviewResult{generation: m.picker.previewGeneration, path: m.picker.previewPath, text: "synthetic preview"})
 	m = next.(harborModel)
-	if m.mouse.id == "" {
-		t.Fatal("preview canceled click")
+	if m.picker.entries[m.picker.cursor].path != "/projects/harbor" {
+		t.Fatal("preview changed selection")
 	}
-	m = mouseAt(m, 3, 7, at.Add(100*time.Millisecond))
+	p = m.directoryPage()
+	for _, r := range p.Hits {
+		if r.ID == "dir-use" {
+			m = mouseAt(m, r.X, r.Y, time.Now())
+			break
+		}
+	}
 	if m.screen != "new-form" {
 		t.Fatalf("directory double click: %s", m.screen)
 	}

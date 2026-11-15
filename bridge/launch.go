@@ -180,7 +180,7 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 	if err := checkSessionSelection(s, kind, overrideReason, selection); err != nil {
 		return err
 	}
-	if err := validateLaunchState(s); err != nil {
+	if err := waitForLaunchState(s); err != nil {
 		return err
 	}
 	if s.Mode == "magpie" && !joinedCodex(s) {

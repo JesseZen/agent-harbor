@@ -2,13 +2,44 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 )
+
+func TestWaitForLaunchStateAllowsHerdrObservationToClear(t *testing.T) {
+	calls := 0
+	err := waitForLaunchStateFn(func() error {
+		calls++
+		if calls < 3 {
+			return errConversationObserved
+		}
+		return nil
+	}, 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("stale observation did not clear: %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("expected two retries, got %d validation calls", calls)
+	}
+}
+
+func TestWaitForLaunchStateDoesNotRetryUnrelatedErrors(t *testing.T) {
+	want := errors.New("session changed; review it again")
+	calls := 0
+	err := waitForLaunchStateFn(func() error {
+		calls++
+		return want
+	}, 500*time.Millisecond)
+	if !errors.Is(err, want) || calls != 1 {
+		t.Fatalf("unrelated launch error was retried or changed: err=%v calls=%d", err, calls)
+	}
+}
 
 func TestFocusRechecksExternalRuntimeIdentity(t *testing.T) {
 	root := visibilityTestRoot(t)

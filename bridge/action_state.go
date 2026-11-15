@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+var errConversationObserved = errors.New("this conversation is already observed in Herdr; focus its verified target")
+
+const (
+	launchStateRetryWindow = 3 * time.Second
+	launchStateRetryDelay  = 200 * time.Millisecond
+)
+
 func currentRuntime(id string) (sessionView, []sessionView, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
 	defer cancel()
@@ -65,10 +72,34 @@ func validateLaunchState(s session) error {
 	}
 	for _, other := range all {
 		if other.Runtime.Presence == "observed" && s.Conversation != nil && other.Runtime.Reference != nil && *other.Runtime.Reference == s.Conversation.Reference {
-			return errors.New("this conversation is already observed in Herdr; focus its verified target")
+			return errConversationObserved
 		}
 	}
 	return nil
+}
+
+func waitForLaunchState(s session) error {
+	return waitForLaunchStateFn(func() error { return validateLaunchState(s) }, launchStateRetryWindow)
+}
+
+func waitForLaunchStateFn(validate func() error, window time.Duration) error {
+	deadline := time.Now().Add(window)
+	for {
+		err := validate()
+		if !errors.Is(err, errConversationObserved) {
+			return err
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return err
+		}
+		delay := launchStateRetryDelay
+		if remaining < delay {
+			delay = remaining
+		}
+		timer := time.NewTimer(delay)
+		<-timer.C
+	}
 }
 
 func (h harborService) FocusObserved(expected sessionView) error {

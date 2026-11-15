@@ -75,9 +75,11 @@ evidence must be reported separately.
 
 The experimental App Server recovered both native and caller-only Magpie
 conversations in isolated macOS testing. Immediately after stopping a
-background pane, Herdr may briefly retain its old agent observation; Harbor can
-refuse recovery until that observation clears. The fixture waits for the
-observation to disappear. Immediate-retry behavior remains unverified.
+background pane, Herdr may briefly retain its old agent observation. Harbor
+retries that specific stale observation for up to three seconds before refusing
+recovery; the fixture still waits for the observation to disappear before
+asserting the final state. The bounded retry is covered by bridge unit tests;
+real-client timing evidence remains fixture-specific.
 
 Add `--model-picker` to exercise the real Magpie catalog in Codex, save a model
 and reasoning effort for one Harbor session, make a temporary choice in a second

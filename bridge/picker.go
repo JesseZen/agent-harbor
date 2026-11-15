@@ -112,7 +112,7 @@ func openQueryPane(s session, override string, selection *codexSelection) error 
 	return openPaneOptions(s, launchKind("query"), override, selection)
 }
 func openPaneOptions(s session, action launchKind, override string, selection *codexSelection) error {
-	if err := validateLaunchState(s); err != nil {
+	if err := waitForLaunchState(s); err != nil {
 		return err
 	}
 	herdr := os.Getenv("HERDR_BIN_PATH")

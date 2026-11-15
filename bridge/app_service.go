@@ -88,7 +88,7 @@ func (harborService) Open(a sessionApproval) error {
 	if err := validateApprovalRuntime(a); err != nil {
 		return err
 	}
-	if err := validateLaunchState(a.Session); err != nil {
+	if err := waitForLaunchState(a.Session); err != nil {
 		return err
 	}
 	if a.DevelopmentQuery {

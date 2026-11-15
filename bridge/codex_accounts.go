@@ -245,7 +245,7 @@ func (harborService) CodexAccountAction(action string, stdin io.Reader, stdout, 
 			if !verifyCodexServer(s) {
 				status = "Unknown"
 			}
-			outcomes = append(outcomes, fmt.Sprintf("%s · %s: identity unconfirmed. Check this session before continuing.", s.Name, status))
+			outcomes = append(outcomes, fmt.Sprintf("%s · %s: identity unconfirmed. %s. Check this session before continuing.", s.Name, status, refreshErr.Error()))
 			continue
 		}
 		verified++

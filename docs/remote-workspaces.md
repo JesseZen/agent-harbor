@@ -95,3 +95,6 @@ synthetic provider. It checks completion after client termination, matching
 process/conversation after reconnect, local state isolation and replacement
 rejection. Physical laptop sleep and platform-specific data retention need
 separate host acceptance.
+
+See [candidate validation](remote-workspaces-validation.md) for tested versions,
+package checksums and the limits of the disconnect tests.

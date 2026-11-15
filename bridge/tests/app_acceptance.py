@@ -486,7 +486,8 @@ def main():
                     match=next(x for x in discovered if x['pane_id']==rec['herdr_pane'])
                     # Pinned Herdr exposes pane/tab identity, not Codex UUID.
                     assert match['tab_id']==rec['herdr_tab'], 'MCP tab mismatch'
-                    assert match.get('tokens',{}).get('harbor')=='Magpie managed / '+rec['magpie_model'], 'MCP connection mismatch'
+                    connection_label='Codex' if rec.get('codex_connection')=='caller' else rec['magpie_model']
+                    assert match.get('tokens',{}).get('harbor')=='Magpie managed / '+connection_label, 'MCP connection mismatch'
                     before=sum(marker in marks for _,marks in relay.observed)
                     request(10+index,'tools/call',{'name':'herdr_relay','arguments':{'target':rec['herdr_agent_name'],'text':marker}})
                     wait(lambda:sum(marker in marks for _,marks in relay.observed)>before,'MCP send '+name)

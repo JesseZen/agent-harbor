@@ -16,3 +16,17 @@ If `AGENTS.local.md` exists at the repository root, read it for machine-specific
 - Inspect Git status and worktrees first. Preserve unrelated user changes and protect credentials, conversations and private material.
 - Match tests to the changed behavior. For runtime, packaging or acceptance work, follow [bridge/tests/README.md](bridge/tests/README.md) and use isolated homes, configuration, state, ports and processes. Do not disturb existing user-managed services.
 - Report what was actually tested and any missing platform, real-client or upstream evidence. Keep secrets, local state, build artifacts and private planning material out of commits.
+
+## Agent skills
+
+### Issue tracker
+
+For ticket creation, specification publication and issue updates, read [the GitHub tracker workflow](docs/agents/issue-tracker.md).
+
+### Triage labels
+
+When triaging or publishing agent-ready work, use [the configured label vocabulary](docs/agents/triage-labels.md).
+
+### Domain docs
+
+Before domain research or design, follow [the single-context domain documentation rules](docs/agents/domain.md).

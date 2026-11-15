@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Native multi-machine UI, real SSH, native Codex and disconnect acceptance.
 
-Run on a Linux test client against a separate Linux test server. Both roots are
+Run on a Linux or macOS client against a separate Linux server. Both roots are
 exclusive fixture resources. No real credentials, conversations or gateways are used.
 """
 import argparse
@@ -20,9 +20,13 @@ def main():
     parser = argparse.ArgumentParser()
     for key in ('host', 'binary', 'herdr', 'codex', 'known-hosts'):
         parser.add_argument('--' + key, required=True)
+    for key in ('binary', 'herdr', 'codex'):
+        parser.add_argument('--remote-' + key, help='Linux server executable; defaults to client executable')
     parser.add_argument('--remote-root', required=True, help='new exclusive absolute directory')
     args = parser.parse_args()
-    assert pathlib.Path(args.codex).open('rb').read(4) == b'\x7fELF', 'native Linux Codex executable required'
+    assert pathlib.Path(args.codex).open('rb').read(4) in (b'\x7fELF', b'\xcf\xfa\xed\xfe'), 'native client Codex required'
+    remote_codex = args.remote_codex or args.codex
+    assert pathlib.Path(remote_codex).open('rb').read(4) == b'\x7fELF', 'native Linux server Codex required'
     remote = pathlib.PurePosixPath(args.remote_root)
     assert remote.is_absolute() and remote.name.startswith('harbor-remote-accept-')
     root = pathlib.Path(tempfile.mkdtemp(prefix='harbor-remote-client-', dir='/tmp')).resolve()
@@ -46,8 +50,9 @@ def main():
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
     here = pathlib.Path(__file__).resolve().parent
-    for source, leaf in [(args.binary, 'bin/agent-harbor'), (args.herdr, 'bin/herdr'),
-                         (args.codex, 'bin/codex'), (here / 'e2e_local.py', 'e2e_local.py'),
+    for source, leaf in [(args.remote_binary or args.binary, 'bin/agent-harbor'),
+                         (args.remote_herdr or args.herdr, 'bin/herdr'),
+                         (remote_codex, 'bin/codex'), (here / 'e2e_local.py', 'e2e_local.py'),
                          (here / 'fixture_process.py', 'fixture_process.py'),
                          (here / 'remote_server_fixture.py', 'remote_server_fixture.py')]:
         upload(source, remote / leaf)
@@ -60,7 +65,7 @@ def main():
         return json.loads(result.stdout) if mode in ('setup', 'snapshot') else result.stdout
 
     env = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'TERM': 'xterm-256color',
-           'SHELL': '/bin/sh', 'LANG': 'C.UTF-8', 'NO_COLOR': '1'}
+           'SHELL': '/bin/sh', 'LANG': 'en_US.UTF-8', 'NO_COLOR': '1'}
     for key, leaf in [('HOME', 'home'), ('XDG_CONFIG_HOME', 'config'), ('XDG_STATE_HOME', 'state'),
                       ('XDG_DATA_HOME', 'data'), ('XDG_CACHE_HOME', 'cache'),
                       ('XDG_RUNTIME_DIR', 'runtime'), ('TMPDIR', 'tmp'),
@@ -160,6 +165,8 @@ def main():
         assert record['working_directory'] == str(remote / 'project'), record
         pid = record['process_group']
         assert pid > 1
+        original_process = server('snapshot')['processes'][str(pid)]
+        assert original_process['group'] == pid
         local_records = root / 'harbor/sessions.json'
         assert not local_records.exists() or json.loads(local_records.read_text()) == []
         text('AH_REMOTE_OVERNIGHT')
@@ -167,16 +174,21 @@ def main():
         wait(lambda: server('snapshot')['request_started'], 'remote request start')
         tm('kill-session', '-t', 'native')
         wait(lambda: server('snapshot')['request_completed'], 'request completed without client')
-        after = server('snapshot')['records'][0]
+        completed = server('snapshot')
+        after = completed['records'][0]
+        assert completed['processes'][str(pid)] == original_process
         assert after['process_group'] == pid, (record, after)
         assert after.get('codex_session_id')
         reference = after.get('conversation', {}).get('reference')
+        assert reference, after
         open_client()
         choose_remote()
         output = run([wrapper, '--machine', profile_id, 'agent', 'read', after['herdr_pane']]).stdout
         (root / 'remote-after-reconnect.json').write_text(output)
         assert 'HELLO_FROM_ISOLATED_MOCK' in output, output
-        again = server('snapshot')['records'][0]
+        reconnected = server('snapshot')
+        again = reconnected['records'][0]
+        assert reconnected['processes'][str(pid)] == original_process
         assert again['process_group'] == pid and again.get('conversation', {}).get('reference') == reference
         # Keep the old saved path and prove that a changed workspace cannot be targeted.
         server('replace-identity')

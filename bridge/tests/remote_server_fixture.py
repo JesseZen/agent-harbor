@@ -83,7 +83,18 @@ def main():
         print(run(root / 'bin/agent-harbor', 'remote', 'prepare', '--native').stdout, end='')
     elif mode == 'snapshot':
         records = root / 'harbor/sessions.json'
-        print(json.dumps({'records': json.loads(records.read_text()) if records.exists() else [],
+        rows = json.loads(records.read_text()) if records.exists() else []
+        processes = {}
+        for row in rows:
+            pid = row.get('process_group', 0)
+            try:
+                # /proc start ticks distinguish a live process from a stale record or reused PID.
+                fields = pathlib.Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+                if fields[0] != 'Z':
+                    processes[str(pid)] = {'group': int(fields[2]), 'start_ticks': fields[19]}
+            except FileNotFoundError:
+                pass
+        print(json.dumps({'records': rows, 'processes': processes,
                           'request_started': (root / 'request-started').exists(),
                           'request_completed': (root / 'request-completed').exists()}))
     elif mode == 'replace-identity':

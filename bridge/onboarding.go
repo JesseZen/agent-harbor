@@ -13,7 +13,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 )
 
@@ -133,8 +132,10 @@ type onboardingRefreshed struct {
 	err    error
 }
 type onboardingModel struct {
-	scroll int
-	help   bool
+	scroll     int
+	help       bool
+	focus      string
+	helpScroll int
 
 	service            onboardingService
 	report             onboardingReport
@@ -153,6 +154,9 @@ func (m onboardingModel) choices() []onboardingChoice {
 }
 func (m onboardingModel) Init() tea.Cmd { return nil }
 func (m onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if next, cmd, ok := m.secondaryInput(msg); ok {
+		return next, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -184,7 +188,7 @@ func (m onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.help {
 			if key == "esc" || key == "?" {
 				m.help = false
-				m.scroll = 0
+				m.scroll = m.helpScroll
 			}
 			if key == "q" || key == "ctrl+c" {
 				return m, tea.Quit
@@ -194,6 +198,7 @@ func (m onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "?":
 			m.help = true
+			m.helpScroll = m.scroll
 			m.scroll = 0
 			return m, nil
 		case "r":
@@ -263,114 +268,8 @@ type onboardingExec struct {
 	choice  onboardingChoice
 }
 
-func (e onboardingExec) Run() error { return e.service.FinishOnboarding(e.choice) }
-func (m onboardingModel) View() string {
-	width, height := m.width, m.height
-	if width == 0 {
-		width = 80
-	}
-	if height == 0 {
-		height = 24
-	}
-	width = max(20, min(140, width-4))
-	height = max(10, min(30, height))
-	env := []string{"🩺 ENVIRONMENT", kvw("Herdr", m.report.Herdr, 8), kvw("Codex", m.report.Codex, 8), kvw("Magpie", m.report.Magpie, 8)}
-	right := []string{"🔌 CONNECTION", "Choose how new sessions connect", ""}
-	alerts := []string{}
-	for _, w := range m.report.Warnings {
-		alerts = append(alerts, "⚠ "+w)
-	}
-	if m.notice != "" {
-		alerts = append(alerts, "⚠ "+m.notice)
-	}
-	if len(alerts) > 0 {
-		right = append(append(right[:2], alerts...), "")
-	}
-	wide := width >= 90 && !m.help && !m.review && !m.busy
-	if wide {
-		env = append(env, "", note("Your existing configuration stays yours."))
-	}
-	mode := ""
-	switch {
-	case m.help:
-		mode = "help"
-		right = []string{"📖 Keyboard help", "", "↑/k ↓/j  Choose a connection", "Enter    Review, then confirm", "Esc      Cancel review or exit", "r        Refresh dependency and gateway checks", "Ctrl+D/U Scroll long details", "q        Cancel onboarding", "", note("Nothing attaches to Herdr until a choice succeeds.")}
-	case m.busy:
-		right = append(right, "⏳ Working… Please wait.")
-	case m.review:
-		c := m.choices()[m.cursor]
-		right = []string{"✨ Review: " + c.Kind, "", note("Harbor-managed Magpie has its own home and ports."), note("It keeps running after this app closes."), note("Only an explicit stop ends it; accounts are not imported."), note("Local uses your own Codex configuration and login."), note("External instances remain user-managed.")}
-		if c.Kind == "external" {
-			right = append(right, "", kv("Address", c.Probe.Address), kv("Verified config", c.Probe.ConfigDir), kv("Executable", c.Probe.Executable), kv("Version", c.Probe.Version))
-		}
-	default:
-		choices := m.choices()
-		used := len(right)
-		if !wide {
-			used += len(env) + 1
-		}
-		per := 3
-		if (height-7-used)/3 < len(choices) {
-			per = 2
-		}
-		count := max(1, (height-7-used)/per)
-		start := max(0, m.cursor-count+1)
-		for i := start; i < min(len(choices), start+count); i++ {
-			c := choices[i]
-			mark := "  "
-			if i == m.cursor {
-				mark = "› "
-			}
-			label := map[string]string{"local": "💻 Local Codex only for now", "managed": "🐦 Create Harbor-managed Magpie", "external": "🔌 Running Magpie " + c.Probe.Address}[c.Kind]
-			hint := map[string]string{"local": "Your existing settings and login.", "managed": "A separate gateway, owned by Harbor.", "external": statusDot(c.Probe.State) + " · " + orUnknown(c.Probe.ConfigDir)}[c.Kind]
-			cw := width - 1
-			if wide {
-				cw = width - width*9/20 - 4
-			}
-			right = append(right, ansi.Truncate(cleanUI(mark+label), cw, "…"), ansi.Truncate(cleanUI("     "+hint), cw, "…"))
-			if per == 3 {
-				right = append(right, "")
-			}
-		}
-	}
-	if m.help || m.review || m.busy {
-		right = append(right, append([]string{""}, alerts...)...)
-	}
-	bodyH := height - 7
-	var body []string
-	if wide {
-		lw := width * 9 / 20
-		rw := width - lw - 3
-		l := paintBlock(strings.Split(fitBlock(strings.Join(env, "\n"), lw-1, bodyH), "\n"), lw-1, "")
-		r := strings.Split(fitBlock(strings.Join(right, "\n"), rw, 10000), "\n")
-		start := min(m.scroll, max(0, len(r)-bodyH))
-		r = paintBlock(strings.Split(fitBlock(strings.Join(r[start:], "\n"), rw, bodyH), "\n"), rw, mode)
-		sep := paint(fg("muted"), "│")
-		for i := 0; i < max(len(l), len(r)); i++ {
-			a, c := "", ""
-			if i < len(l) {
-				a = l[i]
-			}
-			if i < len(r) {
-				c = r[i]
-			}
-			body = append(body, a+strings.Repeat(" ", max(0, lw-ansi.StringWidth(a)))+sep+"  "+c)
-		}
-	} else {
-		all := append(append(env, ""), right...)
-		if m.help || m.review {
-			all = right
-		}
-		wrapped := strings.Split(fitBlock(strings.Join(all, "\n"), width, 10000), "\n")
-		start := min(m.scroll, max(0, len(wrapped)-bodyH))
-		body = paintBlock(strings.Split(fitBlock(strings.Join(wrapped[start:], "\n"), width, bodyH), "\n"), width, mode)
-	}
-	result := harborFrame("First run", body, "", "Choose a connection; review before anything starts.", "↑↓ choose · Enter act · Esc back · r refresh · ? help", width, height, false)
-	if m.height > 30 {
-		result = strings.Repeat("\n", (m.height-30)/2) + result
-	}
-	return result
-}
+func (e onboardingExec) Run() error    { return e.service.FinishOnboarding(e.choice) }
+func (m onboardingModel) View() string { return m.secondaryPage().view() }
 
 func ensureOnboarding(s onboardingService) error {
 	r, err := s.Onboarding()
@@ -383,7 +282,7 @@ func ensureOnboarding(s onboardingService) error {
 	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
 		return fmt.Errorf("first-run checks require an interactive terminal\nHerdr: %s\nCodex: %s\nMagpie: %s", r.Herdr, r.Codex, r.Magpie)
 	}
-	model, err := tea.NewProgram(onboardingModel{service: s, report: r}, tea.WithAltScreen()).Run()
+	model, err := tea.NewProgram(onboardingModel{service: s, report: r}, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	if err != nil {
 		return fmt.Errorf("onboarding needs an interactive terminal: %w", err)
 	}

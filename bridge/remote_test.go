@@ -155,3 +155,19 @@ esac
 		t.Fatal("Herdr targeted with invalid workspace")
 	}
 }
+
+func TestRemoteBridgeRestoresSetAndUnsetClientPaths(t *testing.T) {
+	b, w := remoteFixture(t)
+	stub := "#!/bin/sh\nprintf '%s\\n%s\\n' \"$CODEX_HOME\" \"${CLAUDE_CONFIG_DIR-unset}\" > \"$CAPTURE\"\n"
+	if err := os.WriteFile(w.Herdr, []byte(stub), 0700); err != nil {
+		t.Fatal(err)
+	}
+	b.env = append(b.env, "CODEX_HOME=/later/codex", "CLAUDE_CONFIG_DIR=/later/claude")
+	if out, err := b.command("_remote-herdr", w.State, w.ID, "status", "client"); err != nil {
+		t.Fatalf("bridge: %s %v", out, err)
+	}
+	data, err := os.ReadFile(filepath.Join(b.root, "capture"))
+	if err != nil || string(data) != filepath.Join(b.root, "codex")+"\nunset\n" {
+		t.Fatalf("later login changed client paths: %q %v", data, err)
+	}
+}

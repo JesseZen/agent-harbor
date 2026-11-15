@@ -14,9 +14,16 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
         key('Escape');key('q')
         print('PASS replacement negative UI:',reason,flush=True)
     run([binary,'magpie','stop']);refusal('UI-A','gateway offline');run([binary,'magpie','start'])
-    run([managed,'provider','rm','relay-b']);refusal('UI-B','saved Magpie model or routing group is unavailable')
-    (root/'harbor/magpie/bin/data/providers.json').write_bytes((root/'provider-a-restore.json').read_bytes())
-    wait(lambda:'relay-b/test-model' in run([binary,'models','--instance','managed','--json']).stdout,'restored catalog')
+    if next(r for r in original if r['name']=='UI-B').get('codex_connection') != 'caller':
+        run([managed,'provider','rm','relay-b'])
+        wait(lambda:'relay-b/test-model' not in run([binary,'models','--instance','managed','--json']).stdout,'removed provider absent from live catalog')
+        refusal('UI-B','saved Magpie model or routing group is unavailable')
+        (root/'harbor/magpie/bin/data/providers.json').write_bytes((root/'provider-a-restore.json').read_bytes())
+        wait(lambda:'relay-b/test-model' in run([binary,'models','--instance','managed','--json']).stdout,'restored catalog')
+    else:
+        # The joined connection deliberately restores Codex's last selection,
+        # which can differ from Harbor's initial model. See joinedCodexArgs.
+        print('N/A initial-model refusal for caller connection: Codex owns model restoration',flush=True)
     (root/'project').rename(root/'project-missing')
     try:refusal('UI-A','working directory is unavailable')
     finally:(root/'project-missing').rename(root/'project')

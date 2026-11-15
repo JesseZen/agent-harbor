@@ -212,6 +212,11 @@ func remoteHerdr(args []string) error {
 	}
 	updates := map[string]*string{"HERDR_SOCKET_PATH": nil, "HERDR_CLIENT_SOCKET_PATH": nil, "HERDR_SESSION": nil}
 	allowed := remoteEnvironmentKeys()
+	// Absence is part of the saved context too. A later SSH login environment
+	// must not introduce a client home that was unset during preparation.
+	for key := range allowed {
+		updates[key] = nil
+	}
 	for _, pair := range w.Environment {
 		key, value, ok := strings.Cut(pair, "=")
 		if !ok || !allowed[key] {

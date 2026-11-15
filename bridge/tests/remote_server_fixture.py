@@ -71,10 +71,12 @@ def main():
         (root / 'codex/config.toml').write_text(
             'check_for_update_on_startup = false\ncli_auth_credentials_store = "file"\n'
             'model = "test-model"\nmodel_provider = "remote-fixture"\n'
+            '[features]\nhooks = true\n'
             '[model_providers.remote-fixture]\nname = "Synthetic remote"\n'
             f'base_url = "http://127.0.0.1:{port}/v1"\n'
             'requires_openai_auth = false\nwire_api = "responses"\n'
             '[projects.' + json.dumps(str(root / 'project')) + ']\ntrust_level = "trusted"\n')
+        run(root / 'bin/herdr', 'integration', 'install', 'codex')
         launcher = root / 'remote-harbor'
         launcher.write_text('#!/bin/sh\n' + ''.join('export ' + k + '=' + shlex.quote(v) + '\n'
                             for k, v in env.items()) + 'cd ' + shlex.quote(str(root / 'project')) +
@@ -82,6 +84,8 @@ def main():
         launcher.chmod(0o700)
         print(run(root / 'bin/agent-harbor', 'remote', 'prepare', '--native').stdout, end='')
     elif mode == 'snapshot':
+        # Reading the application view reconciles official Herdr observations.
+        run(root / 'bin/agent-harbor', 'sessions', '--json')
         records = root / 'harbor/sessions.json'
         rows = json.loads(records.read_text()) if records.exists() else []
         processes = {}

@@ -44,10 +44,19 @@ def main():
     ssh('python3', '-c', 'import os,sys; os.mkdir(sys.argv[1],0o700); os.mkdir(sys.argv[1]+"/bin",0o700)', remote)
 
     def upload(source, target):
-        with pathlib.Path(source).open('rb') as stream:
-            command = 'umask 077; cat > ' + shlex.quote(str(target)) + '; chmod 700 ' + shlex.quote(str(target))
-            subprocess.run(ssh_base + [command], stdin=stream, check=True, timeout=180,
+        # Native clients can exceed 250 MB. Stream compression avoids a second
+        # artifact on the client and keeps cloud SSH gateways within the timeout.
+        command = 'umask 077; gzip -dc > ' + shlex.quote(str(target)) + ' && chmod 700 ' + shlex.quote(str(target))
+        compressor = subprocess.Popen(['gzip', '-c', str(source)], stdout=subprocess.PIPE)
+        try:
+            subprocess.run(ssh_base + [command], stdin=compressor.stdout, check=True, timeout=600,
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            assert compressor.wait(timeout=10) == 0, 'artifact compression failed'
+        finally:
+            compressor.stdout.close()
+            if compressor.poll() is None:
+                compressor.kill()
+                compressor.wait()
 
     here = pathlib.Path(__file__).resolve().parent
     for source, leaf in [(args.remote_binary or args.binary, 'bin/agent-harbor'),
@@ -119,8 +128,9 @@ def main():
         tm('send-keys', '-t', 'native:0.0', '-l', value)
 
     def key(*value):
-        tm('send-keys', '-t', 'native:0.0', *value)
-        time.sleep(.3)
+        for item in value:
+            tm('send-keys', '-t', 'native:0.0', item)
+            time.sleep(.3)
 
     def contains(value):
         return wait(lambda: value in screen(), value)
@@ -160,6 +170,9 @@ def main():
         if 'Hooks need review' in screen():
             key('Down', 'Enter')
         contains('Ask Codex')
+        time.sleep(1)  # The first prompt can render while Codex is finishing startup.
+        if 'hook needs' in screen():
+            key('t', 'Escape')
         records = wait(lambda: server('snapshot')['records'], 'remote session record')
         record = records[0]
         assert record['working_directory'] == str(remote / 'project'), record
@@ -170,7 +183,15 @@ def main():
         local_records = root / 'harbor/sessions.json'
         assert not local_records.exists() or json.loads(local_records.read_text()) == []
         text('AH_REMOTE_OVERNIGHT')
+        contains('AH_REMOTE_OVERNIGHT')
+        time.sleep(.5)  # Separate pasted text from the submit key across SSH.
         key('Enter')
+        time.sleep(1)
+        if 't trust all' in screen():
+            key('t', 'Escape')
+            text('AH_REMOTE_OVERNIGHT')
+            time.sleep(.5)
+            key('Enter')
         wait(lambda: server('snapshot')['request_started'], 'remote request start')
         tm('kill-session', '-t', 'native')
         wait(lambda: server('snapshot')['request_completed'], 'request completed without client')

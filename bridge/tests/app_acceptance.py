@@ -65,6 +65,16 @@ def main():
     def key(*keys):tm('send-keys','-t','app:0.0',*keys);time.sleep(.15)
     def text(value):tm('send-keys','-t','app:0.0','-l',str(value));time.sleep(.6)
     def popup():key('C-b','a');screen('HARBOR')
+    def click(label):
+        import unicodedata
+        lines=capture().splitlines()
+        y=next(i for i,line in enumerate(lines) if label in line)
+        prefix=lines[y][:lines[y].index(label)]
+        x=sum(2 if unicodedata.east_asian_width(c) in ('W','F') else 0 if unicodedata.combining(c) else 1 for c in prefix)+1
+        tm('send-keys','-t','app:0.0','-l',f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m');time.sleep(.3)
+    def reviewed_confirm():
+        # Confirmations initially focus Cancel and guard key/click penetration.
+        time.sleep(.25);key('Tab');key('Enter')
     def records():
         path=root/'harbor/sessions.json'
         return json.loads(path.read_text()) if path.exists() else []
@@ -115,8 +125,8 @@ def main():
             env['HERDR_BIN']=str(root/'harbor/herdr/bin/herdr')
             config+='[mcp_servers.herdr]\ncommand = '+json.dumps(node)+'\nargs = ['+json.dumps(str(pathlib.Path(a.mcp).resolve()))+']\n'
         (root/'codex/config.toml').write_text(config)
-        if a.experimental_codex_accounts:
-            run([root/'bin/codex','login','--with-api-key'],input='sk-harbor-fixture\n')
+        # Caller-only transport requires a caller identity; never use a real login.
+        run([root/'bin/codex','login','--with-api-key'],input='sk-harbor-fixture\n')
         launcher=root/'launch.sh'
         launcher.write_text('#!/bin/sh\n'+''.join('export '+k+'='+shlex.quote(v)+'\n' for k,v in env.items())+'cd '+shlex.quote(str(root/'project'))+'\nagent-harbor\nread answer\n')
         launcher.chmod(0o700)
@@ -161,16 +171,16 @@ def main():
         def create(name,model=None):
             popup();key('n');screen('New session')
             if model:
-                key('Up','Up','Up','Enter');screen('Choose an instance, then a model.')
-                key('Down','Enter');screen('Choose a Magpie instance');key('/');text('managed');key('Enter');screen('Choose a model or routing group')
-                key('/');text(model);key('Enter');screen('New session')
-                key('Down','Down')
-            else:key('Up')
-            key('Enter');screen('Session name');text(name);key('Enter');screen('New session')
-            key('Down','Enter')
-            wait(lambda:any(label in capture() for label in ('Magpie auxiliary routing','Ask Codex','Hooks need review')), 'creation or explicit auxiliary acknowledgement')
-            if 'Magpie auxiliary routing' in capture():
-                key('Enter');screen('New session');key('Enter')
+                click('Connection');screen('Choose instance and model');click('Choose instance and model');click('Select');screen('Choose instance')
+                key('/');text('managed');key('Enter');key('Enter');screen('Model or routing group')
+                key('/');text(model);key('Enter')
+                if 'Acknowledge & apply' in capture():click('Acknowledge & apply')
+                else:click('Apply selection')
+                screen('New session')
+            else:
+                click('Connection');screen('Choose instance and model');click('Native');click('Select');screen('New session')
+            click('Name');screen('Session name');text(name);click('Apply');screen('New session')
+            click('Create')
             wait(lambda:'Ask Codex' in capture() or 'Hooks need review' in capture(), 'Codex prompt or hook review')
             if 'Hooks need review' in capture():
                 key('Down','Enter')
@@ -242,7 +252,7 @@ def main():
             assert saved_a['model']=='relay-a/test-model' and saved_a['model_reasoning_effort']=='high',saved_a
             assert (root/'codex/config.toml').read_bytes()==config_before,'picker changed the native settings'
         wait(lambda:notify_count()>notify_before,'existing notify after first managed turn')
-        key('C-b','m');screen('Magpie instances');key('Enter');screen('Review Magpie action: manage');key('Enter')
+        key('C-b','m');screen('Magpie instances');key('Enter');screen('Review Magpie action: manage');reviewed_confirm()
         screen('1 agents')
         # Magpie's agent picker writes client settings. In a managed instance
         # those writes must not escape into the native Codex configuration.
@@ -318,7 +328,7 @@ def main():
             name,first,marker,relay=({'native':('UI-Native','AH_LOCAL_C','AH_RESUME_C',native),
                                       'magpie':('UI-A','AH_LOCAL_FIRST','AH_LOCAL_SECOND',relay_a)}[a.experimental_account_recovery])
             before=next(r for r in records() if r['name']==name)
-            popup();key('/');text(name);key('Tab');key('s');screen('Review stop');key('Enter')
+            popup();key('/');text(name);key('Tab');key('s');screen('Review stop');reviewed_confirm()
             wait(lambda:not next(r for r in records() if r['name']==name).get('process_group'),'experimental session stopped')
             def herdr_released_conversation():
                 agents=json.loads(run([wrapper,'agent','list']).stdout)['result']['agents']
@@ -392,13 +402,13 @@ def main():
         # closed. Its popup may be terminated by that close request.
         run([wrapper,'tab','focus',one['herdr_tab']])
         wait(lambda:any(p['pane_id']==one['herdr_pane'] and p.get('focused') for p in json.loads(run([wrapper,'pane','list']).stdout)['result']['panes']),'restored pane focused before review')
-        popup();key('/');text('UI-A');key('Tab');key('c');screen('Close previous idle shell')
-        key('Escape');key('c');screen('Close previous idle shell');key('Enter');time.sleep(.5)
+        popup();key('/');text('UI-A');key('Tab');key('c');screen('Close inspected shell')
+        key('Escape');key('c');screen('Close inspected shell');reviewed_confirm();time.sleep(.5)
         wait(lambda:next(r for r in records() if r['name']=='UI-A').get('ended_evidence'),'reviewed exit saved when closing its own popup')
         if 'HARBOR' in capture():key('q')
         print('PASS restored idle shell review, cancellation and explicit close',flush=True)
         for ended_name in ['UI-B','UI-Native']:
-            popup();key('/');text(ended_name);key('Tab');key('c');screen('Close previous idle shell');key('Enter');time.sleep(.5)
+            popup();key('/');text(ended_name);key('Tab');key('c');screen('Close inspected shell');reviewed_confirm();time.sleep(.5)
             wait(lambda:next(r for r in records() if r['name']==ended_name).get('ended_evidence'),'reviewed exit '+ended_name)
             if 'HARBOR' in capture():key('q')
         print('PASS explicit restored-shell end evidence for all three original runs',flush=True)
@@ -419,14 +429,14 @@ def main():
         else:negative_ui(root,binary,managed,run,popup,key,text,screen,capture,records,wait,saved)
         assert {r['name']:(r['codex_session_id'],r.get('instance_id'),r.get('magpie_model')) for r in records()}==saved
         for name,marker,relay,first in [('UI-A','AH_LOCAL_SECOND',relay_a,'AH_LOCAL_FIRST'),('UI-B','AH_RESUME_B',relay_b,'AH_RELAY_B'),('UI-Native','AH_RESUME_C',native,'AH_LOCAL_C')]:
-            popup();key('/');text(name);key('Enter');screen('Review query-resume' if a.replacement else 'Review resume');screen('🚢 '+name);
+            popup();key('/');text(name);key('Enter');key('Enter');screen('Review query-resume' if a.replacement else 'Review resume');screen(name);
             if a.model_picker and name=='UI-A':screen('relay-a/test-model');screen('high')
             if a.replacement:
-                screen('a accept')
+                screen('Use saved conversation')
                 if name=='UI-Native':
                     screen('Native route or login may have changed')
                     screen('A provider name does not verify its destination')
-                key('Enter');screen('Press a to explicitly accept query uncertainty')
+                reviewed_confirm();screen('Inspect evidence')
                 assert not next(r for r in json.loads(run([binary,'sessions','--json']).stdout) if r['name']==name)['running'], 'uncertainty did not gate execution'
                 key('a')
             key('Enter');screen('Ask Codex');time.sleep(1);turn(marker,relay)
@@ -497,7 +507,7 @@ def main():
         # Retired history actions explain native tools and preserve the conversation.
         popup();key('/');text('UI-B');key('Tab');key('d');screen('Client history');key('Enter');key('q')
         assert any(r['name']=='UI-B' for r in records())
-        popup();key('/');text('UI-B');key('Tab');key('s');screen('Review stop');key('Enter');time.sleep(.5)
+        popup();key('/');text('UI-B');key('Tab');key('s');screen('Review stop');reviewed_confirm();time.sleep(.5)
         if 'HARBOR' in capture():key('q')
         if a.replacement:
             stopped=json.loads(run([binary,'sessions','--json']).stdout)
@@ -512,7 +522,7 @@ def main():
             wait(lambda:not next(r for r in json.loads(run([binary,'sessions','--json']).stdout) if r['name']=='UI-B')['running'],'stopped UI-B before removal')
         history_before = {str(p): p.read_bytes() for p in (root/'codex/sessions').rglob('*'+saved['UI-B'][0]+'*') if p.is_file()}
         assert history_before
-        popup();key('/');text('UI-B');key('Tab');key('x');screen('Review remove');key('Enter')
+        popup();key('/');text('UI-B');key('Tab');key('x');screen('Review remove');reviewed_confirm()
         if a.replacement:
             # A visible busy response must never be bypassed by touching the lock.
             # Record only fixture lock holders, then retry the same public action.

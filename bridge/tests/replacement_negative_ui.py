@@ -7,11 +7,11 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
     expected_running=0
     before={p:p.read_bytes() for p in (root/'codex/sessions').rglob('*.jsonl')}
     def refusal(name,reason):
-        popup();key('/');text(name);key('Enter');screen('Review query-resume');key('a');key('Enter');screen(reason)
+        popup();key('/');text(name);key('Enter');key('Enter');screen('Review query-resume');key('a');key('Enter');key('i');screen(reason)
         assert {r['name']:(r['codex_session_id'],r.get('instance_id'),r.get('magpie_model')) for r in records() if r['name'] in saved}==saved
         assert {p:p.read_bytes() for p in (root/'codex/sessions').rglob('*.jsonl')}==before,'refusal changed conversation files'
         assert sum(r['running'] for r in json.loads(run([binary,'sessions','--json']).stdout))==expected_running,'refusal launched client'
-        key('Escape');key('q')
+        key('Escape');key('Escape');key('q')
         print('PASS replacement negative UI:',reason,flush=True)
     run([binary,'magpie','stop']);refusal('UI-A','gateway offline');run([binary,'magpie','start'])
     run([managed,'provider','rm','relay-b']);refusal('UI-B','saved Magpie model or routing group is unavailable')
@@ -46,8 +46,9 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
         missing['conversation']['status']='missing'
         record_file.write_text(json.dumps(altered))
         try:
-            popup();key('/');text(name);key('Tab');key('v');screen('Review saved identity')
-            key('Enter');screen('Press a to explicitly accept the saved identity review')
+            popup();key('/');text(name);key('Tab');key('v');screen('Review review-reference')
+            import time
+            time.sleep(.25);key('Tab');key('Enter');screen('Inspect evidence')
             assert next(r for r in records() if r['name']==name)['conversation']['status']=='missing', 'unapproved reference was changed'
             key('a');key('Enter')
             wait(lambda:next(r for r in records() if r['name']==name)['conversation']['status']=='reviewed','saved reference review')

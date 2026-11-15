@@ -167,8 +167,10 @@ def main():
         contains('New session')
         key('Enter')
         wait(lambda: 'Ask Codex' in screen() or 'Hooks need review' in screen(), 'remote Codex startup')
+        # Codex can briefly render its prompt before showing first-run hook trust.
+        time.sleep(2)
         if 'Hooks need review' in screen():
-            key('Down', 'Enter')
+            key('2', 'Enter')
         contains('Ask Codex')
         time.sleep(1)  # The first prompt can render while Codex is finishing startup.
         if 'hook needs' in screen():
@@ -199,14 +201,15 @@ def main():
         after = completed['records'][0]
         assert completed['processes'][str(pid)] == original_process
         assert after['process_group'] == pid, (record, after)
-        assert after.get('codex_session_id')
+        after = wait(lambda: next((row for row in server('snapshot')['records']
+                                  if row.get('codex_session_id') and row.get('conversation', {}).get('reference')), None),
+                     'official remote conversation reference')
         reference = after.get('conversation', {}).get('reference')
         assert reference, after
         open_client()
         choose_remote()
-        output = run([wrapper, '--machine', profile_id, 'agent', 'read', after['herdr_pane']]).stdout
-        (root / 'remote-after-reconnect.json').write_text(output)
-        assert 'HELLO_FROM_ISOLATED_MOCK' in output, output
+        contains('HELLO_FROM_ISOLATED_MOCK')
+        (root / 'remote-after-reconnect.txt').write_text(screen())
         reconnected = server('snapshot')
         again = reconnected['records'][0]
         assert reconnected['processes'][str(pid)] == original_process

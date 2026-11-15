@@ -22,7 +22,7 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen = "sessions"
 			return m, nil
 		}
-		if m.screen != "new-name" && m.screen != "new-cli" && m.screen != "new-notice" {
+		if m.screen != "new-name" && m.screen != "new-cli" {
 			m.draft = m.formSaved
 		}
 		return back()
@@ -212,6 +212,15 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if k == "enter" && len(rows) > 0 {
 			m.draft.Model = rows[m.catalogCursor].ID
+			ack, err := m.service.AuxiliaryAcknowledged(m.draft.Instance)
+			if err != nil {
+				m.notice = err.Error()
+				return m, nil
+			}
+			if !ack {
+				m.screen = "new-notice"
+				return m, nil
+			}
 			return back()
 		}
 	}

@@ -33,6 +33,9 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 	if !m.formActive {
 		return uiPage{}, false
 	}
+	if p, ok := m.connectionSelectorPage(); ok {
+		return p, true
+	}
 	p := newUIPage(m.width, m.height)
 	switch m.screen {
 	case "new-directory":
@@ -120,8 +123,8 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 		p.buttons([]uiAction{{ID: "new-name-save", Label: "Apply", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
 	case "new-connection":
 		p.line("🔌 Connection")
-		p.field("new-native", "💻", "Native", m.selectedClient()+" settings and login", m.connectionCursor == 0, false)
-		p.field("new-magpie", "🐦", "Magpie", "Choose instance and model", m.connectionCursor == 1, false)
+		p.field("new-native", selectorMark(m.formSaved.Connection == "local"), "Native", m.selectedClient()+" settings and login", m.connectionCursor == 0, false)
+		p.field("new-magpie", selectorMark(m.formSaved.Connection == "magpie"), "Magpie", "Choose instance and model", m.connectionCursor == 1, false)
 		p.buttons([]uiAction{{ID: "new-connection-select", Label: "Select", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
 		if m.notice != "" {
 			p.line(cleanUI(m.notice))
@@ -132,6 +135,11 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 	return p, true
 }
 func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	if m.formActive {
+		if n, c, ok := m.connectionSelectorInput(msg); ok {
+			return n, c, true
+		}
+	}
 	if m.screen == "new-directory" && m.formActive {
 		return m.directoryPageInput(msg)
 	}

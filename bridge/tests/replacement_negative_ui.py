@@ -14,9 +14,16 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
         key('Escape');key('Escape');key('q')
         print('PASS replacement negative UI:',reason,flush=True)
     run([binary,'magpie','stop']);refusal('UI-A','gateway offline');run([binary,'magpie','start'])
-    run([managed,'provider','rm','relay-b']);refusal('UI-B','saved Magpie model or routing group is unavailable')
-    (root/'harbor/magpie/bin/data/providers.json').write_bytes((root/'provider-a-restore.json').read_bytes())
-    wait(lambda:'relay-b/test-model' in run([binary,'models','--instance','managed','--json']).stdout,'restored catalog')
+    if next(r for r in original if r['name']=='UI-B').get('codex_connection')!='caller':
+        run([managed,'provider','rm','relay-b']);refusal('UI-B','saved Magpie model or routing group is unavailable')
+        (root/'harbor/magpie/bin/data/providers.json').write_bytes((root/'provider-a-restore.json').read_bytes())
+        wait(lambda:'relay-b/test-model' in run([binary,'models','--instance','managed','--json']).stdout,'restored catalog')
+    else:
+        # Joined recovery delegates model/effort to Codex's saved thread. The
+        # initial Harbor choice is not a current-model assertion; see
+        # TestJoinedRecoveryUsesCodexSelectionWithoutHarborProfile.
+        # Actual resumed route/history is checked by app_acceptance afterward.
+        print('Joined recovery model remains client-owned; initial-model removal refusal applies only to legacy connections',flush=True)
     (root/'project').rename(root/'project-missing')
     try:refusal('UI-A','working directory is unavailable')
     finally:(root/'project-missing').rename(root/'project')

@@ -35,3 +35,26 @@ func TestCandidatePackageRefusesWrongHerdrSource(t *testing.T) {
 		t.Fatalf("wrong candidate accepted: %s %v", out, err)
 	}
 }
+
+func TestCandidatePackageRequiresRemotePatchAttestation(t *testing.T) {
+	deps := t.TempDir()
+	dir := filepath.Join(deps, "herdr")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for suffix, value := range map[string]string{
+		".source":              "60a5316204b0c538229defb2628e50660a469b85",
+		".sha256":              strings.Repeat("0", 64),
+		".remote-patch.sha256": strings.Repeat("0", 64),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, "herdr-candidate-linux-amd64"+suffix), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("sh", "package.sh", t.TempDir())
+	cmd.Env = append(os.Environ(), "AGENT_HARBOR_DEVELOPMENT_CANDIDATE=1", "AGENT_HARBOR_DEPENDENCIES_DIR="+deps, "AGENT_HARBOR_CANDIDATE_TARGETS=linux-amd64")
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "Herdr remote patch attestation") {
+		t.Fatalf("unpatched Herdr allowed in remote package: %s %v", out, err)
+	}
+}

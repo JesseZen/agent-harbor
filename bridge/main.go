@@ -182,7 +182,7 @@ Recovery:
 }
 
 func usage() error {
-	return errors.New("usage: agent-harbor-bridge {open|stop|settings|settings-recover|create|start|sessions|show|bind|verify|resume|stop-session|rename|remove|focus|route|new|models|magpie}")
+	return errors.New("usage: agent-harbor-bridge {open|stop|settings|settings-recover|create|start|sessions|show|bind|verify|resume|stop-session|rename|remove|focus|route|new|models|magpie|remote}")
 }
 
 func checkDirectory(path string) (string, error) {

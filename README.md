@@ -15,6 +15,7 @@ Start here when working on the project:
 - [Product outline](docs/spec.md) and [glossary](docs/glossary.md): intended behavior and terminology.
 - [Codex and Magpie architecture](docs/magpie-codex-architecture.md) and [coordination spec](docs/magpie-codex-coordination-spec.md): login-preserving integration targets and the boundaries for the development candidate. The Magpie caller-only patch and account refresh are experimental and are not upstream releases.
 - [Herdr integration](docs/herdr-integration.md): the upstream boundary and candidate recovery patch.
+- [Remote workspaces](docs/remote-workspaces.md): native Herdr machine connections and server-owned Harbor sessions.
 - [Development candidate guide](bridge/PACKAGE-README.md): packaging and usage of the candidate.
 - [Acceptance guide](bridge/tests/README.md): tests and isolated runtime acceptance.
 - [Agent instructions](AGENTS.md): project guidance for coding agents. An optional, untracked `AGENTS.local.md` and `.agents.local/` directory can hold machine-specific guidance and documents.

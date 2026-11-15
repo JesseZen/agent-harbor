@@ -195,6 +195,12 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		settings := next.(settingsModel)
 		if settings.closed {
 			m.settings = nil
+			if settings.nav != "" {
+				m.screen = settings.nav
+				if m.screen == "magpie" {
+					return m, m.loadInstances()
+				}
+			}
 			return m, nil
 		}
 		m.settings = &settings

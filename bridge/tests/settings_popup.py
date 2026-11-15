@@ -14,7 +14,7 @@ except OSError:
  raise SystemExit(77)
 threading.Thread(target=discovery.serve_forever,daemon=True).start()
 root=pathlib.Path(tempfile.mkdtemp(prefix='harbor03-smoke-',dir='/tmp')).resolve()
-env={'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','TERM':'xterm-256color','SHELL':'/bin/sh','LANG':'en_US.UTF-8','NO_COLOR':'1'}
+env={'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','TERM':'xterm-256color','SHELL':'/bin/sh','LANG':'en_US.UTF-8','COLORTERM':'truecolor'}
 for key,leaf in [('HOME','home'),('XDG_CONFIG_HOME','config'),('XDG_DATA_HOME','data'),('XDG_STATE_HOME','state'),('XDG_CACHE_HOME','cache'),('XDG_RUNTIME_DIR','runtime'),('TMPDIR','tmp'),('CODEX_HOME','codex'),('CODEX_SQLITE_HOME','sqlite')]:
  (root/leaf).mkdir(mode=0o700);env[key]=str(root/leaf)
 (root/'codex/config.toml').write_text('check_for_update_on_startup = false\n')
@@ -42,7 +42,7 @@ try:
  launcher.chmod(0o700)
  tm('new-session','-d','-s','app','-x','160','-y','45',str(launcher))
  wait('First run')
- wait('codex-cli 0.167.0')
+ wait(run([root/'bin/codex','--version']).stdout.strip())
  out=wait('herdr 0.9.5');(root/'onboarding.txt').write_text(out)
  tm('send-keys','-t','app:0.0','Enter');wait('Review: local')
  tm('send-keys','-t','app:0.0','Enter')
@@ -55,10 +55,16 @@ try:
   (root/('settings-'+str(cols)+'.ansi')).write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
   keys('Escape')
  keys('C-b');keys('a');wait('HARBOR');keys(',');wait('Harbor · Settings')
- keys('Enter');keys('C-u');keys('-l','prefix+t');keys('Enter')
+ def click(label):
+  lines=capture().splitlines();y=next(i for i,line in enumerate(lines) if label in line)
+  prefix=lines[y][:lines[y].index(label)]
+  import unicodedata
+  x=sum(2 if unicodedata.east_asian_width(c) in ('W','F') else 0 if unicodedata.combining(c) else 1 for c in prefix)+1
+  tm('send-keys','-t','app:0.0','-l',f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m');time.sleep(.5)
+ click('prefix+a');keys('C-u');keys('-l','prefix+t');click('Accept field')
  keys('Down');keys('Enter');keys('C-u');keys('-l','ctrl+g');keys('Enter')
  keys('Down');keys('Enter');keys('C-u');keys('-l','prefix+f');keys('Enter')
- keys('Down');keys('Down');keys('Enter');out=wait('Saved for this workspace')
+ click('Save changes');out=wait('Saved for this workspace');(root/'settings-saved-160.ansi').write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
  (root/'saved.txt').write_text(out)
  import json
  assert json.loads((root/'harbor/shortcuts.json').read_text())=={'harbor':'prefix+t','settings':'ctrl+g','magpie':'prefix+f'}
@@ -73,6 +79,7 @@ try:
  run([root/'bin/agent-harbor','stop'])
  tm('send-keys','-t','app:0.0','C-c');tm('send-keys','-t','app:0.0','-l',str(root/'bin/agent-harbor'));keys('Enter');wait('Harbor ^B t')
  keys('C-g');wait('Harbor · Settings')
+ (root/'saved.ansi').write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
  print('PASS actual check/reload/new shortcut/settings popup three sizes/reentry/restart',root)
 finally:
  run([root/'bin/agent-harbor','stop'],check=False)

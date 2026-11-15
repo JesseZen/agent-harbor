@@ -60,7 +60,13 @@ func TestSettingsLocalEditingAndMouse(t *testing.T) {
 	if m.values != defaultShortcuts() {
 		t.Fatal("cancel changed draft")
 	}
-	n, _ = m.Update(tea.MouseMsg{X: 3, Y: 2, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	hit := m.layout().Hits[0]
+	for _, r := range m.layout().Hits {
+		if r.ID == "control:1" {
+			hit = r
+		}
+	}
+	n, _ = m.Update(tea.MouseMsg{X: hit.X, Y: hit.Y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	m = n.(settingsModel)
 	if !m.editing || m.cursor != 1 {
 		t.Fatal("row mouse")
@@ -205,7 +211,7 @@ func TestSettingsDetailsOwnMouse(t *testing.T) {
 	m := newSettingsModel()
 	m.details = true
 	m.cursor = 4
-	next, cmd := m.Update(tea.MouseMsg{X: 3, Y: 5, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	next, cmd := m.Update(tea.MouseMsg{X: 3, Y: m.height - 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	n := next.(settingsModel)
 	if n.busy || cmd != nil || !n.details {
 		t.Fatal("hidden save activated")

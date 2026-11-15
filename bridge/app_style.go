@@ -13,19 +13,12 @@ import (
 // painting happens last and never changes a line's visible width, so layout
 // and tests stay independent of colour support.
 var harborPalette = map[string]string{
-	"brand":   "#5EEAD4", // sea glass
-	"ink":     "#0B1622", // text on brand pills
-	"text":    "#E6EDF3",
-	"label":   "#7F8EA3",
-	"muted":   "#5C6B80",
-	"section": "#B9A4FF", // lavender
-	"title":   "#8AB4FF", // periwinkle
-	"key":     "#FF9AC1", // pink keycaps
-	"ok":      "#7EE787",
-	"warn":    "#F5C26B",
-	"bad":     "#FF8A80",
-	"idle":    "#8A97A8",
-	"selBg":   "#1D3547",
+	"bg": "#282A33", "brand": "#80D8CF", "ink": "#22252E",
+	"text": "#ECECF2", "label": "#9397A4", "value": "#9397A4",
+	"muted": "#777D8C", "border": "#4B505F", "button": "#333742",
+	"section": "#BEB7F2", "title": "#94B9EF", "key": "#B4B7C2",
+	"ok": "#99C793", "warn": "#DAB77E", "bad": "#E3A09B",
+	"idle": "#9397A4", "selBg": "#3A4050",
 }
 
 // keysMark prefixes body lines that list keyboard shortcuts ("s start  x stop").

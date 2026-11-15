@@ -120,6 +120,7 @@ func (m harborModel) updateMagpie(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.instanceID = id
 		m.scroll = 0
 		m.uiFocus = ""
+		m.uiFocus = "conn:esc"
 		m.mouse = mouseClick{}
 		m.reviewOpenedAt = time.Now()
 		m.screen = "magpie-confirm"

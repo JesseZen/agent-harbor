@@ -2,6 +2,7 @@ package main
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"strings"
 )
 
@@ -13,7 +14,13 @@ func selectorMark(selected bool) string {
 	return "·"
 }
 func (m harborModel) connectionSelectorPage() (uiPage, bool) {
-	p := newUIPage(m.width, m.height)
+	p := newUIPage(m.width, 10000)
+	wrap := func(text string) {
+		for _, line := range strings.Split(ansi.Wrap(text, max(1, m.width-2), ""), "\n") {
+			p.line(line)
+		}
+	}
+	footer := newUIPage(m.width, 10000)
 	switch m.screen {
 	case "new-instance-loading", "new-catalog-loading":
 		p.line("Loading connection…")
@@ -21,7 +28,7 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 		p.line("🐦 Magpie · Choose instance")
 		p.search(m.instanceFilter, "Filter instances", m.uiFocus == "selector-search")
 		rows := m.instanceRows()
-		count := max(1, p.Height-12)
+		count := max(1, m.height-12)
 		start := max(0, m.instanceCursor-count+1)
 		for i := start; i < min(len(rows), start+count); i++ {
 			r := rows[i]
@@ -30,15 +37,15 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 		if len(rows) > 0 {
 			r := rows[min(max(0, m.instanceCursor), len(rows)-1)]
 			p.line(cleanUI(r.Address))
-			p.line("Configuration: " + cleanUI(orUnknown(r.ConfigDir)))
+			wrap("Configuration: " + cleanUI(orUnknown(r.ConfigDir)))
 		}
-		p.button(uiAction{ID: "selector-select", Label: "Select instance", Key: "enter", Primary: true}, m.uiFocus == "selector-select")
+		footer.button(uiAction{ID: "selector-select", Label: "Select instance", Key: "enter", Primary: true}, m.uiFocus == "selector-select")
 	case "new-catalog":
 		p.line("🐦 Magpie · Model or routing group")
 		p.line(cleanUI(m.catalogInstanceLabel()))
 		p.search(m.catalogFilter, "Filter models and groups", m.uiFocus == "selector-search")
 		rows := m.filteredModels()
-		count := max(1, p.Height-15)
+		count := max(1, m.height-15)
 		start := max(0, m.catalogCursor-count+1)
 		for i := start; i < min(len(rows), start+count); i++ {
 			r := rows[i]
@@ -51,8 +58,8 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 			}
 			p.field("selector-model:"+r.ID, selectorMark(m.formSaved.Connection == "magpie" && m.formSaved.Instance == m.draft.Instance && m.formSaved.Model == r.ID), r.ID, label, i == m.catalogCursor, false)
 		}
-		p.line("Auxiliary requests may send conversation parts to other providers.")
-		p.line("Groups may switch members; an ID does not prove the destination.")
+		wrap("Auxiliary requests may send conversation parts to other providers.")
+		wrap("Groups may switch members; an ID does not prove the destination.")
 		label := "Apply selection"
 		ack, err := m.service.AuxiliaryAcknowledged(m.draft.Instance)
 		if !ack {
@@ -65,21 +72,22 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 		if len(rows) == 0 {
 			action.Disabled = "No matching models"
 		}
-		p.button(action, m.uiFocus == "selector-apply")
-		p.button(uiAction{ID: "selector-instances", Label: "Change instance", Key: "i"}, m.uiFocus == "selector-instances")
+		footer.button(action, m.uiFocus == "selector-apply")
+		footer.button(uiAction{ID: "selector-instances", Label: "Change instance", Key: "i"}, m.uiFocus == "selector-instances")
 	case "new-notice":
 		p.line("Magpie · " + m.draft.Instance)
-		p.line("Auxiliary requests may send conversation parts to other providers.")
-		p.line("Groups may switch members; an ID does not prove the destination.")
-		p.button(uiAction{ID: "selector-ack", Label: "Acknowledge & apply", Key: "enter", Primary: true}, m.uiFocus == "selector-ack")
+		wrap("Auxiliary requests may send conversation parts to other providers.")
+		wrap("Groups may switch members; an ID does not prove the destination.")
+		footer.button(uiAction{ID: "selector-ack", Label: "Acknowledge & apply", Key: "enter", Primary: true}, m.uiFocus == "selector-ack")
 	default:
 		return p, false
 	}
-	p.button(uiAction{ID: "selector-cancel", Label: "Cancel", Key: "esc"}, m.uiFocus == "selector-cancel")
+	footer.button(uiAction{ID: "selector-cancel", Label: "Cancel", Key: "esc"}, m.uiFocus == "selector-cancel")
 	if m.notice != "" {
-		p.line(cleanUI(m.notice))
+		wrap(cleanUI(m.notice))
 	}
-	return p, true
+	footer.line(paint(fg("key"), "PgUp/PgDown scroll · Tab controls"))
+	return p.withFooter(footer, m.height, m.scroll), true
 }
 func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	p, ok := m.connectionSelectorPage()
@@ -115,6 +123,7 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 		case id == "selector-instances":
 			m.generation++
 			g := m.generation
+			m.scroll = 0
 			m.screen = "new-instance-loading"
 			m.uiFocus = ""
 			return m, func() tea.Msg { r, e := m.service.InstanceReports(); return appNewInstances{g, r, e} }, true
@@ -143,6 +152,14 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 		return m, nil, true
 	}
 	if mouse, ok := msg.(tea.MouseMsg); ok {
+		if mouse.Button == tea.MouseButtonWheelDown {
+			m.scroll++
+			return m, nil, true
+		}
+		if mouse.Button == tea.MouseButtonWheelUp {
+			m.scroll = max(0, m.scroll-1)
+			return m, nil, true
+		}
 		if mouse.Action == tea.MouseActionPress && mouse.Button == tea.MouseButtonLeft {
 			return act(p.target(mouse.X, mouse.Y))
 		}
@@ -170,6 +187,15 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 		return m, c, true
 	}
 	switch k {
+	case "?", "ctrl+c", "ctrl+g":
+		n, c := m.update(key)
+		return n, c, true
+	case "pgdown":
+		m.scroll += max(1, m.height/2)
+		return m, nil, true
+	case "pgup":
+		m.scroll = max(0, m.scroll-max(1, m.height/2))
+		return m, nil, true
 	case "esc":
 		return act("selector-cancel")
 	case "/":

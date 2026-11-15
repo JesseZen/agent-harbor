@@ -27,7 +27,7 @@ shutil.copy2(native,root/'bin/codex');(root/'bin/codex').chmod(0o700)
 (root/'bin/agent-harbor').chmod(0o700)
 env['PATH']=str(root/'bin')+':'+env['PATH'];env['AGENT_HARBOR_HERDR_BIN']=str(root/'bin/herdr');env['AGENT_HARBOR_BRIDGE_HOME']=str(root/'harbor')
 shutil.copy2(a.magpie,root/'bin/magpie');env['AGENT_HARBOR_MAGPIE_BIN']=str(root/'bin/magpie')
-external=None;provider=None
+external=None;external2=None;provider=None
 tmux=shutil.which('tmux');sock=str(root/'tmux.sock')
 def run(args,check=True):return subprocess.run(list(map(str,args)),env=env,text=True,capture_output=True,check=check)
 def tm(*args):return run([tmux,'-S',sock,*args]).stdout
@@ -89,17 +89,46 @@ try:
  run([root/'bin/agent-harbor','magpie','bind','--address',address])
  registry=json.loads((root/'harbor/magpie.json').read_text())
  external_id=next(i['id'] for i in registry['instances'] if i['address']==address)
+ # A second independently verified gateway proves consent is per instance.
+ other_env=dict(ext_env)
+ for key in ['HOME','XDG_CONFIG_HOME','XDG_DATA_HOME','XDG_STATE_HOME','XDG_CACHE_HOME','CODEX_HOME','TMPDIR']:
+  directory=root/('other-'+key.lower());directory.mkdir();other_env[key]=str(directory)
+ with socket.socket() as other_port:
+  other_port.bind(('127.0.0.1',0));port2=other_port.getsockname()[1]
+ other_env['MAGPIE_ADDR']='127.0.0.1:'+str(port2)
+ subprocess.run([root/'bin/magpie','provider','add','other','url=http://127.0.0.1:'+str(provider.server_port)+'/v1','key=synthetic-only','models=fixture-model'],env=other_env,check=True,capture_output=True)
+ external2=subprocess.Popen([root/'bin/magpie','serve'],env=other_env,stdout=open(root/'other.log','w'),stderr=subprocess.STDOUT)
+ address2='http://127.0.0.1:'+str(port2)
+ for attempt in range(100):
+  try:
+   with urllib.request.urlopen(address2+'/api/hello',timeout=1) as response:assert json.load(response)['codex_caller_only'] is True
+   break
+  except Exception:time.sleep(.1)
+ else:raise RuntimeError('second external did not start')
+ run([root/'bin/agent-harbor','magpie','bind','--address',address2])
+ registry=json.loads((root/'harbor/magpie.json').read_text())
+ other_id=next(i['id'] for i in registry['instances'] if i['address']==address2)
 
  click('New session');wait('New session')
  # First selection explicitly acknowledges the concrete instance.
  click('Connection');click('Choose instance and model');click('Select');wait('Choose instance')
  click(external_id);click('Select instance');wait('Model or routing group')
  click('group/fixture-group');save('selector-first-160');click('Acknowledge & apply');wait('New session')
+ click('Connection');click('Choose instance and model');click('Select');wait('Choose instance')
+ click(other_id);click('Select instance');wait('Model or routing group');wait('Acknowledge & apply');save('selector-other-instance-160')
+ click('Cancel');wait('New session');assert external_id in capture() and 'group/fixture-group' in capture(),capture()
+ registry=json.loads((root/'harbor/magpie.json').read_text())
+ assert not next(i for i in registry['instances'] if i['id']==other_id).get('auxiliary_acknowledged',False)
  click('Model');wait('Model or routing group');assert 'Apply selection' in capture()
  click('fixture/fixture-model');click('Cancel');wait('New session');assert 'group/fixture-group' in capture()
  for cols,rows in [(160,45),(100,30),(60,20)]:
   click('Model');wait('Model or routing group')
   tm('resize-window','-t','app:0','-x',str(cols),'-y',str(rows));time.sleep(.4);save('selector-'+str(cols))
+  if cols==60:
+   first=capture();assert 'other providers.' in first,first
+   assert 'Cancel' in first and 'Apply selection' in first,first
+   keys('PageDown');last=capture();assert 'destination.' in last,last
+   save('selector-disclosure-60')
   click('Cancel');wait('New session')
  tm('resize-window','-t','app:0','-x','160','-y','45');time.sleep(.4)
  click('Create');time.sleep(3)
@@ -109,6 +138,7 @@ try:
  print('PASS real Magpie group selection/ack/known-ack/cancel/unique Create/sizes',root)
 
 finally:
+ if external2 is not None:external2.terminate();external2.wait(timeout=10)
  if external is not None:external.terminate();external.wait(timeout=10)
  if provider is not None:provider.shutdown();provider.server_close()
  run([root/'bin/agent-harbor','stop'],check=False)

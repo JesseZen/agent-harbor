@@ -41,7 +41,7 @@ async function main() {
 <body style="margin:0;background:#132235;padding:24px"><div id="terminal"></div>
 <script src="${pathToFileURL(xterm)}"></script><script src="${pathToFileURL(addon)}"></script>
 <script>
-const term = new Terminal({allowProposedApi:true,cols:${cols},rows:${rows},fontSize:15,fontFamily:'Menlo, monospace',lineHeight:1.15,theme:{background:'#132235',foreground:'#D9E5EF'},cursorBlink:false});
+const term = new Terminal({allowProposedApi:true,cols:${cols},rows:${rows},fontSize:15,fontFamily:'Menlo, monospace',lineHeight:1.0,theme:{background:'#132235',foreground:'#D9E5EF'},cursorBlink:false});
 ${legacy ? '' : 'term.loadAddon(new UnicodeGraphemesAddon.UnicodeGraphemesAddon());'}
 term.open(document.getElementById('terminal'));
 window.terminalReady = new Promise(resolve => term.write(${encoded}, resolve));

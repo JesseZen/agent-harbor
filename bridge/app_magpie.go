@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -43,7 +44,11 @@ func (m harborModel) updateMagpie(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.screen == "magpie-busy" {
+		return m, nil
+	}
 	if key == "esc" {
+		m.uiFocus = ""
 		m.scroll = 0
 		if m.screen == "magpie" {
 			m.screen = "sessions"
@@ -96,7 +101,7 @@ func (m harborModel) updateMagpie(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "s", "x", "u", "enter", "w":
 		action := map[string]string{"s": "start", "x": "stop", "u": "use", "enter": "manage", "w": "web"}[key]
 		id := managedInstanceID
-		if action != "start" && action != "stop" {
+		if action != "start" && action != "stop" && action != "web" {
 			if len(rows) == 0 {
 				m.notice = "No instance selected. Bind a running gateway or start a managed one."
 				return m, nil
@@ -114,6 +119,9 @@ func (m harborModel) updateMagpie(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.action = action
 		m.instanceID = id
 		m.scroll = 0
+		m.uiFocus = ""
+		m.mouse = mouseClick{}
+		m.reviewOpenedAt = time.Now()
 		m.screen = "magpie-confirm"
 	}
 	return m, nil
@@ -143,8 +151,12 @@ func (m harborModel) magpieView() string {
 			lines = append(lines, note("Creates a Harbor-owned configuration and home."), note("Keeps running after Harbor closes."), note("Only an explicit stop ends it."), note("Subscription accounts are not imported."))
 		case "stop":
 			lines = append(lines, note("Stops only Harbor's recorded managed process."), note("Sessions using it will lose their gateway."))
+		case "use":
+			lines = append(lines, note("Sets the default for future new sessions only."), note("Existing session connections stay unchanged."))
+		case "web":
+			lines = append(lines, note("Opens Harbor-managed Magpie in your browser. Return by closing or switching from the browser."))
 		case "manage":
-			lines = append(lines, note("Opens Magpie's own provider management."), note("This UI connects to the existing gateway process."), note("Closing this management UI leaves that process running."))
+			lines = append(lines, note("Opens Magpie's own provider management."), note("This UI connects to the existing gateway process."), note("Exit Magpie management to return to Harbor; the gateway keeps running."))
 			for _, r := range rows {
 				if r.ID == m.instanceID && r.Kind != "managed" {
 					lines = append(lines, note("Magpie may change client configuration in this instance's environment, affecting native sessions."))

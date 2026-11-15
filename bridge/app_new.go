@@ -307,6 +307,9 @@ func (m harborModel) newView() string {
 			lines = append(lines, "")
 		}
 		lines = append(lines, "Selected: "+[]string{"Local", "Magpie"}[m.connectionCursor], note("Local shares your settings and login; changes to them affect this session."))
+		if m.connectionCursor == 0 && m.selectedClient() == "codex" && m.environment.NativeConfig != "" {
+			lines = append(lines, note(m.environment.NativeConfig))
+		}
 		return strings.Join(lines, "\n")
 	case "new-instance":
 		lines := []string{"🐦 Choose a Magpie instance", m.searchLine(len(rows), len(m.newInstances))}
@@ -364,6 +367,9 @@ func (m harborModel) newView() string {
 			lines = append(lines, kv("Connection", "Magpie"), kv("Instance", m.draft.Instance), kv("Selected ID", m.draft.Model), "", note("Auxiliary requests may use other providers."), note("Routing groups may switch members."), note("An unchanged ID does not prove an unchanged destination."))
 		} else {
 			lines = append(lines, kv("Connection", "Local Codex configuration and login"), kv("Config", m.environment.LocalHome))
+			if m.selectedClient() == "codex" && m.environment.NativeConfig != "" {
+				lines = append(lines, note(m.environment.NativeConfig))
+			}
 		}
 		return strings.Join(append(lines, "", "🚀 Enter opens a focused Herdr tab."), "\n")
 	}

@@ -56,12 +56,14 @@ def until(predicate,label,timeout=40):
   time.sleep(.2)
  (root/'failure-screen.txt').write_text(capture());raise RuntimeError('timeout '+label)
 try:
+ codex_version=run([root/'bin/codex','--version']).stdout.strip()
+ herdr_version=run([root/'bin/herdr','--version']).stdout.strip()
  run([root/'bin/herdr','integration','install','codex'])
  launcher=root/'launch.sh'
  launcher.write_text('#!/bin/sh\n'+''.join('export '+key+'='+shlex.quote(value)+'\n' for key,value in env.items())+'cd '+shlex.quote(str(root/'project'))+'\nagent-harbor\nread answer\n')
  launcher.chmod(0o700)
  tm('new-session','-d','-s','app','-x','160','-y','45',str(launcher))
- wait('First run');wait('codex-cli 0.167.0');wait('herdr 0.9.5')
+ wait('First run');wait(codex_version);wait(herdr_version)
  key('Enter');wait('Review: local');key('Enter');wait('Harbor ^B a')
  key('C-b','a');wait('HARBOR');key('n');wait('New session')
  key('Enter');wait('Ask Codex');time.sleep(2)
@@ -96,7 +98,7 @@ try:
  text(SECOND);key('Enter')
  until(lambda:any(FIRST in marks and SECOND in marks for _,marks in server.observed),'exact recovered context')
  assert records()[0]['codex_session_id']==rec['codex_session_id']
- print('PASS real interactive Codex query recovery, same native connection and context; Linux amd64',root,flush=True)
+ print('PASS real interactive Codex query recovery, same native connection and context',codex_version,herdr_version,root,flush=True)
 finally:
  run([root/'bin/agent-harbor','stop'],check=False)
  run([tmux,'-S',sock,'kill-server'],check=False)

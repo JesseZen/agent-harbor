@@ -17,6 +17,31 @@ type reassociationDecision struct {
 	Previous  *conversationEvidence `json:"previous,omitempty"`
 }
 
+// A saved reference can be presented for explicit review only when all of the
+// recorded identity evidence agrees. Conflicts still need independent review.
+func savedReferenceForReview(s session) (herdrIdentity, error) {
+	if s.Conversation == nil {
+		return herdrIdentity{}, errors.New("no complete saved reference; inspect the client and Herdr before reassociation")
+	}
+	c := s.Conversation
+	switch c.Status {
+	case "missing", "final_observation_unavailable", "association_lost", "observation_unavailable", "initial_unverified", "pending":
+	default:
+		return herdrIdentity{}, errors.New("saved identity is already reviewed or has conflicting evidence; inspect session details")
+	}
+	ref := c.Reference
+	if ref.Source == "" || ref.Agent != s.CLI || ref.Kind == "" || ref.Value == "" {
+		return herdrIdentity{}, errors.New("saved reference is incomplete; inspect the client and Herdr before reassociation")
+	}
+	if err := neutralReferenceCheck(s); err != nil {
+		return herdrIdentity{}, err
+	}
+	if c.ObservedReference != nil && *c.ObservedReference != ref || len(s.CandidateIDs) > 0 || len(s.Candidates) > 0 || s.ReportedCodexID != "" && s.ReportedCodexID != s.CodexSessionID {
+		return herdrIdentity{}, errors.New("identity evidence conflicts; inspect session details before reassociation")
+	}
+	return ref, nil
+}
+
 func (harborService) Reassociate(a sessionApproval, ref herdrIdentity, reason string) error {
 	if strings.TrimSpace(reason) == "" || strings.ContainsAny(reason, "\r\n\x00") {
 		return errors.New("review reason required")
@@ -24,10 +49,20 @@ func (harborService) Reassociate(a sessionApproval, ref herdrIdentity, reason st
 	if ref.Source == "" || ref.Agent != a.Session.CLI || ref.Kind == "" || ref.Value == "" {
 		return errors.New("complete upstream reference required; inspect Herdr identity or explicitly review a compatibility reference")
 	}
+	if a.Observation != nil {
+		if err := validateApprovalRuntime(a); err != nil {
+			return err
+		}
+		if a.Observation.Presence == "observed" {
+			return errors.New("a live target is observed; stop it before reassociation")
+		}
+	}
 	return changeSessionRecord(a.Session.ID, func(s session) (*session, error) {
 		if !sameSession(s, a.Session) {
 			return nil, errors.New("session changed; review its details again")
 		}
+		// changeSessionRecord already holds the same lock used by launch, so
+		// probing sessionLaunchPending here would mistake our own lock for a run.
 		if processGroupActive(s.ProcessGroup) {
 			return nil, errors.New("stop the session before reassociation")
 		}

@@ -13,6 +13,9 @@ import (
 type appRefreshTick struct{}
 type appSessionInspected struct {
 	expected, current sessionView
+	nativeConfig      string
+	selection         *codexSelection
+	selectionErr      error
 	err               error
 }
 
@@ -88,6 +91,11 @@ type harborModel struct {
 	noticeCanStart      bool
 	route               observedRoute
 	environment         appEnvironment
+	nativeReview        string
+	accountResult       string
+	reviewedSelection   *codexSelection
+	selectionReviewErr  error
+	selectionFallback   bool
 	formActive          bool
 	formFocus           int
 	formSaved           sessionDraft
@@ -105,6 +113,7 @@ type harborModel struct {
 	connectionCursor    int
 	clientCursor        int
 	queryAccepted       bool
+	referenceAccepted   bool
 }
 
 func newHarborModel(s applicationService) harborModel {
@@ -322,6 +331,10 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.reviewed = s.session
+		m.nativeReview = msg.nativeConfig
+		m.reviewedSelection = msg.selection
+		m.selectionReviewErr = msg.selectionErr
+		m.selectionFallback = false
 		observation := s.Runtime
 		m.reviewedObservation = &observation
 		m.action = "resume"
@@ -332,6 +345,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !s.Started {
 			m.action = "start"
 		}
+		m.scroll = 0
 		m.screen = "confirm"
 		return m, nil
 	case appResult:
@@ -394,6 +408,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.previousPane = msg.pane
 		m.reviewed = msg.pane.Session
 		m.action = "close-previous"
+		m.scroll = 0
 		m.screen = "confirm"
 		return m, nil
 	case appOpened:
@@ -444,6 +459,13 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = "Magpie action completed"
 		}
 		return m, m.loadInstances()
+	case appAccountDone:
+		m.screen = "accounts-result"
+		m.accountResult = msg.result
+		if msg.err != nil {
+			m.accountResult = msg.err.Error()
+		}
+		return m, nil
 	case appNewReady:
 		if msg.generation != m.generation || m.screen != "new-project-loading" {
 			return m, nil
@@ -507,8 +529,11 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Quit
 		}
-		if m.screen == "busy" || m.screen == "magpie-busy" {
+		if m.screen == "busy" || m.screen == "magpie-busy" || m.screen == "accounts-busy" {
 			return m, nil
+		}
+		if m.screen == "accounts" || m.screen == "accounts-result" {
+			return m.updateAccounts(key)
 		}
 		if key == "ctrl+g" {
 			m.notice = ""
@@ -700,18 +725,44 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.screen == "confirm" {
+			if (m.action == "query-resume" || m.action == "resume") && m.reviewed.Mode == "magpie" && m.reviewed.CLI == "codex" && m.selectionReviewErr != nil && key == "b" {
+				if !errors.Is(m.selectionReviewErr, errCodexProfileMissing) {
+					m.notice = "Session profile is unavailable or conflicts; resolve it before recovery."
+					return m, nil
+				}
+				id, err := codexReference(m.reviewed)
+				if err != nil {
+					m.notice = err.Error()
+					return m, nil
+				}
+				m.reviewedSelection = &codexSelection{ThreadID: id, Model: m.reviewed.MagpieModel, Fallback: true}
+				m.selectionFallback = true
+				return m, nil
+			}
 			if m.action == "query-resume" && key == "a" {
 				m.queryAccepted = true
+				return m, nil
+			}
+			if m.action == "review-reference" && key == "a" {
+				m.referenceAccepted = true
 				return m, nil
 			}
 			if m.action == "query-resume" && key == "enter" && !m.queryAccepted {
 				m.notice = "Press a to explicitly accept query uncertainty, or Esc to cancel."
 				return m, nil
 			}
+			if m.action == "review-reference" && key == "enter" && !m.referenceAccepted {
+				m.notice = "Press a to explicitly accept the saved identity review, or Esc to cancel."
+				return m, nil
+			}
+			if (m.action == "query-resume" || m.action == "resume") && key == "enter" && m.reviewed.Mode == "magpie" && m.reviewed.CLI == "codex" && !joinedCodex(m.reviewed) && m.reviewedSelection == nil {
+				m.notice = "Session model unavailable; review the uncertainty and choose the recorded model explicitly, or cancel."
+				return m, nil
+			}
 			if key != "enter" {
 				return m, nil
 			}
-			a := sessionApproval{Session: m.reviewed, Observation: m.reviewedObservation, Confirmed: true, DevelopmentQuery: m.action == "query-resume", QueryUncertaintyAccepted: m.queryAccepted}
+			a := sessionApproval{Session: m.reviewed, MagpieSelection: m.reviewedSelection, Observation: m.reviewedObservation, Confirmed: true, DevelopmentQuery: m.action == "query-resume", QueryUncertaintyAccepted: m.queryAccepted}
 			action := m.action
 			m.screen = "busy"
 			return m, func() tea.Msg {
@@ -723,6 +774,13 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					e = m.service.Remove(a)
 				case "close-previous":
 					e = m.service.ClosePreviousPane(m.previousPane)
+				case "review-reference":
+					ref, err := savedReferenceForReview(a.Session)
+					if err != nil {
+						e = err
+					} else {
+						e = m.service.Reassociate(a, ref, "Explicitly reviewed the saved conversation reference and connection in Harbor")
+					}
 				case "resume", "start", "query-resume":
 					e = m.service.Open(a)
 				}
@@ -762,6 +820,10 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.instanceCursor = 0
 			m.screen = "magpie"
 			return m, m.loadInstances()
+		case "a":
+			if experimentalCodexAccounts() {
+				m.screen = "accounts"
+			}
 		case "n":
 			m.generation++
 			generation := m.generation
@@ -772,7 +834,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "r":
 			return m.requestRefresh()
-		case "enter", "s", "x", "e", "i", "c", "d":
+		case "enter", "s", "x", "e", "i", "c", "d", "v":
 			s, ok := m.selected()
 			if !ok {
 				return m, nil
@@ -786,6 +848,29 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			switch key {
+			case "v":
+				if s.DiscoveryWarning != "" {
+					m.notice = s.DiscoveryWarning
+					return m, nil
+				}
+				if s.Runtime.Presence == "observed" || s.Running || processGroupActive(s.ProcessGroup) || sessionLaunchPending(s.session) {
+					m.notice = "Stop the live session or wait for launch before reviewing its saved identity."
+					return m, nil
+				}
+				if _, err := savedReferenceForReview(s.session); err != nil {
+					m.notice = err.Error()
+					return m, nil
+				}
+				m.reviewed = s.session
+				observation := s.Runtime
+				m.reviewedObservation = &observation
+				m.nativeReview = ""
+				if s.Mode == "local" && s.CLI == "codex" {
+					m.nativeReview = m.service.NativeCodexConfig()
+				}
+				m.action, m.screen = "review-reference", "confirm"
+				m.referenceAccepted, m.scroll, m.notice = false, 0, ""
+				return m, nil
 			case "d":
 				m.reviewed = s.session
 				observation := s.Runtime
@@ -818,12 +903,26 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if key == "x" {
 					m.action = "remove"
 				}
+				m.scroll = 0
 				m.screen = "confirm"
 			case "enter":
 				m.screen = "busy"
 				return m, func() tea.Msg {
 					v, e := m.service.GetContext(m.refreshContext, s.ID)
-					return appSessionInspected{expected: s, current: v, err: e}
+					summary := ""
+					var selection *codexSelection
+					var selectionErr error
+					if e == nil && v.Mode == "local" && v.CLI == "codex" && v.Runtime.Presence != "observed" {
+						summary = m.service.NativeCodexConfig()
+					}
+					if e == nil && v.Mode == "magpie" && v.CLI == "codex" && !joinedCodex(v.session) && v.Started && v.Runtime.Presence != "observed" {
+						value, selectionError := m.service.CodexSelection(m.refreshContext, v.session)
+						selectionErr = selectionError
+						if selectionError == nil {
+							selection = &value
+						}
+					}
+					return appSessionInspected{expected: s, current: v, nativeConfig: summary, selection: selection, selectionErr: selectionErr, err: e}
 				}
 
 			}

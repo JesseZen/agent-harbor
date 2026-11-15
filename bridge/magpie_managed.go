@@ -112,6 +112,13 @@ func startManagedMagpie(options managedStartOptions) error {
 	if err != nil {
 		return err
 	}
+	// New managed instances start without Codex account pooling. Keep an
+	// existing instance's mode across restarts instead of changing its users.
+	callerOnly := record != nil && record.CodexCallerOnly
+	if record == nil {
+		_, dataErr := os.Stat(layout.DataDir)
+		callerOnly = os.IsNotExist(dataErr)
+	}
 	if record != nil && record.PID > 1 {
 		probe := probeGateway(record.Address)
 		switch managedStopAction(record, probe, probeFacts(probe)) {
@@ -169,6 +176,10 @@ func startManagedMagpie(options managedStartOptions) error {
 	startedAt := time.Now().UTC()
 	cmd := exec.Command(layout.Executable, "serve", "--web="+gatewayAddressOf(webAddress))
 	cmd.Env = managedProcessEnvironment(layout, address, webKey, startedAt)
+	if callerOnly {
+		value := "1"
+		cmd.Env = replaceEnvironment(cmd.Env, map[string]*string{"MAGPIE_CODEX_CALLER_ONLY": &value})
+	}
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Dir = layout.Root
@@ -196,6 +207,7 @@ func startManagedMagpie(options managedStartOptions) error {
 	if err := writeManagedRecord(layout, managedRecord{
 		Address: address, WebAddress: webAddress, ConfigDir: probe.ConfigDir, Executable: probe.Executable,
 		Version: probe.Version, Digest: digest, PID: cmd.Process.Pid, StartedAt: startedAt,
+		CodexCallerOnly: requireCallerOnlyGateway(address) == nil,
 	}); err != nil {
 		return fmt.Errorf("the managed Magpie was stopped because its record could not be written: %w", err)
 	}

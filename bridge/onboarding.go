@@ -71,14 +71,14 @@ func (harborService) Onboarding() (onboardingReport, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		cmd := exec.CommandContext(ctx, path, "--version")
 		cmd.Env = os.Environ()
-		if output, err := cmd.Output(); err == nil && strings.TrimSpace(string(output)) == "magpie 0.1.3528" {
-			r.Magpie = "magpie 0.1.3528"
+		if output, err := cmd.Output(); err == nil && strings.HasPrefix(strings.TrimSpace(string(output)), "magpie ") {
+			r.Magpie = strings.TrimSpace(string(output))
 		} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			r.Magpie = "version check timed out; press r to retry"
 		} else if err != nil {
 			r.Magpie = "version check failed; press r to retry or check the executable"
 		} else {
-			r.Magpie = "unsupported version; install bundled Magpie 0.1.3528"
+			r.Magpie = "unrecognized executable; install the bundled Magpie candidate"
 		}
 		cancel()
 	}
@@ -232,8 +232,8 @@ func (m onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			c := m.choices()[m.cursor]
-			if c.Kind == "managed" && m.report.Magpie != "magpie 0.1.3528" {
-				m.notice = "Install bundled Magpie 0.1.3528, then refresh; Local Codex remains available."
+			if c.Kind == "managed" && !strings.HasPrefix(m.report.Magpie, "magpie ") {
+				m.notice = "Install the bundled Magpie candidate, then refresh; Local Codex remains available."
 				return m, nil
 			}
 			if c.Kind == "external" && c.Probe.State != gatewayVerified {

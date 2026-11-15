@@ -435,8 +435,8 @@ func startFactsHelperProcess(t *testing.T, root string, variables map[string]str
 	}
 	t.Cleanup(child.kill)
 	wanted := map[string]string{}
-	for key, value := range variables {
-		if _, kept := keptHelperVariables[key]; kept {
+	for _, key := range keptProcessVariables {
+		if value, ok := variables[key]; ok {
 			wanted[key] = value
 		}
 	}

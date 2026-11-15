@@ -27,6 +27,7 @@ type runtimeObservation struct {
 	LaunchPending    bool           `json:"launch_pending"`
 	InteractiveReady bool           `json:"interactive_ready"`
 	Associated       bool           `json:"associated"`
+	RunVerified      bool           `json:"run_verified,omitempty"`
 }
 
 type herdrAgent struct {
@@ -138,6 +139,58 @@ func agentObservation(a herdrAgent, at time.Time, associated bool) runtimeObserv
 	return runtimeObservation{Reference: a.Reference, Activity: activity, Presence: "observed", Source: "herdr.agent.list", ObservedAt: at, Workspace: a.Workspace, Terminal: a.Terminal, LaunchPending: a.LaunchPending, InteractiveReady: a.InteractiveReady, Associated: associated}
 }
 
+// A conversation reference may not exist before the client's first turn.
+// Herdr's foreground process group and the runner's token can independently
+// establish which live terminal contains this run, without establishing the
+// conversation identity. Never use this evidence as recovery authority.
+func verifiedForegroundRun(ctx context.Context, socket, identity string, agent herdrAgent, views []sessionView) int {
+	if agent.Terminal == "" || agent.Workspace == "" {
+		return -1
+	}
+	candidates := []int{}
+	for i := range views {
+		s := views[i].session
+		if s.HerdrSocket != socket || s.HerdrSocketIdentity != identity || s.HerdrPane != agent.Pane || s.HerdrTab == "" || s.HerdrTab != agent.Tab || s.CLI != agent.Client || s.RunToken == "" || s.ProcessGroup <= 1 {
+			continue
+		}
+		if s.Conversation != nil && (s.Conversation.Status == "conflict" || s.Conversation.Status == "invalid_report" || agent.Reference != nil && s.Conversation.Reference != *agent.Reference) {
+			continue
+		}
+		if agent.Reference != nil && s.CodexSessionID != "" && (agent.Reference.Kind != "id" || agent.Reference.Value != s.CodexSessionID) {
+			continue
+		}
+		candidates = append(candidates, i)
+	}
+	if len(candidates) == 0 {
+		return -1
+	}
+	var response struct {
+		Process struct {
+			Pane  string `json:"pane_id"`
+			Group int    `json:"foreground_process_group_id"`
+		} `json:"process_info"`
+	}
+	if agentRPCContext(ctx, socket, "pane.process_info", map[string]any{"pane_id": agent.Pane}, &response) != nil || response.Process.Pane != agent.Pane || response.Process.Group <= 1 || socketIdentity(socket) != identity {
+		return -1
+	}
+	match := -1
+	for _, i := range candidates {
+		s := views[i].session
+		if s.ProcessGroup != response.Process.Group || !processGroupActive(s.ProcessGroup) {
+			continue
+		}
+		facts, err := readProcessFacts(s.ProcessGroup)
+		if err != nil || facts.Variables["AH_SESSION_RUN_TOKEN"] != s.RunToken {
+			continue
+		}
+		if match != -1 {
+			return -1 // Ambiguous records must not silently claim the terminal.
+		}
+		match = i
+	}
+	return match
+}
+
 func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, error) {
 	for i := range views {
 		views[i].Runtime = unknownRuntime(views[i].session)
@@ -196,6 +249,18 @@ func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, 
 			}
 		}
 		if owned {
+			continue
+		}
+		if i := verifiedForegroundRun(ctx, socket, identity, agent, views); i >= 0 {
+			v := &views[i]
+			v.Runtime = agentObservation(agent, at, false)
+			v.Runtime.SnapshotAt, v.Runtime.Instance, v.Runtime.RunVerified = at, identity, true
+			v.Running = true
+			v.Status = runtimeLabel(v.Runtime)
+			if v.Reason != "" {
+				v.Reason += " "
+			}
+			v.Reason += "The live terminal run is verified; conversation identity is unverified and recovery still requires review."
 			continue
 		}
 		name := agent.Name

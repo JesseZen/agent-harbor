@@ -71,9 +71,11 @@ def daemon(root):
     (root / "ports.json").write_text(json.dumps({"magpie": f"127.0.0.1:{port}", **{s.label: s.server_port for s in servers}}))
     env = env_for(root)
     magpie = root / "bin/magpie"
-    for name, expected in (("herdr", "herdr 0.9.5"), ("magpie", "magpie 0.1.3528"), ("codex", "codex-cli 0.167.0")):
+    versions = {}
+    for name in ("herdr", "magpie", "codex"):
         result = subprocess.run([root / "bin" / name, "--version"], env=env, text=True, capture_output=True, check=True)
-        if result.stdout.strip() != expected: raise RuntimeError(f"{name} must be {expected}; got {result.stdout.strip()}")
+        versions[name] = result.stdout.strip()
+    (root / "versions.json").write_text(json.dumps(versions, indent=2))
     for label, server in zip(("a", "b"), servers):
         subprocess.run([magpie, "provider", "add", "relay-" + label, f"url=http://127.0.0.1:{server.server_port}/v1", "key=test-only", "models=test-model"], env=env, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     (root / "codex/config.toml").write_text('check_for_update_on_startup = false\nmodel = "test-model"\nmodel_provider = "isolated"\ncli_auth_credentials_store = "file"\n[model_providers.isolated]\nname = "isolated"\nbase_url = "http://127.0.0.1:' + str(servers[2].server_port) + '/v1"\nrequires_openai_auth = false\nwire_api = "responses"\n')

@@ -6,7 +6,7 @@ sys.dont_write_bytecode=True
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--package',required=True)
-    p.add_argument('--codex',required=True,help='native 0.167.0 executable, never codex.js')
+    p.add_argument('--codex',required=True,help='native Codex executable, never codex.js')
     p.add_argument('--mcp',required=True,help='built pinned herdr-mcp dist/index.js')
     p.add_argument('--onboarding',choices=('managed','external'),required=True)
     a=p.parse_args()
@@ -40,10 +40,10 @@ def main():
     invoke('identity','magpie_instances.py',['--binary',b,'--magpie',m,'--keep'])
     invoke('group','e2e_magpie_group.py',['--magpie',m])
     invoke('capabilities','codex_capabilities.py',['--codex',copied])
-    invoke('sessions','sessions_real.py',['--binary',b,'--magpie',m,'--codex',copied])
+    invoke('sessions','query_recovery_real.py',['--binary',b,'--herdr',h,'--codex',copied,'--work-root',root/'sessions'/'TMPDIR'])
     invoke('manual','manual_fixture_smoke.py',['--binary',b,'--herdr',h,'--magpie',m,'--codex',copied])
     invoke('smoke','app_smoke.py',['--binary',b,'--herdr',h,'--codex',copied])
-    invoke('ui','app_acceptance.py',['--binary',b,'--herdr',h,'--magpie',m,'--codex',copied,'--mcp',mcp,'--onboarding',a.onboarding])
+    invoke('ui','app_acceptance.py',['--full-state','--replacement','--renamed-codex','--binary',b,'--herdr',h,'--magpie',m,'--codex',copied,'--mcp',mcp,'--onboarding',a.onboarding])
     print('PASS all maintained runtime gates',root,flush=True)
 
 if __name__=='__main__':main()

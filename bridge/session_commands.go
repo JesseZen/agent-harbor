@@ -31,6 +31,9 @@ func newSessionCommand(alias string, args []string) error {
 		return err
 	}
 	fmt.Printf("Session: %s\nDirectory: %q\nConnection: %s\n", s.ID, s.WorkingDirectory, s.Mode)
+	if s.Mode == "local" && s.CLI == "codex" {
+		fmt.Println((harborService{}).NativeCodexConfig())
+	}
 	if s.Mode == "magpie" {
 		fmt.Println("Magpie may send auxiliary requests containing parts of this conversation to other models or providers. Review the instance and selected model.")
 		var reply string
@@ -74,10 +77,11 @@ func resumeCommand(args []string) error {
 	if *override != "" {
 		fmt.Printf("Explicit instance override: %q\n", *override)
 	}
-	if err := confirmRecoveryReview(s, bufio.NewReader(os.Stdin), *override); err != nil {
+	selection, err := confirmRecoveryReview(s, bufio.NewReader(os.Stdin), *override)
+	if err != nil {
 		return err
 	}
-	approval := sessionApproval{Session: s, Observation: &view.Runtime, Confirmed: true, OverrideReason: *override, DevelopmentQuery: *query, QueryUncertaintyAccepted: *query}
+	approval := sessionApproval{Session: s, MagpieSelection: selection, Observation: &view.Runtime, Confirmed: true, OverrideReason: *override, DevelopmentQuery: *query, QueryUncertaintyAccepted: *query}
 	if *query && os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") != "codex" && os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") != "session" {
 		return appService.Open(approval)
 	}

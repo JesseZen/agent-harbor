@@ -9,6 +9,7 @@ If `AGENTS.local.md` exists at the repository root, read it for machine-specific
 - `bridge/` is the active Go module. Herdr provides terminal sessions and client capabilities; Magpie provides optional provider configuration and routing. Check the actual upstream interfaces before relying on a capability.
 - Preserve the intended conversation and connection on recovery. When identity or connection evidence is insufficient, expose the uncertainty and require an explicit choice.
 - For recovery or upstream changes, read [docs/herdr-integration.md](docs/herdr-integration.md). The Herdr recovery query is a development candidate; distinguish a local patch from upstream acceptance and release.
+- For Codex account switching or Magpie routing, read [docs/magpie-caller-integration.md](docs/magpie-caller-integration.md) and the experimental account section of [bridge/PACKAGE-README.md](bridge/PACKAGE-README.md). Verify current upstream behavior: caller-only preserves identity, while cross-model history adaptation and HTTP fallback differ from byte-for-byte direct transport. App Server auth refresh currently relies on an undocumented side effect.
 
 ## Working and validation
 

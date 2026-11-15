@@ -318,6 +318,9 @@ func reportSessionConnection(s session) error {
 	}
 	if s.Mode == "magpie" {
 		label = "Magpie " + s.InstanceID + " / " + s.MagpieModel
+		if joinedCodex(s) {
+			label = "Magpie " + s.InstanceID + " / Codex"
+		}
 	}
 	return sessionHerdr(s, "pane", "report-metadata", s.HerdrPane, "--source", "agent-harbor", "--token", "harbor="+cleanUI(label))
 }

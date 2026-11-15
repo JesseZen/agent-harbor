@@ -4,10 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 )
 
 // This order is shared by status, confirmation and the final launch check.
 func checkSession(s session, kind launchKind, override string) error {
+	return checkSessionBase(s, kind, override, true)
+}
+
+func checkSessionBase(s session, kind launchKind, override string, checkModel bool) error {
 	if err := neutralReferenceCheck(s); err != nil {
 		return err
 	}
@@ -69,6 +74,9 @@ func checkSession(s session, kind launchKind, override string) error {
 
 	}
 	if s.Mode == "magpie" {
+		if s.CLI == "codex" && s.CodexConnection != "" && !joinedCodex(s) {
+			return errors.New("unsupported Codex connection mode; review this session")
+		}
 		if s.InstanceSnapshot != nil {
 			probe := probeGateway(s.MagpieURL)
 			if probe.State == gatewayOffline {
@@ -84,9 +92,28 @@ func checkSession(s session, kind launchKind, override string) error {
 		} else if kind == resumeConversation && override == "" {
 			return errors.New("Magpie instance identity unknown; use --override-instance REASON after reviewing the gateway")
 		}
-		if err := checkMagpieModel(s.MagpieURL, s.MagpieModel); err != nil {
-			return err
+		if joinedCodex(s) {
+			if err := requireCallerOnlyGateway(s.MagpieURL); err != nil {
+				return err
+			}
+		}
+		if checkModel && !(joinedCodex(s) && (kind == resumeConversation || !strings.Contains(s.MagpieModel, "/"))) {
+			if err := checkMagpieModel(s.MagpieURL, s.MagpieModel); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// Keep the reviewed Harbor record intact for its compare-and-swap checks,
+// while checking availability of the model Codex actually last selected.
+func checkSessionSelection(s session, kind launchKind, override string, selection *codexSelection) error {
+	if kind == resumeConversation && s.Mode == "magpie" && s.CLI == "codex" && !joinedCodex(s) {
+		if selection == nil {
+			return errors.New("review the last Codex model before recovery")
+		}
+		s.MagpieModel = selection.Model
+	}
+	return checkSession(s, kind, override)
 }

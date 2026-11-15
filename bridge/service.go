@@ -26,6 +26,7 @@ type sessionDraft struct{ Directory, Name, Connection, Instance, Model, Client s
 type sessionApproval struct {
 	Observation              *runtimeObservation
 	Session                  session
+	MagpieSelection          *codexSelection
 	DevelopmentQuery         bool
 	QueryUncertaintyAccepted bool
 	Confirmed                bool
@@ -50,6 +51,8 @@ type applicationService interface {
 	InstanceReports() ([]instanceReport, error)
 	Magpie(string, string) error
 	Environment() (appEnvironment, error)
+	NativeCodexConfig() string
+	CodexSelection(context.Context, session) (codexSelection, error)
 	CompleteDirectory(string) ([]string, error)
 	ValidateDirectory(string) error
 	Open(sessionApproval) error
@@ -81,7 +84,11 @@ var appService applicationService = harborService{}
 func deriveSession(s session) sessionView {
 	v := sessionView{session: s, WriterLockCheck: "not inspected; explicitly review external writer uncertainty"}
 	if s.Conversation == nil && (s.Started || s.CodexSessionID != "" || len(s.Reassociations) > 0) {
-		v.Reason = "Legacy conversation needs review: unassociated; inspect Herdr identity and use reassociate SESSION_ID REFERENCE_JSON REVIEW_REASON, then explicitly approve query recovery."
+		if s.CodexSessionID == "" && s.RunToken != "" && processGroupActive(s.ProcessGroup) {
+			v.Reason = "Conversation identity has not yet been observed; recovery requires review."
+		} else {
+			v.Reason = "Legacy conversation needs review: unassociated; inspect Herdr identity and use reassociate SESSION_ID REFERENCE_JSON REVIEW_REASON, then explicitly approve query recovery."
+		}
 		return v
 	}
 	inspect := s
@@ -89,6 +96,11 @@ func deriveSession(s session) sessionView {
 	kind := newConversation
 	if s.Started {
 		kind = resumeConversation
+	}
+	if s.Started && s.Mode == "magpie" && s.CLI == "codex" && !joinedCodex(s) {
+		if selection, err := readCodexSelection(context.Background(), s); err == nil {
+			inspect.MagpieModel = selection.Model
+		}
 	}
 	if err := checkSession(inspect, kind, ""); err != nil {
 		v.Reason = err.Error()
@@ -266,7 +278,7 @@ func (h harborService) RenameObserved(expected sessionView, name string) error {
 	if err := renameSessionReviewed(expected.session, name); err != nil {
 		return err
 	}
-	if expected.Runtime.Presence != "observed" || !expected.Runtime.Associated {
+	if expected.Runtime.Presence != "observed" || (!expected.Runtime.Associated && !expected.Runtime.RunVerified) {
 		return nil
 	}
 	// The public agent target accepts pane IDs; the terminal identity was checked above.

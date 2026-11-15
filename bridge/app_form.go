@@ -224,6 +224,9 @@ func (m *harborModel) formCatalog() tea.Cmd {
 }
 func (m harborModel) formView() string {
 	connection, model := "💻 Native "+m.selectedClient()+" configuration and login", "Native configuration"
+	if m.selectedClient() == "codex" && m.environment.NativeConfig != "" {
+		model = m.environment.NativeConfig
+	}
 	if m.draft.Connection == "magpie" {
 		connection = "🐦 Magpie · " + orUnknown(m.draft.Instance)
 		model = orUnknown(m.draft.Model)
@@ -251,6 +254,9 @@ func (m harborModel) formView() string {
 		lines = append(lines, "", "Auxiliary requests may use other providers.", "Groups may change. An ID does not verify the destination.")
 	} else {
 		lines = append(lines, "", "Native shares settings and login:", ansi.Truncate(cleanUI(m.environment.LocalHome), max(20, min(140, m.width-4)), "…"))
+		if m.selectedClient() == "codex" && m.environment.NativeConfig != "" {
+			lines = append(lines, cleanUI(m.environment.NativeConfig))
+		}
 	}
 	return strings.Join(lines, "\n")
 }

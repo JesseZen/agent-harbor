@@ -10,7 +10,10 @@ def evidence(raw):
     latest=users[-1].get('content','') if users else ''
     if isinstance(latest,list):
         latest=''.join(x.get('text','') for x in latest if isinstance(x,dict))
-    latest=re.sub(r'^\s*<environment_context>.*?</environment_context>', '', latest, count=1, flags=re.S)
+    # A recovered conversation can prefix its next user message with Codex's
+    # model-switch and collaboration reminders, in addition to environment
+    # context. They are not the user's synthetic marker.
+    latest=re.sub(r'^\s*(?:(?:<environment_context>.*?</environment_context>|<system-reminder>.*?</system-reminder>)\s*)+', '', latest, count=1, flags=re.S)
     current=[m for m in MARKERS if latest.strip()==m]
     serialized=json.dumps(body)
     markers=[m for m in MARKERS if m in serialized]

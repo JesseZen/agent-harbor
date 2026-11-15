@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -144,21 +145,18 @@ func (h harborService) ClosePreviousPane(review previousPane) error {
 	if !reflect.DeepEqual(current, review) {
 		return errors.New("previous pane changed; review it again")
 	}
-	// The generic session targeting helper is safe after explicitly approving the
-	// currently inspected socket, rather than the socket from the original run.
-	target := review.Session
-	target.HerdrSocketIdentity = review.SocketIdentity
-	if err := sessionHerdr(target, "pane", "close", review.PaneID); err != nil {
-		return err
-	}
-	return withSessions(func(all []session) ([]session, error) {
+	// Closing the pane that hosts this popup can terminate the caller. Persist
+	// the already reviewed idle-shell evidence before requesting that close.
+	// It establishes the previous run ended even if closing the shell fails.
+	var saved session
+	err = withSessions(func(all []session) ([]session, error) {
 		for i := range all {
 			if all[i].ID != review.Session.ID {
 				continue
 			}
 			s := &all[i]
 			if !sameSession(*s, review.Session) {
-				return nil, errors.New("shell closed, but record changed; inspect recovery evidence")
+				return nil, errors.New("record changed; inspect the shell again before closing")
 			}
 			var ref *herdrIdentity
 			if s.Conversation != nil {
@@ -166,10 +164,33 @@ func (h harborService) ClosePreviousPane(review previousPane) error {
 				ref = &copy
 			}
 			s.Ended = &endedEvidence{Source: "herdr.reviewed_idle_shell", At: time.Now().UTC(), StartedAt: s.LastStartedAt, Reference: ref, RunToken: s.RunToken, SocketIdentity: review.SocketIdentity, Pane: review.PaneID}
+			saved = *s
 			return all, nil
 		}
-		return nil, errors.New("shell closed, but record disappeared")
+		return nil, errors.New("record disappeared; shell was not closed")
 	})
+	if err != nil {
+		return err
+	}
+	// Persisting can take time. Inspect again so work that started while the
+	// evidence was being saved is not knowingly closed with the old shell.
+	current, err = h.PreviousPane(saved)
+	if err != nil {
+		return fmt.Errorf("previous run confirmed ended, but the shell could not be rechecked before closing: %w", err)
+	}
+	expected := review
+	expected.Session = saved
+	if !reflect.DeepEqual(current, expected) {
+		return errors.New("previous run confirmed ended, but the shell changed before closing; inspect it again")
+	}
+	// The generic session targeting helper is safe after explicitly approving the
+	// currently inspected socket, rather than the socket from the original run.
+	target := review.Session
+	target.HerdrSocketIdentity = review.SocketIdentity
+	if err := sessionHerdr(target, "pane", "close", review.PaneID); err != nil {
+		return fmt.Errorf("previous run confirmed ended, but the idle shell could not be closed: %w", err)
+	}
+	return nil
 }
 
 // A native client can leave Harbor's own error prompt in the pane after its

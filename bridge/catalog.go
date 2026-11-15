@@ -68,7 +68,8 @@ func fetchCatalog(address string) ([]catalogModel, error) {
 		return nil, errors.New("cannot reach Magpie; check its address and make sure Magpie is running")
 	}
 	var identity struct {
-		Name string `json:"name"`
+		Name       string `json:"name"`
+		CallerOnly bool   `json:"codex_caller_only"`
 	}
 	decodeErr := json.NewDecoder(io.LimitReader(hello.Body, 4096)).Decode(&identity)
 	hello.Body.Close()
@@ -95,6 +96,9 @@ func fetchCatalog(address string) ([]catalogModel, error) {
 		if model.ID == "" {
 			return nil, errors.New("Magpie returned a model without an ID")
 		}
+	}
+	if identity.CallerOnly {
+		data.Models = append(cachedCodexModels(), data.Models...)
 	}
 	return data.Models, nil
 }

@@ -3,6 +3,7 @@ import copy,json,subprocess,os,signal
 
 def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,saved):
     original=copy.deepcopy(records())
+    reviewed_records={}
     expected_running=0
     before={p:p.read_bytes() for p in (root/'codex/sessions').rglob('*.jsonl')}
     def refusal(name,reason):
@@ -34,6 +35,30 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
                 else 'query recovery requires an upstream-observed reference')
         try:refusal('UI-A',reason)
         finally:record_file.write_text(json.dumps(original))
+    # A complete saved reference with a missing final observation can be
+    # explicitly reviewed in the UI; approval must not start a client or
+    # claim the reference was freshly observed by Herdr.
+    for name in ['UI-A','UI-Native']:
+        altered=copy.deepcopy(original)
+        missing=next(r for r in altered if r['name']==name)
+        reference=copy.deepcopy(missing['conversation']['reference'])
+        audit_count=len(missing.get('reassociations',[]))
+        missing['conversation']['status']='missing'
+        record_file.write_text(json.dumps(altered))
+        try:
+            popup();key('/');text(name);key('Tab');key('v');screen('Review saved identity')
+            key('Enter');screen('Press a to explicitly accept the saved identity review')
+            assert next(r for r in records() if r['name']==name)['conversation']['status']=='missing', 'unapproved reference was changed'
+            key('a');key('Enter')
+            wait(lambda:next(r for r in records() if r['name']==name)['conversation']['status']=='reviewed','saved reference review')
+            reviewed=next(r for r in records() if r['name']==name)
+            assert reviewed['conversation']['reference']==reference and reviewed['conversation']['provenance']=='reviewed-compatibility'
+            assert len(reviewed.get('reassociations',[]))==audit_count+1 and reviewed['reassociations'][-1]['accepted']
+            assert not next(r for r in json.loads(run([binary,'sessions','--json']).stdout) if r['name']==name)['running'], 'reference review started a client'
+            reviewed_records[name]=copy.deepcopy(reviewed)
+            if 'HARBOR' in capture():key('q')
+            print('PASS saved identity review for',name,'requires acceptance and preserves conversation',flush=True)
+        finally:record_file.write_text(json.dumps(original))
     for config_dir,reason in [('', 'Magpie instance unknown'),(str(root/'different-config'),'Magpie instance changed')]:
         altered=copy.deepcopy(original)
         next(r for r in altered if r['name']=='UI-A')['instance_snapshot']['config_dir']=config_dir
@@ -50,3 +75,9 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
     finally:
         record_file.write_text(json.dumps(original));os.killpg(sleeper.pid,signal.SIGTERM);sleeper.wait();expected_running=0
     assert not list((root/'harbor').glob('notify-*.json')),'legacy notification dependency'
+    # Carry the UI-approved records into the following real recovery checks.
+    # This proves that explicit review is usable, rather than only persistent.
+    for index,record in enumerate(original):
+        if record['name'] in reviewed_records:
+            original[index]=reviewed_records[record['name']]
+    record_file.write_text(json.dumps(original))

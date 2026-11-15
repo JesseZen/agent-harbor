@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,32 +18,66 @@ import (
 	"time"
 )
 
-func confirmRecoveryReview(s session, in *bufio.Reader, override string) error {
-	if err := checkSession(s, resumeConversation, override); err != nil {
-		return err
+func confirmRecoveryReview(s session, in *bufio.Reader, override string) (*codexSelection, error) {
+	if err := checkSessionBase(s, resumeConversation, override, false); err != nil {
+		return nil, err
+	}
+	var selection *codexSelection
+	if s.Mode == "magpie" && s.CLI == "codex" && !joinedCodex(s) {
+		last, err := appService.CodexSelection(context.Background(), s)
+		if err != nil {
+			if !errors.Is(err, errCodexProfileMissing) {
+				return nil, err
+			}
+			id, referenceErr := codexReference(s)
+			if referenceErr != nil {
+				return nil, referenceErr
+			}
+			fmt.Printf("Codex's session profile is unavailable: %v. Harbor originally recorded %q; later selections are unknown.\n", err, s.MagpieModel)
+			answer, readErr := readChoice(in, "Type recorded to explicitly use Harbor's recorded model, or anything else to cancel: ")
+			if readErr != nil || answer != "recorded" {
+				return nil, errors.New("model selection review cancelled")
+			}
+			last = codexSelection{ThreadID: id, Model: s.MagpieModel, Fallback: true}
+		}
+		selection = &last
+	}
+	if err := checkSessionSelection(s, resumeConversation, override, selection); err != nil {
+		return nil, err
 	}
 	if s.Recovery != "ready" {
-		return errors.New("session identity and directory need verification before recovery")
+		return nil, errors.New("session identity and directory need verification before recovery")
 	}
 	if (s.CLI != "codex" && !candidateNeutral(s)) || (s.Mode != "local" && s.Mode != "magpie") {
-		return errors.New("this session's CLI or connection mode is unavailable")
+		return nil, errors.New("this session's CLI or connection mode is unavailable")
 	}
 	fmt.Println("External writers, login and conversation existence are not verified. Confirm this conversation is not open elsewhere.")
 	fmt.Printf("\nReview recovery\n\n  Session     %s\n  Directory   %q\n  CLI         %s\n  Reference   %v\n", s.ID, s.WorkingDirectory, s.CLI, s.Conversation.Reference)
 	if s.Mode == "magpie" {
-		fmt.Printf("  Connection  Magpie %s\n  Model       %q\n\nCheck in Magpie that this ID still points to the intended connection. Group members may change.\n", s.MagpieURL, s.MagpieModel)
+		if joinedCodex(s) {
+			fmt.Printf("  Connection  Magpie %s\n  Model       restored by Codex\n\n", s.MagpieURL)
+		} else {
+			model, effort := s.MagpieModel, "not recorded"
+			if selection != nil {
+				model, effort = selection.Model, orUnknown(selection.Effort)
+			}
+			fmt.Printf("  Connection  Magpie %s\n  Model       %q\n  Effort      %s\n\nCheck in Magpie that this ID still points to the intended connection. Group members may change.\n", s.MagpieURL, model, effort)
+		}
 		fmt.Println("Auxiliary requests may send parts of the conversation to other models or providers.")
 	} else {
-		fmt.Println("  Connection  Local Codex configuration and login\n\nCheck that the directory and conversation match. Local configuration may have changed.")
+		fmt.Printf("  Connection  Native %s configuration and login\n\nCheck that the directory and conversation match. Native route or login may have changed; verify both. A provider name does not verify its destination.\n", s.CLI)
+		if s.CLI == "codex" {
+			fmt.Println((harborService{}).NativeCodexConfig())
+		}
 	}
 	answer, err := readChoice(in, "Type yes to resume: ")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if answer != "yes" {
-		return errors.New("recovery cancelled")
+		return nil, errors.New("recovery cancelled")
 	}
-	return nil
+	return selection, nil
 }
 
 func readChoice(in *bufio.Reader, prompt string) (string, error) {
@@ -71,11 +107,11 @@ func sessionStamp(s session) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func openSessionPane(s session, action launchKind) error { return openPaneOptions(s, action, "") }
-func openQueryPane(s session, override string) error {
-	return openPaneOptions(s, launchKind("query"), override)
+func openSessionPane(s session, action launchKind) error { return openPaneOptions(s, action, "", nil) }
+func openQueryPane(s session, override string, selection *codexSelection) error {
+	return openPaneOptions(s, launchKind("query"), override, selection)
 }
-func openPaneOptions(s session, action launchKind, override string) error {
+func openPaneOptions(s session, action launchKind, override string, selection *codexSelection) error {
 	if err := validateLaunchState(s); err != nil {
 		return err
 	}
@@ -87,7 +123,16 @@ func openPaneOptions(s session, action launchKind, override string) error {
 	if candidateNeutral(s) {
 		entrypoint = "session"
 	}
-	cmd := exec.Command(herdr, "plugin", "pane", "open", "--plugin", "agent-harbor.bridge", "--entrypoint", entrypoint, "--placement", "tab", "--cwd", s.WorkingDirectory, "--env", "AGENT_HARBOR_BRIDGE_SESSION="+s.ID, "--env", "AGENT_HARBOR_BRIDGE_ACTION="+string(action), "--env", "AGENT_HARBOR_BRIDGE_EXPECTED="+sessionStamp(s), "--env", "AGENT_HARBOR_BRIDGE_OVERRIDE="+override, "--focus")
+	args := []string{"plugin", "pane", "open", "--plugin", "agent-harbor.bridge", "--entrypoint", entrypoint, "--placement", "tab", "--cwd", s.WorkingDirectory, "--env", "AGENT_HARBOR_BRIDGE_SESSION=" + s.ID, "--env", "AGENT_HARBOR_BRIDGE_ACTION=" + string(action), "--env", "AGENT_HARBOR_BRIDGE_EXPECTED=" + sessionStamp(s), "--env", "AGENT_HARBOR_BRIDGE_OVERRIDE=" + override}
+	if selection != nil {
+		data, err := json.Marshal(selection)
+		if err != nil || len(data) > 4096 {
+			return errors.New("invalid reviewed Codex model selection")
+		}
+		args = append(args, "--env", "AGENT_HARBOR_BRIDGE_SELECTION="+base64.RawURLEncoding.EncodeToString(data))
+	}
+	args = append(args, "--focus")
+	cmd := exec.Command(herdr, args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("could not open the Herdr session pane: %w", err)
@@ -157,10 +202,22 @@ func herdrPane() error {
 		return errors.New("session changed; open the menu and review it again")
 	}
 	fmt.Printf("Agent Harbor session %s\n\n", s.ID)
+	var selection *codexSelection
+	if encoded := os.Getenv("AGENT_HARBOR_BRIDGE_SELECTION"); encoded != "" {
+		data, err := base64.RawURLEncoding.DecodeString(encoded)
+		if err != nil || len(data) > 4096 {
+			return errors.New("invalid reviewed Codex model selection")
+		}
+		var value codexSelection
+		if json.Unmarshal(data, &value) != nil {
+			return errors.New("invalid reviewed Codex model selection")
+		}
+		selection = &value
+	}
 	if action == "query" {
-		err = appService.Resume(sessionApproval{Session: s, Confirmed: true, DevelopmentQuery: true, QueryUncertaintyAccepted: true, OverrideReason: os.Getenv("AGENT_HARBOR_BRIDGE_OVERRIDE")})
+		err = appService.Resume(sessionApproval{Session: s, MagpieSelection: selection, Confirmed: true, DevelopmentQuery: true, QueryUncertaintyAccepted: true, OverrideReason: os.Getenv("AGENT_HARBOR_BRIDGE_OVERRIDE")})
 	} else if action == "resume" {
-		err = appService.Resume(sessionApproval{Session: s, Confirmed: true})
+		err = appService.Resume(sessionApproval{Session: s, MagpieSelection: selection, Confirmed: true})
 	} else {
 		err = appService.Start(sessionApproval{Session: s, Confirmed: true})
 	}

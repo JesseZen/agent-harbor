@@ -22,7 +22,7 @@ func currentRuntime(id string) (sessionView, []sessionView, error) {
 	return sessionView{}, views, errors.New("target disappeared or changed; refresh and review again")
 }
 func sameRuntimeTarget(a, b runtimeObservation) bool {
-	return a.Instance == b.Instance && a.Terminal == b.Terminal && a.Workspace == b.Workspace && a.Presence == b.Presence && reflect.DeepEqual(a.Reference, b.Reference)
+	return a.Instance == b.Instance && a.Terminal == b.Terminal && a.Workspace == b.Workspace && a.Presence == b.Presence && a.Associated == b.Associated && a.RunVerified == b.RunVerified && reflect.DeepEqual(a.Reference, b.Reference)
 }
 func validateApprovalRuntime(a sessionApproval) error {
 	v, _, err := currentRuntime(a.Session.ID)
@@ -70,12 +70,13 @@ func validateLaunchState(s session) error {
 	}
 	return nil
 }
+
 func (h harborService) FocusObserved(expected sessionView) error {
 	v, _, err := currentRuntime(expected.ID)
 	if err != nil {
 		return err
 	}
-	if v.DiscoveryWarning != "" || !sameRuntimeTarget(expected.Runtime, v.Runtime) || v.Runtime.Presence != "observed" || v.Runtime.Terminal == "" || (!v.External && !v.Runtime.Associated) {
+	if v.DiscoveryWarning != "" || !sameRuntimeTarget(expected.Runtime, v.Runtime) || v.Runtime.Presence != "observed" || v.Runtime.Terminal == "" || (!v.External && !v.Runtime.Associated && !v.Runtime.RunVerified) {
 		return errors.New("runtime target unavailable or changed; refresh and review again")
 	}
 

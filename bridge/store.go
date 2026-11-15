@@ -48,6 +48,9 @@ type session struct {
 	HerdrSocketIdentity  string              `json:"herdr_socket_identity,omitempty"`
 	RunToken             string              `json:"run_token,omitempty"`
 	CodexHome            string              `json:"codex_home,omitempty"`
+	CodexServerPID       int                 `json:"codex_server_pid,omitempty"`
+	CodexServerSocket    string              `json:"codex_server_socket,omitempty"`
+	CodexServerSocketID  string              `json:"codex_server_socket_identity,omitempty"`
 	IdentityWarning      string              `json:"identity_warning,omitempty"`
 	NotifyWarning        string              `json:"notify_warning,omitempty"`
 	LastActivityAt       *time.Time          `json:"last_activity_at,omitempty"`
@@ -67,6 +70,7 @@ type session struct {
 	WorkingDirectory     string              `json:"working_directory"`
 	CLI                  string              `json:"cli"`
 	Mode                 string              `json:"mode"`
+	CodexConnection      string              `json:"codex_connection,omitempty"`
 	MagpieURL            string              `json:"magpie_url,omitempty"`
 	MagpieModel          string              `json:"magpie_model,omitempty"`
 	CodexSessionID       string              `json:"codex_session_id,omitempty"`
@@ -277,6 +281,9 @@ func createSessionIntent(d sessionDraft, address string, selected *magpieInstanc
 		return session{}, err
 	}
 	s := session{Version: 2, Name: filepath.Base(dir) + " · " + mode, ID: hex.EncodeToString(id[:]), WorkingDirectory: dir, CLI: d.Client, Mode: mode, MagpieURL: address, MagpieModel: model, Recovery: "needs_id", CreatedAt: time.Now().UTC()}
+	if mode == "magpie" && d.Client == "codex" {
+		s.CodexConnection = "caller"
+	}
 	if d.Name != "" {
 		s.Name = d.Name
 	}

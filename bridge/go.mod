@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/charmbracelet/x/term v0.2.2
+	github.com/coder/websocket v1.8.14
 	github.com/muesli/termenv v0.16.0
 	github.com/sahilm/fuzzy v0.1.1
 )

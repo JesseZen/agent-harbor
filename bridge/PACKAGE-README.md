@@ -1,12 +1,12 @@
 # Agent Harbor development candidate
 
-This package is an experimental contraction build. Herdr's recovery query is a local contribution candidate, not accepted or released upstream. Install only into a new empty dedicated prefix; the installer refuses populated prefixes and existing PATH links. Do not replace a supported installation.
+This package is an experimental contraction build. Herdr's recovery query and Magpie's caller-only mode are local contribution candidates, not accepted or released upstream. Install only into a new empty dedicated prefix; the installer refuses populated prefixes and existing PATH links. Do not replace a supported installation.
 
 The previous supported workflow is not included in this public snapshot. This snapshot builds development candidates, not a normal supported package.
 
 Provide a native executable named for the client on PATH. Harbor does not inspect npm/vendor layouts or execute wrappers to discover versions. Install the supported native client binary explicitly. Identity is observed from Herdr; recovery requires its query plus explicit uncertainty approval. Legacy IDs retain their original provenance and require review/reassociation, never automatic official trust. Harbor does not scan client histories or private writer locks, and does not delete conversation histories.
 
-Build with `AGENT_HARBOR_DEVELOPMENT_CANDIDATE=1`, a candidate version, dependency directory, and explicit `AGENT_HARBOR_CANDIDATE_TARGETS` (default linux-amd64). Each target requires `herdr/herdr-candidate-TARGET`, its `.sha256` containing the binary digest and `.source` containing exactly `60a5316204b0c538229defb2628e50660a469b85`. This local patch is based on `ee5bfb5041bb3e4a49d591c72308aae3c81ecdde`. Magpie remains pinned with release digest checks. Candidate source metadata is an operator-provided attestation, not an upstream signature.
+Build with `AGENT_HARBOR_DEVELOPMENT_CANDIDATE=1`, a candidate version, dependency directory, and explicit `AGENT_HARBOR_CANDIDATE_TARGETS` (default linux-amd64). Each target requires `herdr/herdr-candidate-TARGET`, its `.sha256` containing the binary digest and `.source` containing exactly `60a5316204b0c538229defb2628e50660a469b85`. This local patch is based on `ee5bfb5041bb3e4a49d591c72308aae3c81ecdde`. It also requires `magpie/magpie-caller-candidate-TARGET` and matching `.sha256` and `.source` files; the Magpie source value is `5426c43cca9b90be809d51edebc5c926929e9f6c`. The repository's `docs/magpie-caller-integration.md` explains how to build it. Candidate source metadata is an operator-provided attestation, not an upstream signature.
 
 The filename, version and packaged README identify the candidate. No automatic upgrades or process/configuration changes are performed by installation.
 
@@ -22,7 +22,40 @@ Press `Ctrl+B a` for Harbor sessions and `Ctrl+B m` for Magpie management in the
 
 Local uses your own Codex settings and login. Magpie sessions pin an instance and selected model or routing group. A catalog ID is not evidence that the provider or group definition has stayed unchanged. Details distinguish the selection from Magpie's observed main and auxiliary routes; use Magpie Usage / Requests for audit. Magpie may send auxiliary requests containing parts of the conversation to other models or providers. Harbor remembers acknowledgement per instance and retains a brief reminder.
 
+In a new joined Magpie-backed Codex session, `/model` combines official models with the instance's models and routing groups. Codex owns the current model and reasoning selection; recovery does not reapply Harbor's initial selection. A saved session-only `s` choice was preserved in a real-client recovery test. The initial model shown in Harbor is not a claim about the current selection. Official catalog entries may include cached models that are unavailable to the present account.
+
+New Harbor-managed Magpie instances enable caller-only mode. It forwards official requests with the initiating Codex login, without selecting a Magpie account or switching accounts on errors. Third-party providers use their own configured credentials. A group containing a stored Magpie Codex account cannot currently use that member in caller-only mode. Existing managed or external gateways retain their current settings: a joined session requires a gateway that reports caller-only support. Existing legacy sessions keep their original connection and profile behavior; they are not silently migrated.
+
+### Experimental account switching
+
+Install `codex-auth` separately and start Harbor with
+`AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS=1` to try account management. Set
+`AGENT_HARBOR_CODEX_AUTH_BIN` if the executable is not on `PATH`. In the
+session list press `a`, then `l` to add a login using Codex or `s` to choose an
+account with codex-auth. Wait for every active Codex turn to finish before
+switching. Selection changes the shared Codex home and can affect other Codex
+processes using that home.
+
+New native and joined Magpie Codex sessions use a dedicated official App
+Server while this option is enabled. Harbor verifies the selected identity in
+each reachable owned server and reads the active account's official rate
+limits. Existing embedded or external sessions cannot be verified by this
+flow; check any session reported as unconfirmed before continuing. The
+in-place refresh uses an undocumented side effect of an experimental Codex
+request, not an upstream authentication-reload contract. Its behavior can
+change with Codex versions; plugin/account notifications and switching during
+a turn are not established. Turning the option off keeps the prior launch
+behavior for new sessions.
+
+For native Codex, Harbor shows the model and provider set in Codex's home configuration when creating or reviewing a session, and flags a configured OpenAI base URL override without displaying it. Project settings and profiles may override home defaults. The original route or login may have changed since the conversation started; check both before resuming. If that configuration already points to Magpie, Harbor does not silently change it. Review and restore the intended client settings explicitly.
+
+In isolated tests with Codex 0.167.0, changing the provider ID made it refuse to resume the original conversation. Keeping that ID but changing its endpoint sent the conversation context to the new endpoint. A provider name alone does not establish the original destination.
+
 The Magpie screen binds external instances, chooses the default for new sessions, starts or stops Harbor's managed instance, and opens provider management for the verified configuration. External instances remain user-managed. Closing management leaves the existing gateway process running; if another TUI originally owns that gateway, closing that original TUI stops it. Harbor's managed gateway keeps running until explicitly stopped.
+
+The managed Magpie UI uses Harbor's separate client configuration paths. An external Magpie UI uses that instance's environment; its agent-model controls can change the client settings in that environment, including settings used by native sessions.
+
+Magpie Library can share skills and MCP servers with a specific project: open the managed Magpie web page with `Ctrl+B m`, then `w`, and use Library's Projects section to add the project and select the items and Codex target. Review the resulting project files: Magpie may place skills in `.agents/skills`, configure MCP in `.codex/config.toml`, and update `.gitignore`. The managed instance's global Codex target uses its isolated home, so assigning a global skill there does not automatically put it in your normal Codex home. Codex plugins remain managed by Codex; assigning a Library item does not install a Codex plugin.
 
 Manage conversation history with the client’s own tools. Harbor no longer deletes client history. `x` removes only the Harbor record and preserves the conversation; running or starting records must be stopped first.
 
@@ -64,4 +97,4 @@ workspace, then run `agent-harbor settings-recover` before reopening.
 
 Herdr MCP clients must explicitly discover and select a target. Use Harbor's recorded pane and tab identifiers to match the managed workspace. MCP relay/read calls target the selected pane; agents do not communicate automatically. Configure MCP against Harbor's isolated Herdr wrapper, rather than another running Herdr instance.
 
-Herdr automatic agent restoration is disabled. Resume explicitly through Harbor with the matching candidate query to preserve the recorded conversation and connection. Missing or ambiguous identities require review/reassociation and explicit uncertainty approval. After a Herdr restart, previous tabs can be plain shells: `c` inspects a recorded previous pane and offers to close it only after checking its tab, title and foreground shell. It refuses other foreground work.
+Herdr automatic agent restoration is disabled. Resume explicitly through Harbor with the matching candidate query to preserve the recorded conversation and connection. When a complete saved reference has no conflicting evidence but its latest observation is missing, `v` lets you review that reference and connection in the session list; saving the review never starts a conversation. Conflicting or incomplete identities still require independent inspection and explicit reassociation. Query recovery has a separate uncertainty approval. After a Herdr restart, previous tabs can be plain shells: `c` inspects a recorded previous pane and offers to close it only after checking its tab, title and foreground shell. It refuses other foreground work.

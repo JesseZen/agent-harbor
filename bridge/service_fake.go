@@ -16,6 +16,9 @@ type fakeApplicationService struct {
 	KnownInstances   []magpieInstance
 	Models           []catalogModel
 	Route            observedRoute
+	Selection        *codexSelection
+	SelectionErr     error
+	LastApproval     *sessionApproval
 	Calls            []string
 	Err              error
 }
@@ -103,13 +106,28 @@ var _ applicationService = (*fakeApplicationService)(nil)
 func (f *fakeApplicationService) Environment() (appEnvironment, error) {
 	return appEnvironment{CodexVersion: "codex-cli 0.167.0", LocalHome: "/home/test/.codex"}, f.call("environment")
 }
+func (f *fakeApplicationService) NativeCodexConfig() string {
+	return "Codex home model test; provider fixture. Project or profile may override these; verify the actual route."
+}
+func (f *fakeApplicationService) CodexSelection(_ context.Context, s session) (codexSelection, error) {
+	if f.SelectionErr != nil {
+		return codexSelection{}, f.SelectionErr
+	}
+	if f.Selection != nil {
+		return *f.Selection, nil
+	}
+	return codexSelection{ThreadID: s.CodexSessionID, Model: s.MagpieModel}, nil
+}
 func (f *fakeApplicationService) CompleteDirectory(path string) ([]string, error) {
 	return f.DirectoryMatches, f.call("complete " + path)
 }
 func (f *fakeApplicationService) ValidateDirectory(path string) error {
 	return f.call("validate " + path)
 }
-func (f *fakeApplicationService) Open(a sessionApproval) error { return f.call("open " + a.Session.ID) }
+func (f *fakeApplicationService) Open(a sessionApproval) error {
+	f.LastApproval = &a
+	return f.call("open " + a.Session.ID)
+}
 
 func (f *fakeApplicationService) InstanceReports() ([]instanceReport, error) {
 	reports := append([]instanceReport{}, f.Reports...)

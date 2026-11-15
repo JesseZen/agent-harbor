@@ -148,7 +148,7 @@ func run(args []string) error {
 		fmt.Println("  magpie status|bind|start|stop|manage|web|use  verified Magpie instances")
 		fmt.Println(`
 First use:
-  Install Codex 0.167.0 on PATH, then run agent-harbor with no arguments.
+  Install Codex on PATH, then run agent-harbor with no arguments.
   Review dependency checks and choose local configuration and login,
   a Harbor-managed Magpie, or a detected external gateway.
   Managed Magpie has its own configuration and keeps running until stopped.

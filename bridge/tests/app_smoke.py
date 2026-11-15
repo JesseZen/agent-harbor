@@ -37,13 +37,15 @@ def wait(text):
   time.sleep(.2)
  raise RuntimeError('missing '+text+'\n'+capture())
 try:
+ codex_version=run([root/'bin/codex','--version']).stdout.strip()
+ herdr_version=run([root/'bin/herdr','--version']).stdout.strip()
  launcher=root/'launch.sh'
  launcher.write_text('#!/bin/sh\n'+''.join('export '+key+'='+shlex.quote(value)+'\n' for key,value in env.items())+'agent-harbor\nprintf \"exit %s\\n\" \"$?\"\nread answer\n')
  launcher.chmod(0o700)
  tm('new-session','-d','-s','app','-x','160','-y','45',str(launcher))
  wait('First run')
- wait('codex-cli 0.167.0')
- out=wait('herdr 0.9.5');(root/'onboarding.txt').write_text(out)
+ wait(codex_version)
+ out=wait(herdr_version);(root/'onboarding.txt').write_text(out)
  tm('send-keys','-t','app:0.0','Enter');wait('Review: local')
  tm('send-keys','-t','app:0.0','Enter')
  out=wait('Harbor ^B a');(root/'tabbar.txt').write_text(out)
@@ -62,7 +64,7 @@ try:
  tm('send-keys','-t','app:0.0','C-b');tm('send-keys','-t','app:0.0','m')
  out=wait('Magpie instances');(root/'magpie.txt').write_text(out)
  tm('send-keys','-t','app:0.0','q');time.sleep(.3)
- print('PASS native Codex dependency check, reviewed local onboarding, real Herdr help/tab-bar/popups',root)
+ print('PASS native Codex dependency check, reviewed local onboarding, real Herdr help/tab-bar/popups',codex_version,herdr_version,root)
 finally:
  run([root/'bin/agent-harbor','stop'],check=False)
  run([tmux,'-S',sock,'kill-server'],check=False)

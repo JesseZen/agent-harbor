@@ -49,6 +49,10 @@ func TestMagpieRecoveryPinsConnectionAndRejectsMissingModel(t *testing.T) {
 			_, _ = w.Write([]byte(`{"name":"magpie"}`))
 			return
 		}
+		if r.URL.Path == "/v1/codex/models" {
+			_, _ = w.Write([]byte(`{"models":[{"slug":"relay/model","supported_reasoning_levels":[{"effort":"high"}]}]}`))
+			return
+		}
 		if available.Load() {
 			_, _ = w.Write([]byte(`{"data":[{"id":"relay/model"}]}`))
 		} else {
@@ -74,6 +78,13 @@ func TestMagpieRecoveryPinsConnectionAndRejectsMissingModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.prepareQuery(id)
+	profile, err := magpieCodexProfile(id, "relay/model", b.env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(b.root, "codex", profile+".config.toml"), []byte("# Agent Harbor session "+id+"\nmodel = \"relay/model\"\nmodel_reasoning_effort = \"high\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if out, err := b.command("resume", "--development-query", id); err == nil || !strings.Contains(out, "identity unknown") {
 		t.Fatalf("unverified legacy identity: %s %v", out, err)
 	}
@@ -88,7 +99,7 @@ func TestMagpieRecoveryPinsConnectionAndRejectsMissingModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`model="relay/model"`, `base_url="` + server.URL + `/v1"`, "resume\n" + codexID} {
+	for _, want := range []string{`model="relay/model"`, `model_reasoning_effort="high"`, `base_url="` + server.URL + `/v1"`, "resume\n" + codexID} {
 		if !strings.Contains(string(args), want) {
 			t.Fatalf("missing %q in %s", want, args)
 		}

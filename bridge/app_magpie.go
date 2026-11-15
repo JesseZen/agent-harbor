@@ -145,6 +145,12 @@ func (m harborModel) magpieView() string {
 			lines = append(lines, note("Stops only Harbor's recorded managed process."), note("Sessions using it will lose their gateway."))
 		case "manage":
 			lines = append(lines, note("Opens Magpie's own provider management."), note("This UI connects to the existing gateway process."), note("Closing this management UI leaves that process running."))
+			for _, r := range rows {
+				if r.ID == m.instanceID && r.Kind != "managed" {
+					lines = append(lines, note("Magpie may change client configuration in this instance's environment, affecting native sessions."))
+					break
+				}
+			}
 		}
 		for _, r := range m.reports {
 			if r.ID == m.instanceID {

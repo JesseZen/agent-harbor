@@ -4,7 +4,7 @@ Only copied executables and fixture-owned processes, ports and homes are used.
 """
 import sys
 sys.dont_write_bytecode = True
-import argparse, io, tomllib, http.server, json, os, pathlib, shlex, shutil, socket, subprocess, tempfile, threading, time
+import argparse, io, tomllib, http.server, json, os, pathlib, re, shlex, shutil, socket, subprocess, tempfile, threading, time
 from e2e_package import MockResponses as ChatRelay
 from e2e_local import MockResponses as NativeRelay
 from fixture_process import stop_codex
@@ -20,6 +20,9 @@ def main():
     p.add_argument('--live-state-probe',action='store_true',help='exercise automatic popup refresh and reconnect')
     p.add_argument('--state-probe',action='store_true',help='stop after real runtime state comparison')
     p.add_argument('--renamed-codex',action='store_true',help='exercise native Codex symlink with a nonstandard target basename')
+    p.add_argument('--model-picker',action='store_true',help='exercise Magpie models, Codex effort and profile recovery')
+    p.add_argument('--experimental-codex-accounts',action='store_true',help='start eligible Codex sessions through the experimental owned App Server')
+    p.add_argument('--experimental-account-recovery',choices=['native','magpie'],help='exercise same-conversation recovery with the experimental App Server')
     for name in ('binary','herdr','magpie','codex'): p.add_argument('--'+name,required=True)
     p.add_argument('--onboarding',choices=['local','managed','external'],default='local')
     p.add_argument('--mcp', help='built herdr-mcp dist/index.js; enables exact-target MCP acceptance')
@@ -41,6 +44,9 @@ def main():
             shutil.copy2(source,root/'bin'/name);(root/'bin'/name).chmod(0o700)
     env.update(PATH=str(root/'bin')+':'+env['PATH'],AGENT_HARBOR_BRIDGE_HOME=str(root/'harbor'),AGENT_HARBOR_HERDR_BIN=str(root/'bin/herdr'),AGENT_HARBOR_MAGPIE_BIN=str(root/'bin/magpie'))
     if a.replacement:env['AGENT_HARBOR_REPLACEMENT_CANDIDATE']='1'
+    if a.experimental_codex_accounts:
+        env['AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS']='1'
+        env['OPENAI_API_KEY']='sk-harbor-fixture'
     binary=root/'bin/agent-harbor'; tmux=shutil.which('tmux'); sock=str(root/'tmux.sock')
     servers=[]
     def run(args,check=True,**kwargs):
@@ -73,6 +79,8 @@ def main():
                 marks=[m for m in ('AH_LOCAL_FIRST','AH_LOCAL_SECOND','AH_RELAY_B','AH_RESUME_B','AH_LOCAL_C','AH_RESUME_C','AH_EXTERNAL_STATUS','AH_LIVE_STATUS') if m.encode() in raw]
                 event=evidence(raw)
                 event['session']=self.headers.get('session-id','')
+                event['model']=json.loads(raw).get('model','')
+                event['effort']=json.loads(raw).get('reasoning_effort','')
                 self.server.journal.append(event)
                 super().do_POST()
                 self.server.observed.append((self.path,marks))
@@ -89,7 +97,14 @@ def main():
         threading.Thread(target=discovery.serve_forever,daemon=True).start()
         relay_a,relay_b,native=server(ChatRelay),server(ChatRelay),server(MCPProbe if a.mcp else NativeRelay)
         native.tool_output,native.tool_error='',''
+        original_notify=root/'bin/original-notify'
+        original_notify.write_text('#!/bin/sh\nprintf notified >> "$HOME/original-notify-called"\n')
+        original_notify.chmod(0o700)
+        def notify_count():
+            path=root/'home/original-notify-called'
+            return path.stat().st_size if path.exists() else 0
         config=('check_for_update_on_startup = false\ncli_auth_credentials_store = "file"\nmodel = "test-model"\nmodel_provider = "fixture"\n'
+                'notify = ['+json.dumps(str(original_notify))+']\n'
                 '[model_providers.fixture]\nname = "Fixture native"\nbase_url = "http://127.0.0.1:'+str(native.server_port)+'/v1"\nrequires_openai_auth = false\nwire_api = "responses"\n'
                 '[projects.'+json.dumps(str(root/'project'))+']\ntrust_level = "trusted"\n')
         if a.replacement:
@@ -100,6 +115,8 @@ def main():
             env['HERDR_BIN']=str(root/'harbor/herdr/bin/herdr')
             config+='[mcp_servers.herdr]\ncommand = '+json.dumps(node)+'\nargs = ['+json.dumps(str(pathlib.Path(a.mcp).resolve()))+']\n'
         (root/'codex/config.toml').write_text(config)
+        if a.experimental_codex_accounts:
+            run([root/'bin/codex','login','--with-api-key'],input='sk-harbor-fixture\n')
         launcher=root/'launch.sh'
         launcher.write_text('#!/bin/sh\n'+''.join('export '+k+'='+shlex.quote(v)+'\n' for k,v in env.items())+'cd '+shlex.quote(str(root/'project'))+'\nagent-harbor\nread answer\n')
         launcher.chmod(0o700)
@@ -123,8 +140,10 @@ def main():
             wait(ready_external,'external gateway')
             # Rewrite the launcher after setting the discovery address.
             launcher.write_text('#!/bin/sh\n'+''.join('export '+k+'='+shlex.quote(v)+'\n' for k,v in env.items())+'cd '+shlex.quote(str(root/'project'))+'\nagent-harbor\nread answer\n')
-        open_workspace();screen('First run');screen('codex-cli 0.167.0');screen('herdr 0.9.5')
-        if a.onboarding=='managed':screen('magpie 0.1.3528')
+        versions={name:run([root/'bin'/name,'--version']).stdout.strip() for name in ('codex','herdr','magpie')}
+        print('fixture versions',versions,flush=True)
+        open_workspace();screen('First run');screen(versions['codex']);screen(versions['herdr'])
+        if a.onboarding=='managed':screen(versions['magpie'])
         if a.onboarding=='managed':key('Down')
         elif a.onboarding=='external':key('Down','Down')
         key('Enter');screen('Review: '+a.onboarding);key('Enter');screen('Harbor ^B a')
@@ -135,21 +154,26 @@ def main():
         managed=root/'harbor/magpie/bin/magpie'
         for label,relay in [('a',relay_a),('b',relay_b)]:
             run([managed,'provider','add','relay-'+label,'url=http://127.0.0.1:'+str(relay.server_port)+'/v1','key=fixture-only','models=test-model'])
+            if a.model_picker:run([managed,'model','spec','relay-'+label+'/test-model','--reasoning','low-high'])
         run([managed,'group','add','ui-group','models=relay-a/test-model','routing=rotate','stays=off'])
+        if a.model_picker:run([managed,'group','set','ui-group','levels=low,medium,high'])
         wait(lambda:'relay-b/test-model' in run([binary,'models','--instance','managed','--json']).stdout,'catalog readiness')
         def create(name,model=None):
             popup();key('n');screen('New session')
             if model:
-                key('Up','Up','Up','Enter');screen('Connection')
+                key('Up','Up','Up','Enter');screen('Choose an instance, then a model.')
                 key('Down','Enter');screen('Choose a Magpie instance');key('/');text('managed');key('Enter');screen('Choose a model or routing group')
                 key('/');text(model);key('Enter');screen('New session')
                 key('Down','Down')
             else:key('Up')
             key('Enter');screen('Session name');text(name);key('Enter');screen('New session')
             key('Down','Enter')
-            wait(lambda:'Magpie auxiliary routing' in capture() or 'Ask Codex' in capture(), 'creation or explicit auxiliary acknowledgement')
+            wait(lambda:any(label in capture() for label in ('Magpie auxiliary routing','Ask Codex','Hooks need review')), 'creation or explicit auxiliary acknowledgement')
             if 'Magpie auxiliary routing' in capture():
                 key('Enter');screen('New session');key('Enter')
+            wait(lambda:'Ask Codex' in capture() or 'Hooks need review' in capture(), 'Codex prompt or hook review')
+            if 'Hooks need review' in capture():
+                key('Down','Enter')
             screen('Ask Codex');time.sleep(1)
             wait(lambda:any(r['name']==name and r.get('process_group',0)>0 for r in records()),'running '+name)
             rec=next(r for r in records() if r['name']==name)
@@ -158,6 +182,23 @@ def main():
                 result=json.loads(run([root/'harbor/herdr/bin/herdr','agent','list']).stdout)['result']
                 return any(row['pane_id']==rec['herdr_pane'] for row in result['agents'])
             wait(listed,'popup-created session in official Herdr agent.list')
+            # Before the first turn Codex may not yet report a conversation.
+            # The foreground run must still appear once and be focusable,
+            # without claiming that its conversation identity is established.
+            def fresh_target():
+                views=json.loads(run([binary,'sessions','--json']).stdout)
+                same=[v for v in views if v.get('herdr_pane')==rec['herdr_pane']]
+                if len(same)!=1 or same[0]['id']!=rec['id'] or same[0].get('external'):
+                    return None
+                view=same[0]
+                if not view['running'] or not (view['runtime']['associated'] or view['runtime'].get('run_verified')):
+                    return None
+                return view
+            fresh=wait(fresh_target,'one focusable fresh managed target '+name)
+            if not fresh['runtime'].get('observed_reference'):
+                assert not fresh['runtime']['associated'], 'missing conversation identity was claimed as verified'
+            result=run([binary,'focus',rec['id']],check=False)
+            assert result.returncode==0, 'fresh managed target could not be focused: '+result.stderr
             return rec
         def turn(marker,relay):
             if a.replacement and 'hook needs' in capture():
@@ -174,18 +215,62 @@ def main():
             for other in servers:
                 if other is not relay:
                     assert not any(marker in e['current'] for e in other.journal), 'main marker reached wrong upstream'
-        one=create('UI-A','ui-group');turn('AH_LOCAL_FIRST',relay_a)
+        def choose_model(name,effort,temporary=False):
+            def navigate(rows,target):
+                selected=next((i for i,line in enumerate(rows) if line.lstrip().startswith(('›','>'))),None)
+                assert selected is not None, 'current picker selection is unavailable: '+repr(rows)
+                for _ in range(abs(target-selected)):key('Down' if target>selected else 'Up')
+            text('/model');key('Enter');screen('Select Model and Effort')
+            menu=capture();rows=[line.split('│')[-1] for line in menu.splitlines() if re.match(r'^\s*[›>]?\s*\d+\.',line.split('│')[-1])]
+            provider,model=name.split('/',1)
+            target=next((i for i,line in enumerate(rows) if model+' · '+provider in line),None)
+            assert target is not None, 'model missing from Codex picker: '+name+'\n'+menu
+            navigate(rows,target)
+            key('Enter');screen(effort)
+            menu=capture();levels=[line.split('│')[-1] for line in menu.splitlines() if re.match(r'^\s*[›>]?\s*\d+\.',line.split('│')[-1])]
+            target=next((i for i,line in enumerate(levels) if effort.lower() in line.lower()),None)
+            assert target is not None, 'effort missing from Codex picker: '+effort+'\n'+menu
+            navigate(levels,target)
+            key('s' if temporary else 'Enter')
+            screen('Model changed to')
+        one=create('UI-A','ui-group');notify_before=notify_count();turn('AH_LOCAL_FIRST',relay_a)
+        if a.model_picker:
+            config_before=(root/'codex/config.toml').read_bytes()
+            choose_model('relay-a/test-model','High')
+            profile_a=root/'codex'/('agent-harbor-'+one['id']+'.config.toml')
+            saved_a=tomllib.loads(profile_a.read_text())
+            assert saved_a['model']=='relay-a/test-model' and saved_a['model_reasoning_effort']=='high',saved_a
+            assert (root/'codex/config.toml').read_bytes()==config_before,'picker changed the native settings'
+        wait(lambda:notify_count()>notify_before,'existing notify after first managed turn')
         key('C-b','m');screen('Magpie instances');key('Enter');screen('Review Magpie action: manage');key('Enter')
-        screen('1 agents');key('2');screen('relay-a');(root/'management.txt').write_text(capture());key('q');screen('Magpie instances')
+        screen('1 agents')
+        # Magpie's agent picker writes client settings. In a managed instance
+        # those writes must not escape into the native Codex configuration.
+        native_before_management=(root/'codex/config.toml').read_bytes()
+        key('Enter');screen('Codex › model');text('relay-b/test-model');key('Enter');screen('1 agents');screen('model → relay-b/test-model')
+        assert (root/'codex/config.toml').read_bytes()==native_before_management, 'managed Magpie changed native Codex settings'
+        managed_client_config=root/'harbor/magpie/home/config.toml'
+        wait(lambda:managed_client_config.is_file() and tomllib.loads(managed_client_config.read_text()).get('model')=='relay-b/test-model','managed Magpie client setting was applied')
+        key('2');screen('relay-a');(root/'management.txt').write_text(capture());key('q');screen('Magpie instances')
         status=json.loads(run([binary,'magpie','status','--json']).stdout)
         (root/'management-status.json').write_text(json.dumps(status,indent=2))
         assert 'verified' in json.dumps(status), 'management UI stopped the gateway'
         key('Escape')
         wait(lambda:'UI-A' in capture() and ('Idle' in capture() or 'Done' in capture()),'live sessions after standalone Magpie popup')
         key('r');screen('UI-A');(root/'magpie-return-sessions.txt').write_text(capture());key('q')
-        print('PASS contextual Magpie management leaves gateway running and returns to live sessions',flush=True)
-        two=create('UI-B','relay-b/test-model');turn('AH_RELAY_B',relay_b)
-        three=create('UI-Native');turn('AH_LOCAL_C',native)
+        print('PASS contextual Magpie management isolates native settings, leaves gateway running and returns to live sessions',flush=True)
+        two=create('UI-B','relay-b/test-model');notify_before=notify_count();turn('AH_RELAY_B',relay_b)
+        if a.model_picker:
+            profile_b=root/'codex'/('agent-harbor-'+two['id']+'.config.toml')
+            before_b=profile_b.read_bytes();choose_model('relay-a/test-model','High',temporary=True)
+            assert profile_b.read_bytes()==before_b,'session-only choice changed the session default'
+            assert tomllib.loads(profile_a.read_text())==saved_a,'one session changed another session profile'
+        wait(lambda:notify_count()>notify_before,'existing notify after second managed turn')
+        three=create('UI-Native');notify_before=notify_count();turn('AH_LOCAL_C',native)
+        if a.experimental_codex_accounts:
+            current=next(r for r in records() if r['name']=='UI-Native')
+            assert current.get('codex_server_pid') and current.get('codex_server_socket_identity'), 'native session has no owned App Server'
+        wait(lambda:notify_count()>notify_before,'existing notify after native turn')
         wait(lambda:len(records())==3 and all(r.get('codex_session_id') for r in records()),'three captured IDs')
         if a.replacement:
             assert all(r.get('conversation',{}).get('status')=='observed' for r in records()), 'identity must come from official observations'
@@ -207,7 +292,10 @@ def main():
         for r in records():
             pane=next(x for x in pane_rows if x['pane_id']==r['herdr_pane'])
             token=pane.get('tokens',{}).get('harbor','')
-            assert ('Local Codex' in token if r['mode']=='local' else 'Magpie managed / '+r['magpie_model'] in token),pane
+            expected=('Local Codex' if r['mode']=='local' else
+                      'Magpie managed / Codex' if r.get('codex_connection')=='caller' else
+                      'Magpie managed / '+r['magpie_model'])
+            assert expected in token,pane
         assert 'routing group' in run([binary,'models','--instance','managed','--json']).stdout, 'real group label missing'
         (root/'connections-before.json').write_text(json.dumps(saved,indent=2))
         print('PASS three interactive UI-created Codex sessions, separate Magpie providers and native connection',flush=True)
@@ -225,13 +313,38 @@ def main():
             comparisons.append({'client':rec['cli'],'herdr':row['agent_status'],'harbor':view['runtime']['activity']})
         (root/'runtime-comparison.json').write_text(json.dumps(comparisons,indent=2))
         print('PASS real Herdr agent.list matches Harbor CLI list/show for three native clients',flush=True)
+        if a.experimental_account_recovery:
+            assert a.experimental_codex_accounts and a.replacement, 'account recovery requires both experimental flags'
+            name,first,marker,relay=({'native':('UI-Native','AH_LOCAL_C','AH_RESUME_C',native),
+                                      'magpie':('UI-A','AH_LOCAL_FIRST','AH_LOCAL_SECOND',relay_a)}[a.experimental_account_recovery])
+            before=next(r for r in records() if r['name']==name)
+            popup();key('/');text(name);key('Tab');key('s');screen('Review stop');key('Enter')
+            wait(lambda:not next(r for r in records() if r['name']==name).get('process_group'),'experimental session stopped')
+            def herdr_released_conversation():
+                agents=json.loads(run([wrapper,'agent','list']).stdout)['result']['agents']
+                return not any((agent.get('agent_session') or {}).get('value')==before['codex_session_id'] for agent in agents)
+            wait(herdr_released_conversation,'Herdr releases stopped conversation',timeout=15)
+            if 'HARBOR' in capture():key('q')
+            popup();key('/');text(name);key('Enter');screen('Review query-resume');key('a');key('Enter')
+            screen('Ask Codex');turn(marker,relay)
+            wait(lambda:any(first in marks and marker in marks for _,marks in relay.observed),'experimental recovery history')
+            after=next(r for r in records() if r['name']==name)
+            assert after['codex_session_id']==before['codex_session_id'] and after.get('codex_server_pid') and after['codex_server_pid']!=before['codex_server_pid']
+            print('PASS experimental App Server resumes the same conversation and history:',name,flush=True)
         external_session_id=None
         if a.full_state:
             previous={x['pane_id'] for x in json.loads(run([wrapper,'pane','list']).stdout)['result']['panes']}
             run([wrapper,'pane','split',three['herdr_pane'],'--direction','down','--focus','--cwd',root/'project'])
             manual=next(x['pane_id'] for x in json.loads(run([wrapper,'pane','list']).stdout)['result']['panes'] if x['pane_id'] not in previous)
             run([wrapper,'pane','run',manual,'codex --no-daemon -c check_for_update_on_startup=false'])
-            screen('Ask Codex');turn('AH_EXTERNAL_STATUS',native)
+            # Another visible pane can already contain the same prompt. Wait
+            # for this pane, and verify focus before sending terminal input.
+            wait(lambda:'Ask Codex' in run([wrapper,'pane','read',manual]).stdout,'manual external Codex prompt')
+            wait(lambda:any(x['pane_id']==manual for x in json.loads(run([wrapper,'agent','list']).stdout)['result']['agents']),'manual external Codex detected')
+            focus=run([wrapper,'agent','focus',manual],check=False)
+            assert focus.returncode==0, 'manual external focus failed: '+focus.stderr
+            wait(lambda:any(x['pane_id']==manual and x.get('focused') for x in json.loads(run([wrapper,'pane','list']).stdout)['result']['panes']),'manual external pane focused')
+            turn('AH_EXTERNAL_STATUS',native)
             def external_ready():
                 views=json.loads(run([binary,'sessions','--json']).stdout)
                 return next((x for x in views if x.get('external') and x['herdr_pane']==manual and x['runtime'].get('observed_reference')),None)
@@ -275,12 +388,18 @@ def main():
         tm('kill-session','-t','app')
         run([binary,'magpie','start']);started=True
         open_workspace();screen('Harbor ^B a')
+        # Reproduce opening the review from the very restored pane being
+        # closed. Its popup may be terminated by that close request.
+        run([wrapper,'tab','focus',one['herdr_tab']])
+        wait(lambda:any(p['pane_id']==one['herdr_pane'] and p.get('focused') for p in json.loads(run([wrapper,'pane','list']).stdout)['result']['panes']),'restored pane focused before review')
         popup();key('/');text('UI-A');key('Tab');key('c');screen('Close previous idle shell')
         key('Escape');key('c');screen('Close previous idle shell');key('Enter');time.sleep(.5)
+        wait(lambda:next(r for r in records() if r['name']=='UI-A').get('ended_evidence'),'reviewed exit saved when closing its own popup')
         if 'HARBOR' in capture():key('q')
         print('PASS restored idle shell review, cancellation and explicit close',flush=True)
         for ended_name in ['UI-B','UI-Native']:
             popup();key('/');text(ended_name);key('Tab');key('c');screen('Close previous idle shell');key('Enter');time.sleep(.5)
+            wait(lambda:next(r for r in records() if r['name']==ended_name).get('ended_evidence'),'reviewed exit '+ended_name)
             if 'HARBOR' in capture():key('q')
         print('PASS explicit restored-shell end evidence for all three original runs',flush=True)
 
@@ -290,25 +409,33 @@ def main():
                 assert rec['conversation']['reference']==saved_references[rec['name']], 'restart changed full reference'
                 if rec['conversation']['status']!='observed':
                     run([binary,'reassociate',rec['id'],json.dumps(saved_references[rec['name']]),'Reviewed original synthetic conversation after abrupt isolated workspace restart; retain exact native or Magpie intent'],input='yes\n')
-            audit_before={r['name']:r.get('reassociations',[]) for r in records()}
-            (root/'audit-before-recovery.json').write_text(json.dumps(audit_before,indent=2))
             print('PASS restart retains exact references; unresolved final observations explicitly reviewed through public reassociation',flush=True)
         (root/'provider-a-restore.json').write_bytes((root/'harbor/magpie/bin/data/providers.json').read_bytes())
         if a.replacement:
             from replacement_negative_ui import exercise
             exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,saved)
+            audit_before={r['name']:r.get('reassociations',[]) for r in records()}
+            (root/'audit-before-recovery.json').write_text(json.dumps(audit_before,indent=2))
         else:negative_ui(root,binary,managed,run,popup,key,text,screen,capture,records,wait,saved)
         assert {r['name']:(r['codex_session_id'],r.get('instance_id'),r.get('magpie_model')) for r in records()}==saved
         for name,marker,relay,first in [('UI-A','AH_LOCAL_SECOND',relay_a,'AH_LOCAL_FIRST'),('UI-B','AH_RESUME_B',relay_b,'AH_RELAY_B'),('UI-Native','AH_RESUME_C',native,'AH_LOCAL_C')]:
             popup();key('/');text(name);key('Enter');screen('Review query-resume' if a.replacement else 'Review resume');screen('🚢 '+name);
+            if a.model_picker and name=='UI-A':screen('relay-a/test-model');screen('high')
             if a.replacement:
+                screen('a accept')
+                if name=='UI-Native':
+                    screen('Native route or login may have changed')
+                    screen('A provider name does not verify its destination')
                 key('Enter');screen('Press a to explicitly accept query uncertainty')
                 assert not next(r for r in json.loads(run([binary,'sessions','--json']).stdout) if r['name']==name)['running'], 'uncertainty did not gate execution'
                 key('a')
             key('Enter');screen('Ask Codex');time.sleep(1);turn(marker,relay)
             wait(lambda:any(first in marks and marker in marks for _,marks in relay.observed),'history '+name)
             rec=next(r for r in records() if r['name']==name)
-            assert (rec['codex_session_id'],rec.get('instance_id'),rec.get('magpie_model'))==saved[name]
+            expected_model='relay-a/test-model' if a.model_picker and name=='UI-A' else saved[name][2]
+            assert (rec['codex_session_id'],rec.get('instance_id'),rec.get('magpie_model'))==(saved[name][0],saved[name][1],expected_model)
+            if a.model_picker and name=='UI-A':
+                assert any(e['kind']=='main' and marker in e['current'] and e['effort']=='high' for e in relay.journal), 'saved effort was not used after recovery'
             if a.replacement:
                 wait(lambda:next(r for r in records() if r['name']==name).get('conversation',{}).get('status')=='observed','fresh official recovery observation '+name)
                 recovered=next(r for r in records() if r['name']==name)
@@ -392,8 +519,9 @@ def main():
             rec=next((r for r in records() if r['name']=='UI-B'),None)
             if rec:
                 lock=root/'harbor'/('running-'+rec['id']+'.lock')
-                holders=run(['/usr/bin/fuser',lock],check=False)
-                (root/'record-removal-lock-holders.txt').write_text(holders.stdout+holders.stderr)
+                if fuser:=shutil.which('fuser'):
+                    holders=run([fuser,lock],check=False)
+                    (root/'record-removal-lock-holders.txt').write_text(holders.stdout+holders.stderr)
                 wait(lambda:run([binary,'remove',rec['id']],check=False,input='yes\n').returncode==0,'public record removal after runner cleanup',timeout=25)
         wait(lambda:all(r['name']!='UI-B' for r in records()),'record removal')
         assert all(pathlib.Path(p).read_bytes()==data for p,data in history_before.items())

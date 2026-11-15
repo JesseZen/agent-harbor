@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -50,10 +51,42 @@ func planManagement(instance magpieInstance, probe gatewayProbe, bundled string)
 	decision.Executable = probe.Executable
 	decision.Arguments = []string{"tui"}
 	decision.Environment, decision.Unset = instanceManagementEnvironment(probe)
+	if instance.Kind == "managed" {
+		root, err := bridgeHome()
+		if err != nil {
+			return managementDecision{Probe: probe, Reason: "managed Magpie home cannot be verified"}
+		}
+		layout := managedLayoutFor(filepath.Join(root, "magpie"))
+		if !sameManagementPath(probe.ConfigDir, layout.DataDir) {
+			return managementDecision{Probe: probe, Reason: "managed Magpie configuration is outside Harbor's managed directory"}
+		}
+		// The gateway may have been started by an older Harbor that inherited
+		// client-specific variables. Never copy those into the managed TUI.
+		decision.Environment = []string{
+			"HOME=" + layout.Home, "CODEX_HOME=" + layout.Home, "CODEX_SQLITE_HOME=" + layout.Home,
+			"XDG_CONFIG_HOME=" + filepath.Join(layout.Home, "config"),
+			"XDG_DATA_HOME=" + filepath.Join(layout.Home, "data"),
+			"XDG_STATE_HOME=" + filepath.Join(layout.Home, "state"),
+			"XDG_CACHE_HOME=" + filepath.Join(layout.Home, "cache"),
+			"MAGPIE_ADDR=" + gatewayAddressOf(probe.Address),
+		}
+		decision.Unset = []string{"CLAUDE_CONFIG_DIR", "GEMINI_CLI_HOME", "PI_CODING_AGENT_DIR", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR"}
+	} else {
+		decision.Warning = "Magpie can change client configuration in this instance's environment; native sessions using those settings may also change."
+	}
 	if probe.Serves == "tui" {
-		decision.Warning = fmt.Sprintf("Another Magpie TUI at %s owns the gateway. Closing it stops the gateway and every session using it.", instance.Address)
+		decision.Warning = strings.TrimSpace(decision.Warning + " " + fmt.Sprintf("Another Magpie TUI at %s owns the gateway. Closing it stops the gateway and every session using it.", instance.Address))
 	}
 	return decision
+}
+
+func sameManagementPath(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	resolvedA, errA := filepath.EvalSymlinks(a)
+	resolvedB, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && resolvedA == resolvedB
 }
 
 // instanceManagementEnvironment overrides only the paths Magpie reads its
@@ -62,7 +95,10 @@ func planManagement(instance magpieInstance, probe gatewayProbe, bundled string)
 // absent, not inherited from the terminal, or Magpie would read a different
 // configuration than the instance sessions use.
 func instanceManagementEnvironment(probe gatewayProbe) (overrides, unset []string) {
-	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
+	// Magpie can edit client settings as well as its own configuration. Its
+	// management UI must not inherit the caller's client homes when the
+	// serving instance uses different ones (or leaves them unset).
+	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "CODEX_HOME", "CODEX_SQLITE_HOME", "CLAUDE_CONFIG_DIR", "GEMINI_CLI_HOME", "PI_CODING_AGENT_DIR", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR"} {
 		if value := probe.variables[key]; value != "" {
 			overrides = append(overrides, key+"="+value)
 		} else {
@@ -79,7 +115,7 @@ func unboundDecision(instance magpieInstance, bundled, reason string) *managemen
 	return &managementDecision{
 		Allowed: true, Executable: bundled, Arguments: []string{"tui"},
 		Environment: []string{"MAGPIE_ADDR=" + gatewayAddressOf(instance.Address)},
-		Warning:     fmt.Sprintf("This Magpie uses your own settings and may not be the instance your sessions use (identity unknown: %s). If it starts a gateway on this address, closing it stops that gateway.", reason),
+		Warning:     fmt.Sprintf("This Magpie uses your own settings and may not be the instance your sessions use (identity unknown: %s). Changing an agent model can modify that client's own configuration. If it starts a gateway on this address, closing it stops that gateway.", reason),
 	}
 }
 

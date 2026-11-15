@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 type appEnvironment struct {
 	DefaultInstance                    string
 	CodexVersion, LocalHome, Directory string
+	NativeConfig                       string
 	Projects                           []string
 	Clients                            []clientCapability
 	ClientDiscovery                    string
@@ -29,6 +31,7 @@ func (harborService) Environment() (appEnvironment, error) {
 		home = filepath.Join(os.Getenv("HOME"), ".codex")
 	}
 	result := appEnvironment{CodexVersion: codexVersion(os.Environ()), LocalHome: home, Directory: cwd}
+	result.NativeConfig = (harborService{}).NativeCodexConfig()
 	result.Clients, result.ClientDiscovery = discoverClientSubset()
 	registry, err := loadMagpieRegistry()
 	if err != nil {
@@ -95,16 +98,26 @@ func (harborService) Open(a sessionApproval) error {
 		if _, err := queryResume(a.Session); err != nil {
 			return err
 		}
-		if err := checkSession(a.Session, resumeConversation, a.OverrideReason); err != nil {
+		if a.Session.Mode == "magpie" && a.Session.CLI == "codex" {
+			if err := verifyCodexSelection(context.Background(), a.Session, a.MagpieSelection); err != nil {
+				return err
+			}
+		}
+		if err := checkSessionSelection(a.Session, resumeConversation, a.OverrideReason, a.MagpieSelection); err != nil {
 			return err
 		}
-		return openQueryPane(a.Session, a.OverrideReason)
+		return openQueryPane(a.Session, a.OverrideReason, a.MagpieSelection)
 	}
 	kind := newConversation
 	if a.Session.Started {
 		kind = resumeConversation
 	}
-	if err := checkSession(a.Session, kind, a.OverrideReason); err != nil {
+	if kind == resumeConversation && a.Session.Mode == "magpie" && a.Session.CLI == "codex" {
+		if err := verifyCodexSelection(context.Background(), a.Session, a.MagpieSelection); err != nil {
+			return err
+		}
+	}
+	if err := checkSessionSelection(a.Session, kind, a.OverrideReason, a.MagpieSelection); err != nil {
 		return err
 	}
 	// The pane rechecks the reviewed record and all launch checks atomically.

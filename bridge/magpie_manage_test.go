@@ -42,7 +42,7 @@ func TestManageOpensTheTUIWithTheVerifiedInstanceEnvironment(t *testing.T) {
 	probe.variables = map[string]string{"HOME": "/home/user", "XDG_CONFIG_HOME": "/home/user/.config", "XDG_CACHE_HOME": "/home/user/.cache"}
 	recorded := magpieInstance{ID: "external-1", Kind: "external", Address: probe.Address, ConfigDir: probe.ConfigDir, Version: probe.Version}
 	decision := planManagement(recorded, probe, "/opt/magpie")
-	if !decision.Allowed || decision.Executable != probe.Executable || decision.Warning != "" {
+	if !decision.Allowed || decision.Executable != probe.Executable || !strings.Contains(decision.Warning, "client configuration") {
 		t.Fatalf("decision: %+v", decision)
 	}
 	if len(decision.Arguments) != 1 || decision.Arguments[0] != "tui" {
@@ -109,7 +109,10 @@ func TestManageRefusesAGatewayThatIsNotMagpie(t *testing.T) {
 }
 
 func TestManageUsesTheServingExecutable(t *testing.T) {
-	probe := verifiedProbe("http://127.0.0.1:3435", "/state/magpie/bin/data")
+	root := tempRoot(t)
+	t.Setenv("AGENT_HARBOR_BRIDGE_HOME", root)
+	layout := managedLayoutFor(filepath.Join(root, "magpie"))
+	probe := verifiedProbe("http://127.0.0.1:3435", layout.DataDir)
 	probe.Executable = "/Applications/Magpie.app/Contents/MacOS/magpie"
 	probe.Serves = "serve"
 	recorded := magpieInstance{ID: managedInstanceID, Kind: "managed", Address: probe.Address, ConfigDir: probe.ConfigDir}

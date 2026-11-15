@@ -1,0 +1,473 @@
+diff --git a/internal/gateway/codex_backend.go b/internal/gateway/codex_backend.go
+index bcdd5ed..f76e013 100644
+--- a/internal/gateway/codex_backend.go
++++ b/internal/gateway/codex_backend.go
+@@ -13,6 +13,8 @@ import (
+ 	"log"
+ 	"net/http"
+ 	"net/http/httptrace"
++	"net/http/httputil"
++	"net/url"
+ 	"slices"
+ 	"strings"
+ 	"sync"
+@@ -41,6 +43,38 @@ import (
+ // in /backend-api/codex keeps Codex treating it as that backend.
+ const CodexPath = "/backend-api/codex"
+ 
++// callerOnlyKey follows a joined Codex request through third-party routing.
++type callerOnlyKey struct{}
++
++// codexCallerRelay lets Codex's official backend handle the request with the
++// headers and sign-in Codex sent. It does not consult or retry on a pool.
++func (s *Server) codexCallerRelay(w http.ResponseWriter, r *http.Request, rest string, body []byte) {
++	base := provider.CodexBase
++	if apiKey(r.Header) && rest != "/models" {
++		base = codexAPIBase
++	}
++	target, err := url.Parse(base)
++	if err != nil {
++		http.Error(w, "invalid Codex backend URL", http.StatusBadGateway)
++		return
++	}
++	proxy := httputil.NewSingleHostReverseProxy(target)
++	director := proxy.Director
++	proxy.Director = func(out *http.Request) {
++		director(out)
++		out.Host = target.Host
++		out.Header["X-Forwarded-For"] = nil
++	}
++	// Do not pass official turns through Magpie's translating or retrying transport.
++	proxy.Transport = http.DefaultTransport
++	proxy.FlushInterval = -1
++	req := r.Clone(r.Context())
++	req.URL.Path, req.URL.RawPath = rest, ""
++	req.Body = io.NopCloser(bytes.NewReader(body))
++	req.ContentLength = int64(len(body))
++	proxy.ServeHTTP(w, req)
++}
++
+ // codexAPIBase is where a Codex signed in with an API key sends its requests;
+ // its model list still comes from the ChatGPT backend. A var so tests can
+ // point it elsewhere.
+@@ -67,10 +101,19 @@ Be concise, structured, and focused on helping the next LLM seamlessly continue
+ const codexSummaryPrefix = codexsummary.Prefix
+ 
+ func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
++	if settings.CodexCallerOnly() {
++		r = r.WithContext(context.WithValue(r.Context(), callerOnlyKey{}, true))
++	}
+ 	// Responses over a WebSocket, Codex's own way to its provider: each
+ 	// turn is served as its POST is (responses_ws.go), and Codex sends
+ 	// only a turn's new input after the reply it follows (#4058)
+ 	if wantsSocket(r) {
++		if settings.CodexCallerOnly() {
++			// Codex falls back to its own HTTP transport, keeping official turns
++			// out of Magpie's WebSocket conversation reconstruction.
++			http.Error(w, "use HTTP for caller-only Codex", http.StatusUpgradeRequired)
++			return
++		}
+ 		if strings.TrimPrefix(r.URL.Path, CodexPath) == "/responses" && s.serveResponsesSocket(w, r) {
+ 			return
+ 		}
+@@ -87,6 +130,23 @@ func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
+ 	if !ok {
+ 		return
+ 	}
++	if settings.CodexCallerOnly() && !(r.Method == http.MethodGet && rest == "/models") {
++		model := modelOf(body)
++		// Namespaced models and groups are magpie's. Everything else uses
++		// the caller's own backend, including native compaction and search.
++		routed := rest == "/responses" || rest == "/responses/compact" || rest == AlphaSearchPath
++		if !routed || !strings.Contains(model, "/") {
++			if routed && (rest == "/responses" || rest == "/responses/compact") {
++				body, _ = codexInput(body, false)
++				if cp, foreign := foreignToSignin(body); foreign {
++					writeError(w, provider.Responses, 400, checkpointError(model, cp))
++					return
++				}
++			}
++			s.codexCallerRelay(w, r, rest, body)
++			return
++		}
++	}
+ 	var err error
+ 	switch {
+ 	case r.Method == http.MethodGet && rest == "/models":
+diff --git a/internal/gateway/gateway.go b/internal/gateway/gateway.go
+index 4f2eccb..570b613 100644
+--- a/internal/gateway/gateway.go
++++ b/internal/gateway/gateway.go
+@@ -1000,7 +1000,7 @@ func (s *Server) routes() *routeMux {
+ 	// Claude Desktop's third-party gateway looks for one here before it
+ 	// takes the address
+ 	mux.HandleFunc("GET /api/hello", func(w http.ResponseWriter, r *http.Request) {
+-		writeJSON(w, 200, map[string]any{"name": "magpie", "version": Version})
++		writeJSON(w, 200, map[string]any{"name": "magpie", "version": Version, "codex_caller_only": settings.CodexCallerOnly()})
+ 	})
+ 	// the Ollama API's model routes, for a client that takes a custom
+ 	// endpoint only as an Ollama server (ollama.go)
+@@ -5802,6 +5802,9 @@ func (s *Server) forward(ctx context.Context, p provider.Provider, to provider.P
+ 
+ // forwardOnce is one request to the provider, as forward makes it.
+ func (s *Server) forwardOnce(ctx context.Context, p provider.Provider, to provider.Protocol, path string, body []byte, in http.Header) (*http.Response, error) {
++	if ctx.Value(callerOnlyKey{}) != nil && p.Account != nil && p.Account.Agent == "codex" {
++		return nil, errors.New("Codex account-pool models are unavailable in caller-only mode; choose an official model directly")
++	}
+ 	reqCtx := ctx
+ 	ctx = s.metered(p.Via(ctx), p, "")
+ 	body = deepseekToolPatterns(p, to, body)
+diff --git a/internal/provider/codex_store.go b/internal/provider/codex_store.go
+index bf141b1..85fed57 100644
+--- a/internal/provider/codex_store.go
++++ b/internal/provider/codex_store.go
+@@ -39,6 +39,7 @@ import (
+ 	"github.com/yetone/magpie/internal/edit"
+ 	"github.com/yetone/magpie/internal/filememo"
+ 	"github.com/yetone/magpie/internal/proc"
++	"github.com/yetone/magpie/internal/settings"
+ )
+ 
+ const codexKeychainService = "Codex Auth"
+@@ -517,6 +518,9 @@ func codexKeychainUnread(err error) bool {
+ // nothing is saved over it (saveCodexLogin).
+ func readCodexLogin(home string, fresh bool) ([]byte, codexStore, error) {
+ 	st := codexStore{home: home}
++	if settings.CodexCallerOnly() {
++		return nil, st, errors.New("Codex account discovery is disabled in caller-only mode")
++	}
+ 	if discoveryOff() {
+ 		return nil, st, errAccountDiscoveryOff
+ 	}
+diff --git a/internal/provider/keepalive.go b/internal/provider/keepalive.go
+index 6ac2f52..54a1097 100644
+--- a/internal/provider/keepalive.go
++++ b/internal/provider/keepalive.go
+@@ -127,6 +127,9 @@ func renewLogins(ctx context.Context, every time.Duration, atOnce int) []Renewal
+ 	out := []Renewal{}
+ 	tried := 0
+ 	for _, l := range ls {
++		if l.Agent == "codex" && settings.CodexCallerOnly() {
++			continue
++		}
+ 		// nor one kept access token only, whose sign-in magpie never renews
+ 		if l.Agent != "codex" && !claudeKeptAlive(l) || l.AccessOnly || strings.EqualFold(active[l.Agent], l.User) || leftAlone(l.Agent) {
+ 			continue
+diff --git a/internal/provider/logins.go b/internal/provider/logins.go
+index 2db28ee..de40630 100644
+--- a/internal/provider/logins.go
++++ b/internal/provider/logins.go
+@@ -975,6 +975,9 @@ func rememberLogins(force bool) {
+ 	now := time.Now().UTC().Truncate(time.Second)
+ 	changed := false
+ 	for _, agent := range loginAgents {
++		if agent == "codex" && settings.CodexCallerOnly() {
++			continue
++		}
+ 		if accountRemoved(agent) {
+ 			continue
+ 		}
+diff --git a/internal/provider/logins_on.go b/internal/provider/logins_on.go
+index 00147c3..1193bf9 100644
+--- a/internal/provider/logins_on.go
++++ b/internal/provider/logins_on.go
+@@ -17,6 +17,7 @@ import (
+ 	"time"
+ 
+ 	"github.com/yetone/magpie/internal/filelock"
++	"github.com/yetone/magpie/internal/settings"
+ )
+ 
+ // savedTokenMu keeps two requests from refreshing one saved account at
+@@ -223,6 +224,9 @@ func renewSavedLoginFrom(ctx context.Context, agent, user, stale string) (tok, a
+ }
+ 
+ func renewSaved(ctx context.Context, agent, user string, force bool, stale string) (tok, accountID string, err error) {
++	if agent == "codex" && settings.CodexCallerOnly() {
++		return "", "", errors.New("Codex account refresh is disabled in caller-only mode")
++	}
+ 	ctx = ViaLogin(ctx, agent, user) // refreshed through the account's own proxy
+ 	savedTokenMu.Lock()
+ 	defer savedTokenMu.Unlock()
+diff --git a/internal/settings/accounts.go b/internal/settings/accounts.go
+index 27dd0e7..6332d14 100644
+--- a/internal/settings/accounts.go
++++ b/internal/settings/accounts.go
+@@ -40,3 +40,9 @@ func noAccountsEnv() bool {
+ 	v := strings.ToLower(strings.TrimSpace(os.Getenv("MAGPIE_NO_ACCOUNTS")))
+ 	return v != "" && v != "0" && v != "false"
+ }
++
++// CodexCallerOnly keeps Codex's own sign-in out of magpie's account pool.
++// The Codex backend instead relays official requests with the caller's login.
++func CodexCallerOnly() bool {
++	return os.Getenv("MAGPIE_CODEX_CALLER_ONLY") == "1"
++}
+diff --git a/internal/gateway/codex_caller_test.go b/internal/gateway/codex_caller_test.go
+new file mode 100644
+index 0000000..8203a5f
+--- /dev/null
++++ b/internal/gateway/codex_caller_test.go
+@@ -0,0 +1,135 @@
++package gateway
++
++import (
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"testing"
++
++	"github.com/yetone/magpie/internal/provider"
++)
++
++// A Codex caller may opt out of account rotation without disabling
++// third-party providers or changing Magpie's default routing behavior.
++func TestCodexCallerOnlyDoesNotSwitchAccounts(t *testing.T) {
++	codexSignedIn(t, "spare@example.com")
++	t.Setenv("MAGPIE_CODEX_CALLER_ONLY", "1")
++	var tried, models []string
++	usedUp(t, &tried, &models)
++
++	code, body := codexPost(t, `{"model":"gpt-5.5","stream":true,"input":"ping"}`)
++	if code != http.StatusTooManyRequests || !strings.Contains(body, "usage_limit_reached") {
++		t.Fatalf("caller should receive its own account's limit: %d %s (accounts %v)", code, body, tried)
++	}
++	if got := strings.Join(tried, ","); got != "acct-1" {
++		t.Fatalf("requested accounts %s; want only the caller", got)
++	}
++}
++
++func TestCodexCallerOnlyRelaysEachCallerAndCompaction(t *testing.T) {
++	codexSignedIn(t, "spare@example.com")
++	t.Setenv("MAGPIE_CODEX_CALLER_ONLY", "1")
++	var mu sync.Mutex
++	got := map[string]string{}
++	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		body, _ := io.ReadAll(r.Body)
++		mu.Lock()
++		got[r.Header.Get("chatgpt-account-id")+r.URL.Path] = r.Header.Get("Authorization") + " " + string(body)
++		mu.Unlock()
++		w.Header().Set("X-Test-Official", "original")
++		w.WriteHeader(http.StatusUnauthorized)
++		io.WriteString(w, `{"error":"caller token expired"}`)
++	}))
++	defer up.Close()
++	was := provider.CodexBase
++	provider.CodexBase = up.URL + "/backend-api/codex"
++	defer func() { provider.CodexBase = was }()
++	server := New().Handler()
++	body := `{"model":"gpt-5.5","stream":true,"input":"ping","unknown_official_field":7}`
++	var wg sync.WaitGroup
++	for _, id := range []string{"A", "B"} {
++		for _, endpoint := range []string{"/responses", "/responses/compact"} {
++			wg.Add(1)
++			go func(id, endpoint string) {
++				defer wg.Done()
++				req := httptest.NewRequest("POST", CodexPath+endpoint, strings.NewReader(body))
++				req.Header.Set("Authorization", "Bearer caller-"+id)
++				req.Header.Set("chatgpt-account-id", id)
++				rec := httptest.NewRecorder()
++				server.ServeHTTP(rec, req)
++				if rec.Code != http.StatusUnauthorized || rec.Header().Get("X-Test-Official") != "original" || rec.Body.String() != `{"error":"caller token expired"}` {
++					t.Errorf("caller %s %s: %d %s", id, endpoint, rec.Code, rec.Body.String())
++				}
++			}(id, endpoint)
++		}
++	}
++	wg.Wait()
++	for _, id := range []string{"A", "B"} {
++		for _, endpoint := range []string{"/responses", "/responses/compact"} {
++			if v := got[id+CodexPath+endpoint]; v != "Bearer caller-"+id+" "+body {
++				t.Errorf("caller %s %s got %q", id, endpoint, v)
++			}
++		}
++	}
++}
++
++func TestCodexCallerOnlyThirdPartyKeepsItsOwnKey(t *testing.T) {
++	f := &fake{t: t, reply: sse(`data: {"type":"response.completed","response":{"id":"r1","model":"m1","output":[]}}`)}
++	setup(t, provider.Responses, f)
++	t.Setenv("MAGPIE_CODEX_CALLER_ONLY", "1")
++	if err := provider.SaveGroup(provider.Group{ID: "g", Name: "G", Members: []string{"fake/m1"}}); err != nil {
++		t.Fatal(err)
++	}
++	for _, model := range []string{"fake/m1", "group/g"} {
++		code, body := codexPost(t, `{"model":"`+model+`","stream":true,"input":"ping"}`)
++		if code != http.StatusOK || !strings.Contains(body, "response.completed") {
++			t.Fatalf("%s: status %d: %s", model, code, body)
++		}
++		if f.head.Get("Authorization") != "Bearer k" || f.head.Get("chatgpt-account-id") != "" {
++			t.Fatalf("%s: third-party credentials are incorrect", model)
++		}
++	}
++}
++
++// Let Codex use its own HTTP transport, so official turns do not pass through
++// Magpie's WebSocket-to-HTTP conversation reconstruction.
++func TestCodexCallerOnlyUsesNativeHTTPFallback(t *testing.T) {
++	fresh(t)
++	t.Setenv("MAGPIE_CODEX_CALLER_ONLY", "1")
++	_, ts := sockServer(t)
++	_, resp, err := dialSock(t, ts, CodexPath+"/responses", nil)
++	if err == nil || resp == nil || resp.StatusCode != http.StatusUpgradeRequired {
++		t.Fatalf("Codex WebSocket upgrade should trigger its HTTP fallback: status %v, error %v", resp, err)
++	}
++	// Other OpenAI-compatible clients retain their existing socket behavior.
++	_, resp, err = dialSock(t, ts, "/v1/responses", nil)
++	if err != nil {
++		t.Fatalf("ordinary Responses socket should still work: status %v, error %v", resp, err)
++	}
++}
++
++func TestCodexCallerOnlyBypassesMagpieTransport(t *testing.T) {
++	fresh(t)
++	t.Setenv("MAGPIE_CODEX_CALLER_ONLY", "1")
++	official := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "text/event-stream")
++		io.WriteString(w, "data: official\n\n")
++	}))
++	defer official.Close()
++	old := provider.CodexBase
++	provider.CodexBase = official.URL + "/backend-api/codex"
++	defer func() { provider.CodexBase = old }()
++	server := New()
++	server.client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
++		t.Error("official request reached Magpie's translating transport")
++		return nil, io.EOF
++	})}
++	r := httptest.NewRequest(http.MethodPost, CodexPath+"/responses", strings.NewReader(`{"model":"gpt-5.5","stream":true}`))
++	w := httptest.NewRecorder()
++	server.Handler().ServeHTTP(w, r)
++	if w.Code != http.StatusOK || w.Body.String() != "data: official\n\n" {
++		t.Fatalf("official response not relayed: %d %s", w.Code, w.Body.String())
++	}
++}
+diff --git a/internal/gateway/codex_caller_native_test.go b/internal/gateway/codex_caller_native_test.go
+new file mode 100644
+index 0000000..1c89d35
+--- /dev/null
++++ b/internal/gateway/codex_caller_native_test.go
+@@ -0,0 +1,91 @@
++package gateway
++
++import (
++	"context"
++	"fmt"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/yetone/magpie/internal/provider"
++)
++
++// Exercise Codex's real WebSocket-to-HTTP fallback using a synthetic API key
++// and an entirely local official backend.
++func TestCodexCallerOnlyNativeClientFallback(t *testing.T) {
++	native := os.Getenv("HARBOR_TEST_CODEX_BIN")
++	if native == "" {
++		t.Skip("set HARBOR_TEST_CODEX_BIN to test a real Codex client")
++	}
++	fresh(t)
++	t.Setenv("MAGPIE_CODEX_CALLER_ONLY", "1")
++	var websocketAttempts, officialTurns atomic.Int32
++	official := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Path == "/backend-api/codex/models" {
++			w.Header().Set("Content-Type", "application/json")
++			io.WriteString(w, `{"models":[]}`)
++			return
++		}
++		if r.URL.Path != "/v1/responses" && r.URL.Path != "/backend-api/codex/responses" || r.Method != http.MethodPost {
++			http.Error(w, "unexpected path", http.StatusNotFound)
++			return
++		}
++		if r.Header.Get("Authorization") != "Bearer sk-fixture" || r.Header.Get("chatgpt-account-id") != "" {
++			http.Error(w, "caller identity changed", http.StatusUnauthorized)
++			return
++		}
++		officialTurns.Add(1)
++		msg := `{"id":"msg_test","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"HARBOR_HTTP_FALLBACK_OK","annotations":[]}]}`
++		response := `{"id":"resp_test","object":"response","status":"completed","model":"gpt-5.5","output":[` + msg + `],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`
++		w.Header().Set("Content-Type", "text/event-stream")
++		for _, event := range []string{
++			`{"type":"response.created","response":{"id":"resp_test","object":"response","status":"in_progress","output":[]}}`,
++			`{"type":"response.output_item.done","output_index":0,"item":` + msg + `}`,
++			`{"type":"response.completed","response":` + response + `}`,
++		} {
++			fmt.Fprintf(w, "data: %s\n\n", event)
++		}
++	}))
++	defer official.Close()
++	oldBase, oldAPIBase := provider.CodexBase, codexAPIBase
++	provider.CodexBase, codexAPIBase = official.URL+"/backend-api/codex", official.URL+"/v1"
++	defer func() { provider.CodexBase, codexAPIBase = oldBase, oldAPIBase }()
++	front := New().Front()
++	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Path == CodexPath+"/responses" && wantsSocket(r) {
++			websocketAttempts.Add(1)
++		}
++		front.ServeHTTP(w, r)
++	}))
++	defer gateway.Close()
++	root := t.TempDir()
++	home := filepath.Join(root, "codex")
++	if err := os.Mkdir(home, 0700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"OPENAI_API_KEY":"sk-fixture"}`), 0600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("check_for_update_on_startup = false\ncli_auth_credentials_store = \"file\"\n"), 0600); err != nil {
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
++	defer cancel()
++	cmd := exec.CommandContext(ctx, native, "exec", "--ephemeral", "--skip-git-repo-check", "--disable", "apps", "-m", "gpt-5.5", "-c", `openai_base_url="`+gateway.URL+CodexPath+`"`, "Say hello")
++	cmd.Dir = root
++	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + root, "CODEX_HOME=" + home, "XDG_CONFIG_HOME=" + root, "XDG_CACHE_HOME=" + root, "TERM=dumb", "LANG=C.UTF-8", "OPENAI_API_KEY=sk-fixture", "HTTP_PROXY=http://127.0.0.1:9", "HTTPS_PROXY=http://127.0.0.1:9", "ALL_PROXY=http://127.0.0.1:9", "NO_PROXY=127.0.0.1,localhost"}
++	out, err := cmd.CombinedOutput()
++	if err != nil || !strings.Contains(string(out), "HARBOR_HTTP_FALLBACK_OK") {
++		t.Fatalf("real Codex failed: %v; socket attempts %d, official turns %d\n%s", err, websocketAttempts.Load(), officialTurns.Load(), out)
++	}
++	if websocketAttempts.Load() < 1 || officialTurns.Load() < 1 {
++		t.Fatalf("expected a WebSocket attempt followed by official HTTP: %d attempts, %d turns", websocketAttempts.Load(), officialTurns.Load())
++	}
++}
+diff --git a/internal/provider/codex_caller_only_test.go b/internal/provider/codex_caller_only_test.go
+new file mode 100644
+index 0000000..6a47626
+--- /dev/null
++++ b/internal/provider/codex_caller_only_test.go
+@@ -0,0 +1,24 @@
++//go:build !windows
++
++package provider
++
++import (
++	"context"
++	"testing"
++)
++
++func TestCodexCallerOnlyDoesNotReadOrRefreshLogin(t *testing.T) {
++	limitsHome(t)
++	t.Setenv("MAGPIE_CODEX_CALLER_ONLY", "1")
++	opened := openWatch(t, []string{codexAuthPath()})
++	if _, _, err := readCodexLogin(codexHome(), false); err == nil {
++		t.Fatal("caller-only mode read the Codex login")
++	}
++	rememberLogins(true)
++	if _, _, err := renewSaved(context.Background(), "codex", "saved@example.com", true, ""); err == nil {
++		t.Fatal("caller-only mode allowed a saved Codex token refresh")
++	}
++	if got := opened(); len(got) != 0 {
++		t.Fatalf("opened Codex credentials: %v", got)
++	}
++}

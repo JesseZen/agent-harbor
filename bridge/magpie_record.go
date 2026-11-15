@@ -12,14 +12,15 @@ import (
 )
 
 type managedRecord struct {
-	Address    string    `json:"address"`
-	WebAddress string    `json:"web_address,omitempty"`
-	ConfigDir  string    `json:"config_dir"`
-	Executable string    `json:"executable"`
-	Version    string    `json:"version,omitempty"`
-	Digest     string    `json:"executable_sha256,omitempty"`
-	PID        int       `json:"pid"`
-	StartedAt  time.Time `json:"started_at"`
+	Address         string    `json:"address"`
+	WebAddress      string    `json:"web_address,omitempty"`
+	ConfigDir       string    `json:"config_dir"`
+	Executable      string    `json:"executable"`
+	Version         string    `json:"version,omitempty"`
+	CodexCallerOnly bool      `json:"codex_caller_only,omitempty"`
+	Digest          string    `json:"executable_sha256,omitempty"`
+	PID             int       `json:"pid"`
+	StartedAt       time.Time `json:"started_at"`
 }
 
 const (
@@ -78,6 +79,12 @@ func managedProcessEnvironment(layout managedLayout, address, webKey string, sta
 		processStartedAtVariable: new(startedAt.Format(time.RFC3339Nano)),
 		"HOME":                   &layout.Home,
 		"CODEX_HOME":             &layout.Home,
+		"CODEX_SQLITE_HOME":      &layout.Home,
+		"CLAUDE_CONFIG_DIR":      nil,
+		"GEMINI_CLI_HOME":        nil,
+		"PI_CODING_AGENT_DIR":    nil,
+		"OPENCODE_CONFIG":        nil,
+		"OPENCODE_CONFIG_DIR":    nil,
 		"XDG_CONFIG_HOME":        new(filepath.Join(layout.Home, "config")),
 		"XDG_DATA_HOME":          new(filepath.Join(layout.Home, "data")),
 		"XDG_STATE_HOME":         new(filepath.Join(layout.Home, "state")),
@@ -93,12 +100,18 @@ func managedProcessEnvironment(layout managedLayout, address, webKey string, sta
 // without claiming a gateway address.
 func managedChildEnvironment(layout managedLayout) []string {
 	return replaceEnvironment(os.Environ(), map[string]*string{
-		"HOME":            &layout.Home,
-		"CODEX_HOME":      &layout.Home,
-		"XDG_CONFIG_HOME": new(filepath.Join(layout.Home, "config")),
-		"XDG_DATA_HOME":   new(filepath.Join(layout.Home, "data")),
-		"XDG_STATE_HOME":  new(filepath.Join(layout.Home, "state")),
-		"XDG_CACHE_HOME":  new(filepath.Join(layout.Home, "cache")),
+		"HOME":                &layout.Home,
+		"CODEX_HOME":          &layout.Home,
+		"CODEX_SQLITE_HOME":   &layout.Home,
+		"CLAUDE_CONFIG_DIR":   nil,
+		"GEMINI_CLI_HOME":     nil,
+		"PI_CODING_AGENT_DIR": nil,
+		"OPENCODE_CONFIG":     nil,
+		"OPENCODE_CONFIG_DIR": nil,
+		"XDG_CONFIG_HOME":     new(filepath.Join(layout.Home, "config")),
+		"XDG_DATA_HOME":       new(filepath.Join(layout.Home, "data")),
+		"XDG_STATE_HOME":      new(filepath.Join(layout.Home, "state")),
+		"XDG_CACHE_HOME":      new(filepath.Join(layout.Home, "cache")),
 	})
 }
 

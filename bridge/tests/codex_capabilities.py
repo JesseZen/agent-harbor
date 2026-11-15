@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isolated pinned-native-Codex delete and writer-lock capability experiment."""
+"""Isolated native-Codex delete and writer-lock capability experiment."""
 import sys
 sys.dont_write_bytecode = True
 import argparse
@@ -63,8 +63,8 @@ def main():
     result = {'root': str(root)}
     try:
         version = subprocess.check_output([native, '--version'], env=env, text=True).strip()
-        if version != 'codex-cli 0.167.0':
-            raise RuntimeError('expected Codex 0.167.0')
+        if not version.startswith('codex-cli '):
+            raise RuntimeError(f'not a Codex CLI executable: {version!r}')
         result['version'] = version
         with (root / 'exec.log').open('w') as log:
             proc = subprocess.Popen([native, 'exec', '--skip-git-repo-check', '--json',

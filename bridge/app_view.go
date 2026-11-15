@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"github.com/charmbracelet/x/ansi"
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func cleanUI(s string) string {
@@ -33,7 +35,11 @@ func (m harborModel) details(s sessionView) string {
 	lines = append(lines, "", "📂 WORKSPACE", kv("Project", s.WorkingDirectory), kv("CLI", strings.TrimSpace(s.CLI+" "+s.CLIVersion)))
 	lines = append(lines, "", "🔌 CONNECTION", kv("Connection", s.Mode))
 	if s.Mode == "magpie" {
-		lines = append(lines, kv("Selected ID", s.MagpieModel), kv("Instance", s.InstanceID), kv("Address", orUnknown(s.MagpieURL)))
+		modelLabel := "Selected ID"
+		if joinedCodex(s.session) {
+			modelLabel = "Initial model"
+		}
+		lines = append(lines, kv(modelLabel, s.MagpieModel), kv("Instance", s.InstanceID), kv("Address", orUnknown(s.MagpieURL)))
 		if s.InstanceSnapshot != nil {
 			lines = append(lines, kv("Recorded config", s.InstanceSnapshot.ConfigDir))
 		} else {
@@ -59,6 +65,9 @@ func (m harborModel) details(s sessionView) string {
 	}
 	if s.Conversation != nil {
 		lines = append(lines, "", "UPSTREAM CONVERSATION", kv("Client", s.Conversation.Reference.Agent), kv("Reference kind", s.Conversation.Reference.Kind), kv("Reference", s.Conversation.Reference.Value), kv("Identity evidence", s.Conversation.Status), kv("Provenance", s.Conversation.Provenance), note("Recovery query: development candidate; query success proves syntax only."))
+		if _, err := savedReferenceForReview(s.session); err == nil {
+			lines = append(lines, note("v reviews the saved identity before recovery."))
+		}
 	}
 	lines = append(lines, "", "💬 CONVERSATION", kv("Conversation", orUnknown(s.CodexSessionID)), kv("ID source", orUnknown(s.ConversationIDSource)), kv("Writer check", orUnknown(s.WriterLockCheck)))
 	lines = append(lines, "", "🛟 RECOVERY", kv("Herdr agent", orUnknown(s.HerdrAgentName)), kv("Recovery", orUnknown(s.Recovery)))
@@ -93,6 +102,20 @@ func (m harborModel) View() string {
 	footer := "↑↓ move  enter act  i details  / filter  , settings  ? help  q close"
 	body := ""
 	switch m.screen {
+	case "accounts", "accounts-result", "accounts-busy":
+		crumb = "Codex accounts · experimental"
+		footer = "s switch  l login  esc back"
+		body = "Codex accounts\n\nSwitch between replies, after all running Codex turns have finished.\n\n" +
+			"s  Select an account with codex-auth\nl  Log in and add an account with Codex\n\n" +
+			"Selection affects the shared Codex home. Only experimental Harbor sessions can be checked here.\n" +
+			"Refreshing running sessions relies on an undocumented Codex behavior and may change."
+		if m.screen == "accounts-result" {
+			body = "Account action result\n\n" + m.accountResult
+			footer = "esc back"
+		} else if m.screen == "accounts-busy" {
+			body = "Waiting for the account action."
+			footer = ""
+		}
 	case "magpie-context-loading", "magpie-context", "magpie", "magpie-bind", "magpie-confirm", "magpie-busy", "magpie-filter", "magpie-detail":
 		crumb = "Magpie"
 		body = m.magpieView()
@@ -157,7 +180,17 @@ func (m harborModel) View() string {
 	case "confirm":
 		crumb = "Review " + m.action
 		body = m.confirmView()
-		footer = "enter confirm  esc cancel  ? help"
+		footer = "↑↓ scroll  enter confirm  esc cancel"
+		if m.action == "query-resume" {
+			footer = "↑↓ scroll  a accept  enter resume  esc cancel"
+		}
+		if (m.action == "query-resume" || m.action == "resume") && errors.Is(m.selectionReviewErr, errCodexProfileMissing) {
+			footer = "↑↓ scroll  b use recorded  a accept  enter resume  esc cancel"
+		}
+		if m.action == "review-reference" {
+			crumb = "Review saved identity"
+			footer = "↑↓ scroll  a accept  enter save  esc cancel"
+		}
 	case "busy":
 		body = "Working…  Waiting for the service to finish."
 	case "detail":
@@ -225,6 +258,9 @@ func (m harborModel) View() string {
 	if m.screen == "new-form" && m.height < 20 {
 		rows := strings.Split(body, "\n")[2:9]
 		context := "Native shares settings/login: " + m.environment.LocalHome
+		if m.selectedClient() == "codex" && m.environment.NativeConfig != "" {
+			context = m.environment.NativeConfig
+		}
 		if m.draft.Connection == "magpie" {
 			context = "Auxiliary routes may differ; groups may change."
 		}
@@ -269,6 +305,16 @@ func (m harborModel) noticeLine() string {
 			return "Only Create saves this session."
 		}
 		return "Nothing is saved until the final review."
+	}
+	if m.screen == "sessions" {
+		if s, ok := m.selected(); ok && !s.External && !s.Running && s.Runtime.Presence != "observed" {
+			if _, err := savedReferenceForReview(s.session); err == nil {
+				return "v review saved identity  n new  m Magpie  ? help"
+			}
+		}
+	}
+	if experimentalCodexAccounts() {
+		return "n new  a accounts  m Magpie  s stop  x remove  r refresh"
 	}
 	return "n new  m Magpie  s stop  x remove  r refresh"
 }
@@ -318,13 +364,43 @@ func (m harborModel) helpView() string {
 		body = "✨ Create a session\n\nTab / Shift+Tab  Move form focus\n↑ ↓      Move form focus or picker selection\nEnter    Edit focused field; Create saves\nEnter in editor  Accept only that field\nEsc      Cancel local edit; on form cancel draft\n/        Search instances or model catalog\ni        Inspect selected instance\n?        Help from the form or a picker\nCtrl+C   Close Harbor\n\n• Text fields own ordinary characters.\n• Initial focus is Create. Review fields on the form.\n• Magpie acknowledgement returns to Create."
 
 	default:
-		body = "🚢 Sessions\n\n↑/k ↓/j  Move selection\nEnter    Enter running session; review start/resume\ni        Inspect connection and observed route\ns        Stop (conversation stays resumable)\nx        Remove record (Codex history kept)\ne        Rename\nc        Inspect / close previous idle shell\n/        Filter by name, project or selected model\nr        Refresh\n,        Settings and workspace shortcuts\nEsc      Back / cancel\nq        Close Harbor\n\nManage conversation history with the client’s own tools."
+		body = "🚢 Sessions\n\n↑/k ↓/j  Move selection\nEnter    Enter running session; review start/resume\ni        Inspect connection and observed route\nv        Review a saved identity when observation is missing\ns        Stop (conversation stays resumable)\nx        Remove record (Codex history kept)\ne        Rename\nc        Inspect / close previous idle shell\n/        Filter by name, project or selected model\nr        Refresh\n,        Settings and workspace shortcuts\nEsc      Back / cancel\nq        Close Harbor\n\nManage conversation history with the client’s own tools."
 	}
 	return body
 }
 
 func (m harborModel) confirmView() string {
-	lines := []string{"🚢 " + m.reviewed.Name, "", kv("Project", m.reviewed.WorkingDirectory), kv("Client", orUnknown(m.reviewed.CLI)), kv("Connection", strings.TrimSpace(m.reviewed.Mode+" "+m.reviewed.MagpieModel))}
+	model := m.reviewed.MagpieModel
+	if (m.action == "resume" || m.action == "query-resume") && joinedCodex(m.reviewed) {
+		model = "selection restored by Codex"
+	}
+	if (m.action == "resume" || m.action == "query-resume") && m.reviewedSelection != nil {
+		model = m.reviewedSelection.Model
+	}
+	lines := []string{"🚢 " + m.reviewed.Name, "", kv("Project", m.reviewed.WorkingDirectory), kv("Client", orUnknown(m.reviewed.CLI)), kv("Connection", strings.TrimSpace(m.reviewed.Mode+" "+model))}
+	if m.reviewed.Mode == "local" && (m.action == "resume" || m.action == "query-resume" || m.action == "review-reference") {
+		lines = append(lines, note("Native route or login may have changed; verify both."), note("A provider name does not verify its destination."))
+	}
+	if m.action == "review-reference" && m.reviewed.Conversation != nil {
+		c := m.reviewed.Conversation
+		lines = append(lines, kv("Saved source", c.Reference.Source), kv("Saved agent", c.Reference.Agent), kv("Saved kind", c.Reference.Kind), kv("Saved reference", c.Reference.Value), kv("Observation", c.Status))
+		if m.reviewed.Mode == "magpie" {
+			lines = append(lines, kv("Instance", m.reviewed.InstanceID+" "+m.reviewed.MagpieURL))
+			if m.reviewed.InstanceSnapshot != nil {
+				lines = append(lines, kv("Recorded config", m.reviewed.InstanceSnapshot.ConfigDir))
+			}
+		} else if m.nativeReview != "" {
+			lines = append(lines, note(m.nativeReview))
+		}
+		lines = append(lines, "", note("The saved identity is not currently verified. Review the original conversation and connection."), note("Press a to accept this uncertainty, then Enter to save the review. This does not resume the conversation."))
+		if m.referenceAccepted {
+			lines = append(lines, "Saved identity uncertainty explicitly accepted.")
+		}
+		return strings.Join(lines, "\n")
+	}
+	if (m.action == "resume" || m.action == "query-resume") && m.reviewed.Mode == "local" && m.reviewed.CLI == "codex" && m.nativeReview != "" {
+		lines = append(lines, note(m.nativeReview))
+	}
 	if m.reviewed.Conversation != nil {
 		reference := m.reviewed.Conversation.Reference
 		lines = append(lines, kv("Reference kind", orUnknown(reference.Kind)), kv("Conversation", orUnknown(reference.Value)))
@@ -349,6 +425,26 @@ func (m harborModel) confirmView() string {
 		lines = append(lines, "🚀 Resume this conversation", note("Confirm the intended account and no other writer."))
 		if m.reviewed.Mode == "magpie" {
 			lines = append(lines, kv("Instance", m.reviewed.InstanceID+" "+m.reviewed.MagpieURL), note("Groups may change members; an ID is not proof."), note("Review in Magpie before confirming."))
+			if joinedCodex(m.reviewed) {
+				lines = append(lines, note("Codex restores the conversation's last model and reasoning setting."))
+			}
+			if m.reviewedSelection != nil {
+				effort := m.reviewedSelection.Effort
+				if effort == "" {
+					effort = "not recorded; Codex settings may apply"
+				}
+				lines = append(lines, kv("Session default", m.reviewedSelection.Model), kv("Reasoning", effort))
+				if m.selectionFallback {
+					lines = append(lines, note("Using Harbor's original model by explicit choice; later Codex changes are unknown."))
+				}
+			} else if m.selectionReviewErr != nil {
+				lines = append(lines, note("Session profile unavailable: "+m.selectionReviewErr.Error()))
+				if errors.Is(m.selectionReviewErr, errCodexProfileMissing) {
+					lines = append(lines, note("Recorded model may differ. Press b to explicitly choose it, or Esc to cancel."))
+				} else {
+					lines = append(lines, note("Resolve the profile or identity problem before recovery."))
+				}
+			}
 		}
 	}
 	return strings.Join(lines, "\n")

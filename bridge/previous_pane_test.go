@@ -55,10 +55,18 @@ func TestPreviousPaneReviewRefusesForegroundWorkAndChangedReview(t *testing.T) {
 	stub := `#!/bin/sh
 case "$3 $4" in
  'pane get') printf '%s\n' '{"result":{"pane":{"pane_id":"w1:p2","tab_id":"w1:t2","terminal_id":"term-original"}}}' ;;
- 'pane process-info') cat '` + process + `' ;;
+	 'pane process-info')
+		if test -f '` + filepath.Join(root, "busy-after-evidence") + `' && grep -q '"ended_evidence"' '` + filepath.Join(root, "sessions.json") + `'; then
+			printf '%s\n' '{"result":{"process_info":{"pane_id":"w1:p2","shell_pid":321,"foreground_processes":[{"pid":456,"name":"vim"}]}}}'
+		else cat '` + process + `'; fi ;;
  'tab list') printf '%s\n' '{"result":{"tabs":[{"tab_id":"w1:t2","label":"API"}]}}' ;;
  'session list') printf '%s\n' '{"sessions":[{"name":"agent-harbor","running":true}]}' ;;
- 'pane close') touch '` + filepath.Join(root, "closed") + `' ;;
+	'pane close')
+		# Closing the active pane can terminate the caller immediately. The
+		# reviewed exit must already be durable when the close is requested.
+		grep -q '"ended_evidence"' '` + filepath.Join(root, "sessions.json") + `' || exit 42
+		test ! -f '` + filepath.Join(root, "fail-close") + `' || exit 43
+		touch '` + filepath.Join(root, "closed") + `' ;;
  *) exit 2 ;;
 esac
 `
@@ -92,13 +100,55 @@ esac
 	if err := os.WriteFile(process, []byte(shell), 0600); err != nil {
 		t.Fatal(err)
 	}
+	busyAfterEvidence := filepath.Join(root, "busy-after-evidence")
+	if err := os.WriteFile(busyAfterEvidence, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ClosePreviousPane(review); err == nil || !strings.Contains(err.Error(), "confirmed ended") {
+		t.Fatalf("work started during evidence write was not refused: %v", err)
+	}
+	ended, err := getSession(s.ID)
+	if err != nil || ended.Ended == nil || ended.Ended.Source != "herdr.reviewed_idle_shell" {
+		t.Fatal("recheck failure lost approved end evidence", ended, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "closed")); !os.IsNotExist(err) {
+		t.Fatal("closed work started during evidence write")
+	}
+	if err := os.Remove(busyAfterEvidence); err != nil {
+		t.Fatal(err)
+	}
+	review, err = h.PreviousPane(ended)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failClose := filepath.Join(root, "fail-close")
+	if err := os.WriteFile(failClose, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ClosePreviousPane(review); err == nil || !strings.Contains(err.Error(), "confirmed ended") {
+		t.Fatalf("close failure did not explain durable end review: %v", err)
+	}
+	ended, err = getSession(s.ID)
+	if err != nil || ended.Ended == nil || ended.Ended.Source != "herdr.reviewed_idle_shell" {
+		t.Fatal("failed shell close lost approved end evidence", ended, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "closed")); !os.IsNotExist(err) {
+		t.Fatal("failed close claimed the shell was closed")
+	}
+	if err := os.Remove(failClose); err != nil {
+		t.Fatal(err)
+	}
+	review, err = h.PreviousPane(ended)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := h.ClosePreviousPane(review); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "closed")); err != nil {
 		t.Fatal(err)
 	}
-	ended, err := getSession(s.ID)
+	ended, err = getSession(s.ID)
 	if err != nil || ended.Ended == nil || ended.Ended.Source != "herdr.reviewed_idle_shell" {
 		t.Fatal("approved idle shell did not preserve ended evidence", ended, err)
 	}

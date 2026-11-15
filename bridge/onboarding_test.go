@@ -270,4 +270,11 @@ func TestOnboardingVersionTimeoutOffersRetryWithoutClaimingMissingMagpie(t *test
 	if !strings.Contains(out, "Magpie: magpie 0.1.3528") {
 		t.Fatal(out)
 	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf 'magpie 0.1.3528-harbor-dev\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	out, _ = b.command("open")
+	if !strings.Contains(out, "Magpie: magpie 0.1.3528-harbor-dev") {
+		t.Fatal(out)
+	}
 }

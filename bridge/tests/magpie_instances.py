@@ -781,7 +781,7 @@ CASES = {
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--magpie", required=True, help="pinned Magpie 0.1.3528 executable")
+    parser.add_argument("--magpie", required=True, help="Magpie candidate executable")
     parser.add_argument("--bridge", default=str(pathlib.Path(__file__).resolve().parent.parent))
     parser.add_argument("--binary", default="", help="prebuilt agent-harbor binary")
     parser.add_argument("--cases", default=",".join(CASES))
@@ -801,7 +801,7 @@ def main():
     log(f"magpie  {version}")
     failed = []
     try:
-        check.ok(version == f"magpie {MAGPIE_VERSION}", f"pinned Magpie {MAGPIE_VERSION} is used")
+        check.ok(version.startswith("magpie "), "a Magpie executable with a version is used")
         recorded = ""
         for name in args.cases.split(","):
             log(f"case {name}")

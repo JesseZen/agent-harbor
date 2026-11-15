@@ -114,12 +114,17 @@ func launchQuery(a sessionApproval) error {
 	if !managedSocket(root, os.Getenv("HERDR_SOCKET_PATH")) {
 		return errors.New("query recovery requires the managed workspace socket")
 	}
-	if err := checkSession(a.Session, resumeConversation, a.OverrideReason); err != nil {
+	if a.Session.Mode == "magpie" && a.Session.CLI == "codex" {
+		if err := verifyCodexSelection(context.Background(), a.Session, a.MagpieSelection); err != nil {
+			return err
+		}
+	}
+	if err := checkSessionSelection(a.Session, resumeConversation, a.OverrideReason, a.MagpieSelection); err != nil {
 		return err
 	}
 	plan, err := queryResume(a.Session)
 	if err != nil {
 		return err
 	}
-	return launchWithPlan(a.Session, resumeConversation, a.OverrideReason, plan)
+	return launchWithSelection(a.Session, resumeConversation, a.OverrideReason, plan, a.MagpieSelection)
 }

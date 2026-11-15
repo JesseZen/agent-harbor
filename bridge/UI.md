@@ -36,3 +36,29 @@ scope restrictions remain in force.
 Global shell, navigation dispatch, theme, focus/mouse infrastructure and shared
 contracts belong to the integration owner. Page workers submit minimal wiring
 requests for those modules rather than editing shared entry points concurrently.
+
+## Reachable page inventory
+
+| Entry / state | Shared page owner |
+| --- | --- |
+| First run, readiness, choice review, onboarding help / waiting | Secondary pages (09) |
+| Sessions, empty/search states, contextual More menu | Sessions (02) |
+| Settings, shortcut editor, search, diagnostics | Settings (01) |
+| Object confirmation, recovery/reference review, evidence | Review (03) |
+| Preparing a new session | Secondary pages (09) |
+| New form, client picker, local name edit | Creation (04) |
+| Project search, known/browse/recursive scopes, path/preview | Directory (05) |
+| Native/Magpie choice, instance/catalog loading, selection, scoped disclosure | Connection selector (06) |
+| Selected connection, bind, details, confirmations, managed actions, waiting | Connections (07) |
+| Experimental account menu, external action waiting, per-session result | Accounts (08) |
+| Session details, contextual help, rename/filter, history explanation, error/retry, waiting | Secondary pages (09) |
+
+Magpie management, codex-auth and client terminals are external interfaces.
+Harbor releases their terminal and restores its own mouse reporting on return.
+They are not Harbor page layouts. The experimental account switch stays hidden
+unless enabled; synthetic checks do not prove live ChatGPT account switching.
+
+The legacy sequential creation states can still be constructed by historical
+model tests. Normal creation enters the form after the guarded environment
+load. The final integration cleanup must remove old rendering paths only after
+all real routes use the page contract above.

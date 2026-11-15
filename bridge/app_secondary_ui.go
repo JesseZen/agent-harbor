@@ -15,6 +15,8 @@ type secondaryRenameResult struct {
 func (m harborModel) secondaryContent() (string, string, []uiAction, bool) {
 	back := uiAction{ID: "secondary:esc", Label: "Back", Key: "esc"}
 	switch m.screen {
+	case "new-project-loading":
+		return "Preparing new session", "Loading project, client and connection choices.\nThe new session has not been created.", []uiAction{{ID: "secondary:esc", Label: "Cancel", Key: "esc"}}, true
 	case "detail":
 		body := "Selected session is unavailable. Return and select a session."
 		if s, ok := m.selected(); ok {

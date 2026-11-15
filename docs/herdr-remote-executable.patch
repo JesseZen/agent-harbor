@@ -380,7 +380,7 @@ index 39c8bd5..ab37d22 100644
      match args {
          [] => {
 diff --git a/src/remote/attach.rs b/src/remote/attach.rs
-index 6a0338d..5208f5d 100644
+index 6a0338d..890ee5a 100644
 --- a/src/remote/attach.rs
 +++ b/src/remote/attach.rs
 @@ -106,13 +106,18 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
@@ -403,7 +403,15 @@ index 6a0338d..5208f5d 100644
      let check = || {
          let remote = find_installed_remote_herdr(&ssh)?;
          match remote_server_status(&ssh, &remote, false)? {
-@@ -152,18 +157,19 @@ pub(crate) struct SavedSshSetup {
+@@ -133,6 +138,7 @@ pub(crate) fn check_saved_ssh(target: &str, session: &str) -> io::Result<()> {
+             {
+                 Ok(())
+             }
++            _ if ssh.remote_executable.is_some() => Err(explicit_remote_unavailable(&ssh)),
+             _ => Err(io::Error::other(format!(
+                 "remote Herdr server is stopped or incompatible; run `{}`",
+                 super::saved_ssh_bootstrap_command(target, session),
+@@ -152,18 +158,19 @@ pub(crate) struct SavedSshSetup {
  }
  
  impl SavedSshSetup {
@@ -425,7 +433,7 @@ index 6a0338d..5208f5d 100644
          let remote_herdr =
              RemoteHerdr::for_platform(detect_remote_platform(&ssh)?.into_setup_platform());
          let candidates = remote_binary_candidates(&ssh, &remote_herdr)?;
-@@ -815,6 +821,7 @@ fn authentication_command_with_config(
+@@ -815,6 +822,7 @@ fn authentication_command_with_config(
  }
  
  pub(super) struct RemoteSsh {
@@ -433,7 +441,7 @@ index 6a0338d..5208f5d 100644
      target: String,
      session_name: String,
      managed_config: Option<ManagedSshConfig>,
-@@ -835,6 +842,7 @@ impl RemoteSsh {
+@@ -835,6 +843,7 @@ impl RemoteSsh {
          };
  
          Self {
@@ -441,7 +449,7 @@ index 6a0338d..5208f5d 100644
              target,
              session_name,
              managed_config,
-@@ -854,6 +862,15 @@ impl RemoteSsh {
+@@ -854,6 +863,15 @@ impl RemoteSsh {
          ssh
      }
  
@@ -457,7 +465,7 @@ index 6a0338d..5208f5d 100644
      fn target(&self) -> &str {
          &self.target
      }
-@@ -1507,6 +1524,18 @@ fn prepare_discovered_remote_herdr(
+@@ -1507,6 +1525,18 @@ fn prepare_discovered_remote_herdr(
      live_handoff_enabled: bool,
      require_surface_interest: bool,
  ) -> io::Result<PreparedRemoteHerdr> {
@@ -476,7 +484,35 @@ index 6a0338d..5208f5d 100644
      if remote_herdr.platform.is_windows() {
          return prepare_windows_remote_herdr(
              ssh,
-@@ -1676,6 +1705,28 @@ pub(super) fn discover_remote_api_metadata(
+@@ -1592,6 +1622,9 @@ pub(super) fn find_installed_remote_herdr(ssh: &RemoteSsh) -> io::Result<RemoteH
+             }
+         }
+     }
++    if ssh.remote_executable.is_some() {
++        return Err(explicit_remote_unavailable(ssh));
++    }
+     Err(io::Error::new(
+         io::ErrorKind::Unsupported,
+         format!(
+@@ -1602,6 +1635,17 @@ pub(super) fn find_installed_remote_herdr(ssh: &RemoteSsh) -> io::Result<RemoteH
+     ))
+ }
+
++fn explicit_remote_unavailable(ssh: &RemoteSsh) -> io::Error {
++    io::Error::new(
++        io::ErrorKind::Unsupported,
++        format!(
++            "explicit remote executable {:?} on {} is unavailable or incompatible; review that workspace and its installed package before reconnecting",
++            ssh.remote_executable.as_deref().expect("explicit executable"),
++            ssh.target(),
++        ),
++    )
++}
++
+ fn prepare_windows_remote_herdr(
+     ssh: &RemoteSsh,
+     remote_herdr: RemoteHerdr,
+@@ -1676,6 +1720,28 @@ pub(super) fn discover_remote_api_metadata(
      session: &str,
  ) -> io::Result<crate::client::endpoint::SshMachineMetadata> {
      let platform = detect_remote_platform(ssh)?.platform;
@@ -505,7 +541,7 @@ index 6a0338d..5208f5d 100644
      if !platform.is_windows() {
          // Deliver the discovery script on stdin (`/bin/sh -s`). OpenSSH for
          // Windows hands the SSH command argument to the login shell wrapped in
-@@ -1851,6 +1902,15 @@ fn remote_binary_candidates(
+@@ -1851,6 +1917,15 @@ fn remote_binary_candidates(
      ssh: &RemoteSsh,
      remote_herdr: &RemoteHerdr,
  ) -> io::Result<Vec<RemoteHerdr>> {
@@ -521,7 +557,7 @@ index 6a0338d..5208f5d 100644
      if remote_herdr.platform.is_windows() {
          let output = ssh.framed_user_shell_output(&windows_remote_binary_candidate_command())?;
          if !output.status.success() {
-@@ -3678,6 +3738,29 @@ mod tests {
+@@ -3678,6 +3753,33 @@ mod tests {
      use super::*;
  
      #[cfg(unix)]
@@ -534,6 +570,10 @@ index 6a0338d..5208f5d 100644
 +            os: "linux",
 +            arch: "x86_64",
 +        });
++        let error = explicit_remote_unavailable(&ssh);
++        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
++        assert!(error.to_string().contains(path));
++        assert!(!error.to_string().contains("herdr --remote"));
 +        let candidates = remote_binary_candidates(&ssh, &template).unwrap();
 +        assert_eq!(candidates.len(), 1);
 +        assert_eq!(candidates[0].resolved_executable.as_deref(), Some(path));
@@ -551,7 +591,7 @@ index 6a0338d..5208f5d 100644
      #[test]
      #[ignore = "requires a private loopback OpenSSH fixture"]
      fn shared_transport_loopback_fixture() {
-@@ -3688,6 +3771,7 @@ mod tests {
+@@ -3688,6 +3790,7 @@ mod tests {
          let config_path = directory.join("config");
          fs::copy(config, &config_path).unwrap();
          let ssh = RemoteSsh {
@@ -559,7 +599,7 @@ index 6a0338d..5208f5d 100644
              target: "fixture".into(),
              session_name: "fixture".into(),
              managed_config: Some(ManagedSshConfig {
-@@ -4310,6 +4394,7 @@ mod tests {
+@@ -4310,6 +4413,7 @@ mod tests {
          let config_path = managed_config.options.config_path.clone();
          let control_path = managed_config.options.control_path.clone().unwrap();
          let ssh = RemoteSsh {
@@ -567,7 +607,7 @@ index 6a0338d..5208f5d 100644
              target: "example".to_string(),
              session_name: crate::session::DEFAULT_SESSION_NAME.into(),
              managed_config: Some(managed_config),
-@@ -4382,6 +4467,7 @@ mod tests {
+@@ -4382,6 +4486,7 @@ mod tests {
          );
  
          let ssh = RemoteSsh {
@@ -575,7 +615,7 @@ index 6a0338d..5208f5d 100644
              target: "example".to_string(),
              session_name: crate::session::DEFAULT_SESSION_NAME.into(),
              managed_config: Some(managed_config),
-@@ -4462,6 +4548,7 @@ mod tests {
+@@ -4462,6 +4567,7 @@ mod tests {
          )
          .expect("write isolated probe config");
          let ssh = RemoteSsh {
@@ -583,7 +623,7 @@ index 6a0338d..5208f5d 100644
              target: "herdr-probe.invalid".into(),
              session_name: "probe-options".into(),
              managed_config: Some(managed_config),
-@@ -4603,6 +4690,7 @@ mod tests {
+@@ -4603,6 +4709,7 @@ mod tests {
      #[test]
      fn remote_ssh_commands_compress_without_managed_config() {
          let ssh = RemoteSsh {

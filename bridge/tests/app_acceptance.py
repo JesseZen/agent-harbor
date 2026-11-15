@@ -115,8 +115,9 @@ def main():
             env['HERDR_BIN']=str(root/'harbor/herdr/bin/herdr')
             config+='[mcp_servers.herdr]\ncommand = '+json.dumps(node)+'\nargs = ['+json.dumps(str(pathlib.Path(a.mcp).resolve()))+']\n'
         (root/'codex/config.toml').write_text(config)
-        if a.experimental_codex_accounts:
-            run([root/'bin/codex','login','--with-api-key'],input='sk-harbor-fixture\n')
+        # Joined caller connections use the client's own login. Current Codex
+        # requires it before opening its TUI even for a synthetic Magpie group.
+        run([root/'bin/codex','login','--with-api-key'],input='sk-harbor-fixture\n')
         launcher=root/'launch.sh'
         launcher.write_text('#!/bin/sh\n'+''.join('export '+k+'='+shlex.quote(v)+'\n' for k,v in env.items())+'cd '+shlex.quote(str(root/'project'))+'\nagent-harbor\nread answer\n')
         launcher.chmod(0o700)

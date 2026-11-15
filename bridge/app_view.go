@@ -97,6 +97,9 @@ func (m harborModel) View() string {
 	if m.settings != nil {
 		return m.settings.View()
 	}
+	if p, ok := m.additionalPage(); ok {
+		return p.view()
+	}
 	if m.screen == "confirm" || m.screen == "confirm-evidence" {
 		return m.reviewLayout().view()
 	}

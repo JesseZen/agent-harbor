@@ -27,6 +27,9 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.settings != nil && !isRuntimeRefresh(msg) {
 		return m.update(msg)
 	}
+	if next, cmd, handled := m.additionalPageInput(msg); handled {
+		return next, cmd
+	}
 	if next, cmd, handled := m.updateReviewUI(msg); handled {
 		return next, cmd
 	}

@@ -15,6 +15,7 @@ func TestExperimentalAccountEntryAndResult(t *testing.T) {
 	if m.screen != "accounts" || !strings.Contains(m.View(), "between replies") || !strings.Contains(m.View(), "undocumented") {
 		t.Fatalf("account entry lacks switching guidance: %s", m.View())
 	}
+	m.screen = "accounts-busy"
 	next, _ = m.Update(appAccountDone{result: "Selected account confirmed in 2 running Harbor session(s)."})
 	m = next.(harborModel)
 	if m.screen != "accounts-result" || !strings.Contains(m.View(), "2 running Harbor") {

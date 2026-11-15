@@ -233,6 +233,7 @@ func (harborService) CodexAccountAction(action string, stdin io.Reader, stdout, 
 		return "", errors.New("account selected, but running Harbor sessions could not be checked")
 	}
 	verified, uncertain, quota := 0, []string{}, ""
+	var outcomes []string
 	for _, s := range records {
 		if s.CLI != "codex" || s.CodexHome != home || !processGroupActive(s.ProcessGroup) {
 			continue
@@ -240,14 +241,21 @@ func (harborService) CodexAccountAction(action string, stdin io.Reader, stdout, 
 		q, refreshErr := refreshCodexAccount(s, selected)
 		if refreshErr != nil {
 			uncertain = append(uncertain, s.Name)
+			status := "Failed"
+			if !verifyCodexServer(s) {
+				status = "Unknown"
+			}
+			outcomes = append(outcomes, fmt.Sprintf("%s · %s: identity unconfirmed. Check this session before continuing.", s.Name, status))
 			continue
 		}
 		verified++
+		outcomes = append(outcomes, fmt.Sprintf("%s · Verified: selected identity confirmed. %s", s.Name, q))
 		if quota == "" {
 			quota = q
 		}
 	}
 	lines := []string{fmt.Sprintf("Selected account confirmed in %d running Harbor session(s).", verified)}
+	lines = append(lines, outcomes...)
 	if len(uncertain) > 0 {
 		lines = append(lines, "Identity unconfirmed: "+strings.Join(uncertain, ", ")+". Check these sessions before continuing.")
 	}

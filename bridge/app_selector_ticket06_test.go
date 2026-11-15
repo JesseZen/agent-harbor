@@ -83,3 +83,18 @@ func TestTicket06SearchAndAppliedMarker(t *testing.T) {
 		t.Fatal(m.draft)
 	}
 }
+func TestTicket06SwitchInstanceRequiresOwnAcknowledgement(t *testing.T) {
+	m, f := formFixture()
+	m.width = 100
+	m.height = 30
+	m.formSaved = m.draft
+	m.screen = "new-catalog"
+	m.draft.Connection = "magpie"
+	m.draft.Instance = "second"
+	m.models = []catalogModel{{ID: "group/fixture"}}
+	f.Acknowledged = map[string]bool{"first": true}
+	m = selectorKey(m, "enter")
+	if !f.Acknowledged["second"] || m.screen != "new-form" {
+		t.Fatal(f.Calls)
+	}
+}

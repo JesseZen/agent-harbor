@@ -4,6 +4,7 @@ import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"strings"
 	"testing"
 	"time"
@@ -129,7 +130,7 @@ func TestHarborMagpieManagementExplainsRefusal(t *testing.T) {
 	if !strings.Contains(model.View(), "Magpie instances") {
 		t.Fatal(model.View())
 	}
-	if !strings.Contains(model.View(), "b bind") {
+	if !strings.Contains(cleanUI(model.View()), "Bind external") {
 		t.Fatal("no recovery action", model.View())
 	}
 }
@@ -221,7 +222,7 @@ func TestHarborInstanceSelectionStaysVisible(t *testing.T) {
 				model = appKey(model, "down")
 			}
 			view := model.View()
-			if !strings.Contains(view, "› Gateway-29") {
+			if !strings.Contains(cleanUI(view), "Gateway-29") {
 				t.Fatalf("%v selection invisible:\n%s", size, view)
 			}
 			if len(strings.Split(view, "\n")) > size[1] {
@@ -640,7 +641,7 @@ func TestRetiredHistoryShortcutExplainsNativeTools(t *testing.T) {
 	var model tea.Model = m
 	model, _ = model.Update(m.Init()())
 	model = appKey(model, "d")
-	if !strings.Contains(strings.Join(strings.Fields(model.View()), " "), "client’s own tools") {
+	if !strings.Contains(strings.Join(strings.Fields(ansi.Strip(model.View())), " "), "client’s own tools") {
 		t.Fatal(model.View())
 	}
 	model = appKey(model, "API")

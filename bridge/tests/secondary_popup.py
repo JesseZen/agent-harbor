@@ -68,7 +68,27 @@ try:
   keys('i');wait('Session details');save('secondary-detail-'+str(cols));click('Back');wait('Search sessions')
   keys('?');wait('Keyboard help');save('secondary-help-'+str(cols));keys('Down');click('Back');wait('Search sessions')
   keys('e');wait('Rename session');keys('C-u');keys('q');keys('?');save('secondary-rename-'+str(cols));assert 'Rename session' in capture();click('Cancel');wait('Search sessions')
- print('PASS secondary popup detail/help/back/rename cancel at three sizes',root)
+ # Failed validation retains the edit; a retry persists exactly the selected ID.
+ tm('resize-window','-t','app:0','-x','100','-y','30');time.sleep(.5)
+ keys('e');wait('Rename session');keys('C-u');click('Apply');wait('non-empty session name')
+ keys('-l','Renamed 日本語 🚢');click('Apply');wait('Search sessions');wait('Renamed 日本語')
+ saved=json.loads((root/'harbor/sessions.json').read_text())
+ assert saved[0]['id']==records[0]['id'] and saved[0]['name']=='Renamed 日本語 🚢', saved
+ assert [r['name'] for r in saved[1:]]==[r['name'] for r in records[1:]]
+ save('secondary-renamed-100')
+ # A stale saved record causes a real service refusal. Restore only fixture data,
+ # retain the typed edit, and retry against the original reviewed target.
+ keys('e');wait('Rename session');keys('C-u');keys('-l','Retry retained')
+ changed=[dict(r) for r in saved];changed[0]['name']='Changed elsewhere'
+ (root/'harbor/sessions.json').write_text(json.dumps(changed))
+ click('Apply');wait('Rename session');wait('changed');assert 'Retry retained' in capture()
+ save('secondary-error-100')
+ (root/'harbor/sessions.json').write_text(json.dumps(saved));click('Apply');wait('Search sessions');wait('Retry retained')
+ assert json.loads((root/'harbor/sessions.json').read_text())[0]['name']=='Retry retained'
+ # Close and reopen the popup to read persisted state through the real list path.
+ keys('q');wait('Harbor ^B a');keys('C-b');keys('a');wait('Retry retained')
+ save('secondary-reentry-100')
+ print('PASS secondary popup detail/help/back/input/cancel/validation/service refusal/retry/persistence at three sizes',root)
 finally:
  run([root/'bin/agent-harbor','stop'],check=False)
  run([tmux,'-S',sock,'kill-server'],check=False)

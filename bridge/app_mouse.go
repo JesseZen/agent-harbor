@@ -157,9 +157,12 @@ func (m harborModel) mouseRegions() []mouseRegion {
 }
 func (m harborModel) updateMouse(msg tea.MouseMsg, now time.Time) (tea.Model, tea.Cmd) {
 	if m.screen == "sessions" || m.screen == "sessions-more" {
-		if next, cmd, handled := m.updateSessionsUI(msg); handled {
+		if next, cmd, handled := m.updateSessionsUIAt(msg, now); handled {
 			return next, cmd
 		}
+	}
+	if next, cmd, handled := m.additionalPageInput(msg); handled {
+		return next, cmd
 	}
 
 	// Releases and motion never count as a click (SGR sends both).

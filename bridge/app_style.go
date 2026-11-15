@@ -45,7 +45,7 @@ func kv(label, value string) string {
 }
 
 func kvw(label, value string, col int) string {
-	return label + strings.Repeat(" ", max(2, col-ansi.StringWidth(label))) + value
+	return paint(fg("text"), label+strings.Repeat(" ", max(2, col-ansi.StringWidth(label)))) + paint(fg("value"), value)
 }
 
 func note(text string) string { return "• " + text }

@@ -124,3 +124,24 @@ func TestConnectionTicket07FailureAndConfirmationGuard(t *testing.T) {
 		t.Fatal("failure lost target or feedback")
 	}
 }
+
+func TestConnectionTextOwnsGlobalCharacters(t *testing.T) {
+	for _, mode := range []string{"search", "bind"} {
+		m := connectionFixture()
+		if mode == "search" {
+			n, _, _ := m.connectionPageInput(uiKey("/"))
+			m = n.(harborModel)
+		} else {
+			n, _, _ := m.connectionPageInput(uiKey("b"))
+			m = n.(harborModel)
+			m.input.SetValue("")
+		}
+		for _, key := range []string{"q", "?", "s", "x"} {
+			n, _, _ := m.connectionPageInput(uiKey(key))
+			m = n.(harborModel)
+		}
+		if m.input.Value() != "q?sx" || (mode == "bind" && m.screen != "magpie-bind") || (mode == "search" && m.screen != "magpie") {
+			t.Fatalf("%s leaked text: screen=%s input=%q", mode, m.screen, m.input.Value())
+		}
+	}
+}

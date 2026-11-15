@@ -499,7 +499,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.notice = "Magpie action completed"
 		}
-		return m, m.loadInstances()
+		return m, tea.Batch(m.loadInstances(), tea.EnableMouseAllMotion)
 	case appAccountDone:
 		m.screen = "accounts-result"
 		m.accountResult = msg.result
@@ -939,6 +939,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.reviewedObservation = &observation
 				m.screen = "rename"
 				m.input.SetValue(s.Name)
+				m.input.CursorEnd()
 				m.input.Focus()
 			case "s", "x":
 				m.reviewed = s.session

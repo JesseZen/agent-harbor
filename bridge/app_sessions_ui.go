@@ -155,7 +155,7 @@ func (m harborModel) sessionsLayout() uiPage {
 	for _, r := range left.Hits {
 		p.hit(r.ID, r.X, r.Y+top, r.W, r.H)
 	}
-	right := newUIPage(max(1, p.Width-leftW-2), bodyH)
+	right := newUIPage(max(1, p.Width-leftW-2), 10000)
 	if split {
 		if s, ok := m.selected(); ok {
 			right.line(paint(fg("text"), cleanUI(s.Name)))
@@ -183,6 +183,7 @@ func (m harborModel) sessionsLayout() uiPage {
 			}
 		}
 	}
+	rightStart := min(m.detailScroll, max(0, len(right.Lines)-bodyH))
 	for i := 0; i < bodyH; i++ {
 		l := ""
 		if i < len(left.Lines) {
@@ -190,8 +191,8 @@ func (m harborModel) sessionsLayout() uiPage {
 		}
 		if split {
 			l += strings.Repeat(" ", max(0, leftW-ansi.StringWidth(l)))
-			if i < len(right.Lines) {
-				l += "  " + right.Lines[i]
+			if i+rightStart < len(right.Lines) {
+				l += "  " + right.Lines[i+rightStart]
 			}
 		}
 		p.line(l)
@@ -275,6 +276,9 @@ func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	return m.updateSessionsUIAt(msg, time.Now())
+}
+func (m harborModel) updateSessionsUIAt(msg tea.Msg, now time.Time) (tea.Model, tea.Cmd, bool) {
 	if m.screen != "sessions" && m.screen != "sessions-more" {
 		return m, nil, false
 	}
@@ -349,9 +353,14 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	if mouse.Button == tea.MouseButtonWheelUp || mouse.Button == tea.MouseButtonWheelDown {
+		m.mouse = mouseClick{}
 		delta := 1
 		if mouse.Button == tea.MouseButtonWheelUp {
 			delta = -1
+		}
+		if m.width >= 90 && mouse.X >= max(30, m.width*45/100)+2 {
+			m.detailScroll = max(0, m.detailScroll+delta)
+			return m, nil, true
 		}
 		m.cursor = max(0, min(len(m.visible())-1, m.cursor+delta))
 		m.selectionMissing = false
@@ -362,8 +371,7 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	}
 	if strings.HasPrefix(target, "session:") {
 		id := strings.TrimPrefix(target, "session:")
-		now := time.Now()
-		double := m.mouse.id == id && m.mouse.x == mouse.X && m.mouse.y == mouse.Y && now.Sub(m.mouse.at) < 350*time.Millisecond
+		double := m.mouse.id == id && m.mouse.x == mouse.X && m.mouse.y == mouse.Y && !now.Before(m.mouse.at) && now.Sub(m.mouse.at) < 350*time.Millisecond
 		for i, s := range m.visible() {
 			if s.ID == id {
 				m.mouseListStart = m.listStart(m.cursor, m.sessionsCount())

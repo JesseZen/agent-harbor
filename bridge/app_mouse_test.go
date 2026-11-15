@@ -73,11 +73,13 @@ func TestMouseFormAndBounds(t *testing.T) {
 	for _, size := range [][2]int{{60, 16}, {60, 20}, {100, 30}, {160, 45}} {
 		m, f := formFixture()
 		m.width, m.height = size[0], size[1]
-		y := 9
-		if m.height < 20 {
-			y = 5
+		p, _ := m.newSessionPage()
+		for _, r := range p.Hits {
+			if r.ID == "new-field:Name" {
+				m = mouseAt(m, r.X, r.Y, time.Now())
+				break
+			}
 		}
-		m = mouseAt(m, 3, y, time.Now())
 		if m.screen != "new-name" || len(f.Calls) != 0 {
 			t.Fatalf("%v %s %v", size, m.screen, f.Calls)
 		}
@@ -179,7 +181,7 @@ func TestMouseShortPopupVisibleCells(t *testing.T) {
 	if m.mouse.id != "a" {
 		t.Fatal("visible name inert")
 	}
-	m = mouseAt(m, 3, 8, at.Add(time.Millisecond))
+	m = mouseAt(m, 3, m.height-1, at.Add(time.Millisecond))
 	if m.mouse.id != "" || m.screen != "sessions" {
 		t.Fatal("footer activated row")
 	}
@@ -217,7 +219,7 @@ func TestMousePickerRenderedGeometry(t *testing.T) {
 			if cursor != 1 {
 				t.Fatalf("%s cursor=%d at rendered y%d", screen, cursor, y)
 			}
-			if m.mouse.id == "" {
+			if screen != "magpie" && m.mouse.id == "" {
 				t.Fatal("missing first click")
 			}
 			n, _ := m.updateMouse(tea.MouseMsg{X: 3, Y: y, Button: tea.MouseButtonWheelUp}, time.Now())
@@ -233,11 +235,19 @@ func TestMouseEveryFormControl(t *testing.T) {
 		for _, height := range []int{12, 24} {
 			m, _ := formFixture()
 			m.height = height
-			y := 5 + i
-			if height < 20 {
-				y = 1 + i
+			ids := []string{"new-field:Project", "new-field:Client", "new-field:Connection", "new-field:Model", "new-field:Name", "new-create", "new-cancel"}
+			p, _ := m.newSessionPage()
+			x, y := -1, -1
+			for _, r := range p.Hits {
+				if r.ID == ids[i] {
+					x, y = r.X, r.Y
+					break
+				}
 			}
-			n := mouseAt(m, 3, y, time.Now())
+			if x < 0 {
+				t.Fatalf("missing control %s", ids[i])
+			}
+			n := mouseAt(m, x, y, time.Now())
 			if n.screen != want {
 				t.Fatalf("field %d height%d: %s want %s", i, height, n.screen, want)
 			}

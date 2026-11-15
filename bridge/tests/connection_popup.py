@@ -117,6 +117,13 @@ try:
  keys('u');wait('future new sessions only');keys('Tab');keys('Enter');wait('Selected instance');time.sleep(.5)
  assert json.loads((root/'harbor/magpie.json').read_text())['default']==external_id
  assert (root/'harbor/sessions.json').read_bytes()==session_bytes
+ # Enter the actual upstream management UI and return without stopping it.
+ keys('Enter');wait('Review Magpie action: manage');keys('Tab');keys('Enter')
+ wait('1 agents');keys('2');wait('fixture');save('connection-upstream-160')
+ keys('q');wait('Selected instance');assert external.poll() is None
+ click('Details');wait('IDENTITY');keys('Escape');wait('Selected instance')
+ with urllib.request.urlopen(address+'/v1/models',timeout=3) as response:assert 'fixture-model' in response.read().decode()
+ save('connection-return-160')
  for cols,rows in [(100,30),(60,20)]:
   tm('resize-window','-t','app:0','-x',str(cols),'-y',str(rows));time.sleep(.5)
   save('connection-'+str(cols))

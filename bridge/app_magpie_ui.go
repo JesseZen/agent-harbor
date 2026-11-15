@@ -34,6 +34,9 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 			}
 		}
 		p.search(m.instanceFilter, "Search gateways", m.searchFocus == "magpie")
+		if m.searchFocus == "magpie" {
+			p.line(note("Type search · tab list · Esc clear/back"))
+		}
 		a := m.connectionActions()
 		p.buttons(a[:2], m.uiFocus)
 		p.line(paint(fg("section"), "Magpie instances"))
@@ -172,9 +175,9 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		if m.screen == "magpie-busy" {
 			return m, nil, true
 		}
-		if key == "?" || key == "q" {
-			n, c := m.update(msg)
-			return n, c, true
+		if key == "ctrl+g" {
+			m.notice = ""
+			return m, nil, true
 		}
 		if m.screen != "magpie" && m.screen != "magpie-bind" && (key == "down" || key == "j" || key == "up" || key == "k") {
 			if key == "down" || key == "j" {
@@ -201,6 +204,25 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 				return n, c, true
 			}
 			return m, nil, true
+		}
+		// Text fields own ordinary characters, including global help/quit keys.
+		if m.screen == "magpie-filter" {
+			if key == "esc" || key == "enter" {
+				m.screen = "magpie"
+				return m, nil, true
+			}
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(v)
+			return m, cmd, true
+		}
+		if (m.screen == "magpie-bind" || m.screen == "magpie-filter") && key != "tab" && key != "shift+tab" && key != "enter" && key != "esc" {
+			m.uiFocus = "search"
+			n, c := m.updateMagpie(v)
+			return n, c, true
+		}
+		if key == "?" || key == "q" {
+			n, c := m.update(msg)
+			return n, c, true
 		}
 		if key == "pgdown" {
 			m.scroll += max(1, m.height/2)

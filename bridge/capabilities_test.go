@@ -160,7 +160,8 @@ func TestRecoveryConfirmationShowsSavedNeutralReferenceAndApprovesSameRecord(t *
 			m.sessions = []sessionView{{session: original, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}}}
 			f.Sessions = m.sessions
 			m = appKey(m, "enter").(harborModel)
-			view := m.View()
+			m = appKey(m, "i").(harborModel)
+			view := strings.Join(m.reviewEvidence(), "\n")
 			for _, want := range []string{"Client", "future-kind", "Reference kind", "path", "/saved/project with spaces/chat.json"} {
 				if !strings.Contains(view, want) {
 					t.Fatalf("missing %q at width %d: %s", want, width, view)

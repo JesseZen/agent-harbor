@@ -366,6 +366,8 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		double := m.mouse.id == id && m.mouse.x == mouse.X && m.mouse.y == mouse.Y && now.Sub(m.mouse.at) < 350*time.Millisecond
 		for i, s := range m.visible() {
 			if s.ID == id {
+				m.mouseListStart = m.listStart(m.cursor, m.sessionsCount())
+				m.mouseListScreen = "sessions"
 				m.cursor = i
 				m.selectionMissing = false
 				break

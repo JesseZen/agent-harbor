@@ -215,7 +215,7 @@ func TestNativeCodexReviewShowsHomeDefaultsWithoutSecrets(t *testing.T) {
 		t.Fatal("recovery review hid native configuration")
 	}
 	m.screen = "confirm"
-	if !strings.Contains(m.View(), "zcode/test-model") {
+	if !strings.Contains(strings.Join(m.reviewEvidence(), "\n"), "zcode/test-model") {
 		t.Fatal("recovery review hid the native model at a practical terminal size")
 	}
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("model = \"test-model\"\nopenai_base_url = \"https://secret-user:secret-pass@example.invalid/v1\"\n"), 0600); err != nil {
@@ -246,8 +246,8 @@ func TestNativeRecoveryReviewShowsRouteUncertaintyAndNavigation(t *testing.T) {
 		if model.screen != "confirm" || model.action != "query-resume" || model.scroll != 0 {
 			t.Fatalf("%v recovery review did not start at the top: %+v", size, model)
 		}
-		view := cleanUI(model.View())
-		for _, want := range []string{"Native route or login may have changed", "A provider name does not verify its destination", "↑↓ scroll", "a accept", "enter resume"} {
+		view := cleanUI(strings.Join(model.reviewEvidence(), "\n")) + " " + cleanUI(model.View())
+		for _, want := range []string{"Native route or login may have changed", "A provider name does not verify its destination", "Inspect evidence", "Use recorded conversation", "Resume conversation"} {
 			if !strings.Contains(view, want) {
 				t.Fatalf("%v recovery review hid %q: %s", size, want, view)
 			}

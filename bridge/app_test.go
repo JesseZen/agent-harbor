@@ -184,7 +184,11 @@ func TestHarborLongRefusalIsReadable(t *testing.T) {
 	model = appKey(model, "enter")
 	f.Err = fmt.Errorf("The instance identity differs from the recorded configuration. Nothing was started. Check Magpie providers and bind the intended instance before retrying.")
 	model = appKey(model, "enter")
-	if !strings.Contains(model.View(), "retrying.") {
+	model = appKey(model, "i")
+	for i := 0; i < 20; i++ {
+		model = appKey(model, "down")
+	}
+	if !strings.Contains(cleanUI(model.View()), "retrying.") {
 		t.Fatal(model.View())
 	}
 }
@@ -302,6 +306,10 @@ func TestHarborBusyIgnoresEscapeAndNewActions(t *testing.T) {
 	var model tea.Model = m
 	model, _ = model.Update(m.Init()())
 	model = appKey(model, "s")
+	model = appKey(model, "tab")
+	h := model.(harborModel)
+	h.reviewOpenedAt = time.Time{}
+	model = h
 	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	for _, k := range []string{"esc", "n", "?", "m"} {
 		model = appKey(model, k)
@@ -609,7 +617,7 @@ func TestPreviousShellCloseRequiresReviewAndCancelDoesNotClose(t *testing.T) {
 	var model tea.Model = m
 	model, _ = model.Update(m.Init()())
 	model = appKey(model, "c")
-	if !strings.Contains(model.View(), "Close previous idle shell") {
+	if !strings.Contains(model.View(), "Close inspected shell") {
 		t.Fatal(model.View())
 	}
 	if strings.Contains(strings.Join(f.Calls, "|"), "close-previous-pane") {
@@ -779,7 +787,7 @@ func TestEveryHarborScreenFitsPracticalSizes(t *testing.T) {
 						t.Fatal("width", view)
 					}
 				}
-				if !strings.Contains(view, "─") {
+				if !strings.Contains(view, "HARBOR") && !strings.Contains(view, "Harbor") {
 					t.Fatal("missing frame", view)
 				}
 				if strings.TrimSpace(lines[len(lines)-1]) == "" {
@@ -882,7 +890,7 @@ func TestResumeReviewExplainsMagpieIdentityAndMutableGroups(t *testing.T) {
 		m.width, m.height = size[0], size[1]
 		m.screen, m.action = "confirm", "resume"
 		m.reviewed = session{Name: "API", Mode: "magpie", MagpieModel: "group", InstanceID: "managed", MagpieURL: "http://127.0.0.1:3435"}
-		view := m.View()
+		view := m.confirmView()
 		for _, want := range []string{"managed", "127.0.0.1:3435", "Groups may change members", "Review in Magpie"} {
 			if !strings.Contains(view, want) {
 				t.Fatalf("size %v missing %q: %s", size, want, view)

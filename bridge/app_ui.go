@@ -57,10 +57,12 @@ func (p uiPage) view() string {
 		if !colorOff() {
 			// Nested controls reset SGR backgrounds. Restore the page surface after
 			// those resets so trailing cells never expose the host terminal theme.
-			r, g, b, _ := lipgloss.Color(harborPalette["bg"]).RGBA()
-			bg := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
-			fr, fgc, fb, _ := lipgloss.Color(harborPalette["text"]).RGBA()
-			foreground := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", fr>>8, fgc>>8, fb>>8)
+			var r, g, b uint32
+			fmt.Sscanf(harborPalette["bg"], "#%02x%02x%02x", &r, &g, &b)
+			bg := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
+			var fr, fgc, fb uint32
+			fmt.Sscanf(harborPalette["text"], "#%02x%02x%02x", &fr, &fgc, &fb)
+			foreground := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", fr, fgc, fb)
 			base := bg + foreground
 			s = base + strings.NewReplacer("\x1b[0m", "\x1b[0m"+base, "\x1b[m", "\x1b[m"+base, "\x1b[49m", bg, "\x1b[39m", foreground).Replace(s) + "\x1b[0m"
 		}

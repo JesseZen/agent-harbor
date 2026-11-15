@@ -109,10 +109,10 @@ func TestFeedbackVisual(t *testing.T) {
 					t.Fatal("width overflow")
 				}
 			}
-			if !strings.Contains(cleanUI(view), "q close") {
+			if !strings.Contains(cleanUI(view), "Back") && !strings.Contains(cleanUI(view), "Sessions") {
 				t.Fatal("lost navigation", view)
 			}
-			if screen == "sessions" && !strings.Contains(cleanUI(view), "r refresh") {
+			if screen == "sessions" && !strings.Contains(cleanUI(view), "Refresh") {
 				t.Fatal("feedback replaced actions")
 			}
 			if screen == "error" && !strings.Contains(view, "END_ERROR") {

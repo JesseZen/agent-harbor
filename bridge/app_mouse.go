@@ -156,6 +156,12 @@ func (m harborModel) mouseRegions() []mouseRegion {
 	return out
 }
 func (m harborModel) updateMouse(msg tea.MouseMsg, now time.Time) (tea.Model, tea.Cmd) {
+	if m.screen == "sessions" || m.screen == "sessions-more" {
+		if next, cmd, handled := m.updateSessionsUI(msg); handled {
+			return next, cmd
+		}
+	}
+
 	// Releases and motion never count as a click (SGR sends both).
 	wheel := msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown
 	if msg.Action == tea.MouseActionRelease {

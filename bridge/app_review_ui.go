@@ -39,7 +39,7 @@ func (m harborModel) reviewActions() []uiAction {
 	return append(out, uiAction{ID: "review:enter", Key: "enter", Label: label, Primary: true, Disabled: disabled}, uiAction{ID: "evidence", Key: "i", Label: "Inspect evidence"}, uiAction{ID: "review:esc", Key: "esc", Label: "Cancel"})
 }
 func (m harborModel) reviewEvidence() []string {
-	return strings.Split(ansi.Wrap(cleanUI(m.confirmView()), max(1, m.width-2), ""), "\n")
+	return strings.Split(ansi.Wrap(cleanUI(m.confirmView()+"\n\n"+m.notice), max(1, m.width-2), ""), "\n")
 }
 func (m harborModel) reviewLayout() uiPage {
 	p := newUIPage(m.width, m.height)
@@ -60,6 +60,7 @@ func (m harborModel) reviewLayout() uiPage {
 	}
 	p.line(paint(fg("text"), cleanUI(m.reviewed.Name)))
 	p.field("", "📂", "Project", cleanUI(m.reviewed.WorkingDirectory), false, false)
+	p.field("", "🤖", "Client", cleanUI(m.reviewed.CLI), false, false)
 	connection := m.reviewed.Mode
 	if connection == "local" {
 		connection = "Native · client settings and login"
@@ -74,7 +75,7 @@ func (m harborModel) reviewLayout() uiPage {
 	if m.action != "start" {
 		p.field("", "💬", "Conversation", orUnknown(conversation), false, false)
 	}
-	impact := map[string]string{"start": "Start this client with the recorded connection.", "stop": "The conversation stays resumable.", "remove": "Codex history is kept. Remove only the Harbor record.", "review-reference": "Save this review only. This does not resume the conversation.", "query-resume": "Login, conversation existence and other writers are not verified.", "resume": "Resume this conversation with its recorded connection.", "close-previous": "Close only the inspected idle shell; keep conversation and record."}[m.action]
+	impact := map[string]string{"start": "Start this client with the recorded connection.", "stop": "The conversation stays resumable.", "remove": "Codex history is kept. Remove only the Harbor record.", "review-reference": "Save this review only. This does not resume the conversation.", "query-resume": "Query proves syntax only. Login, conversation existence and other writers are not verified.", "resume": "Resume this conversation with its recorded connection.", "close-previous": "Close only the inspected idle shell; keep conversation and record."}[m.action]
 	for _, line := range strings.Split(ansi.Wrap(impact, max(1, m.width-2), ""), "\n") {
 		p.line(line)
 	}
@@ -86,6 +87,11 @@ func (m harborModel) reviewLayout() uiPage {
 	}
 	if m.notice != "" {
 		p.line(paint(fg("warn"), ansi.Truncate(cleanUI(m.notice), max(1, m.width-2), "…")))
+	}
+	if m.reviewed.Mode == "local" && (m.action == "resume" || m.action == "query-resume" || m.action == "review-reference") {
+		for _, line := range strings.Split(ansi.Wrap("Native route or login may have changed; verify both. A provider name does not verify its destination. "+cleanUI(m.nativeReview), max(1, m.width-2), ""), "\n") {
+			p.line(line)
+		}
 	}
 	actions := m.reviewActions()
 	// Reserve actions first; short popups fold the object summary above them.

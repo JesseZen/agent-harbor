@@ -59,6 +59,8 @@ type harborModel struct {
 	selectionMissing bool
 	discoveryNotice  string
 
+	uiFocus             string
+	uiHover             string
 	settings            *settingsModel
 	mouse               mouseClick
 	mouseListScreen     string

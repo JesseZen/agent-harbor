@@ -120,7 +120,7 @@ func TestSearchMatcherAndHighlight(t *testing.T) {
 	}
 	os.Unsetenv("NO_COLOR")
 	s := highlightSearch("\x1b[48;2;29;53;71m日本語\x1b[0m", "日本")
-	if ansi.Strip(s) != "日本語" || !strings.Contains(s, "38;2;94;234;212") {
+	if ansi.Strip(s) != "日本語" || !strings.Contains(s, "38;2;"+brandRGB()) {
 		t.Fatal(s)
 	}
 }
@@ -207,7 +207,7 @@ func TestSearchLargeCatalogScrolledSpans(t *testing.T) {
 		t.Fatal("render unbounded")
 	}
 	for _, line := range lines[4:] {
-		if strings.Contains(ansi.Strip(line), "relay-") && !strings.Contains(line, "38;2;94;234;212") {
+		if strings.Contains(ansi.Strip(line), "relay-") && !strings.Contains(line, "38;2;"+brandRGB()) {
 			t.Fatal("lost visible row spans", line)
 		}
 	}

@@ -59,7 +59,10 @@ func (p uiPage) view() string {
 			// those resets so trailing cells never expose the host terminal theme.
 			r, g, b, _ := lipgloss.Color(harborPalette["bg"]).RGBA()
 			bg := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
-			s = bg + strings.NewReplacer("\x1b[0m", "\x1b[0m"+bg, "\x1b[m", "\x1b[m"+bg, "\x1b[49m", bg).Replace(s) + "\x1b[0m"
+			fr, fgc, fb, _ := lipgloss.Color(harborPalette["text"]).RGBA()
+			foreground := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", fr>>8, fgc>>8, fb>>8)
+			base := bg + foreground
+			s = base + strings.NewReplacer("\x1b[0m", "\x1b[0m"+base, "\x1b[m", "\x1b[m"+base, "\x1b[49m", bg, "\x1b[39m", foreground).Replace(s) + "\x1b[0m"
 		}
 		lines[i] = s
 	}

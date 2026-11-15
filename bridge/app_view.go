@@ -97,6 +97,9 @@ func (m harborModel) View() string {
 	if m.settings != nil {
 		return m.settings.View()
 	}
+	if m.screen == "sessions" || m.screen == "sessions-more" {
+		return m.sessionsLayout().view()
+	}
 	width := max(20, min(140, m.width-4))
 	crumb := "Sessions"
 	footer := "↑↓ move  enter act  i details  / filter  , settings  ? help  q close"
@@ -364,7 +367,7 @@ func (m harborModel) helpView() string {
 		body = "✨ Create a session\n\nTab / Shift+Tab  Move form focus\n↑ ↓      Move form focus or picker selection\nEnter    Edit focused field; Create saves\nEnter in editor  Accept only that field\nEsc      Cancel local edit; on form cancel draft\n/        Search instances or model catalog\ni        Inspect selected instance\n?        Help from the form or a picker\nCtrl+C   Close Harbor\n\n• Text fields own ordinary characters.\n• Initial focus is Create. Review fields on the form.\n• Magpie acknowledgement returns to Create."
 
 	default:
-		body = "🚢 Sessions\n\n↑/k ↓/j  Move selection\nEnter    Enter running session; review start/resume\ni        Inspect connection and observed route\nv        Review a saved identity when observation is missing\ns        Stop (conversation stays resumable)\nx        Remove record (Codex history kept)\ne        Rename\nc        Inspect / close previous idle shell\n/        Filter by name, project or selected model\nr        Refresh\n,        Settings and workspace shortcuts\nEsc      Back / cancel\nq        Close Harbor\n\nManage conversation history with the client’s own tools."
+		body = m.sessionsHelp()
 	}
 	return body
 }

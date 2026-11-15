@@ -61,12 +61,26 @@ try:
   import unicodedata
   x=sum(2 if unicodedata.east_asian_width(c) in ('W','F') else 0 if unicodedata.combining(c) else 1 for c in prefix)+1
   tm('send-keys','-t','app:0.0','-l',f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m');time.sleep(.5)
+ # Verify motion through Herdr separately from click support. Some host
+ # terminals forward clicks only; that is recorded without inventing hover.
+ lines=capture().splitlines();y=next(i for i,l in enumerate(lines) if 'Connections' in l);x=lines[y].index('Connections')+1
+ tm('send-keys','-t','app:0.0','-l',f'\x1b[<35;{x};{y+1}M');time.sleep(.4)
+ motion=tm('capture-pane','-e','-p','-t','app:0.0');(root/'hover-160.ansi').write_text(motion)
+ (root/'motion.txt').write_text('underline observed through Herdr' if '\x1b[4m' in motion else 'motion underline not observed; click and keyboard supported')
+ click('Search settings');keys('-l','Magpie');assert 'prefix+m' in capture() and 'prefix+a' not in capture()
+ keys('Escape');keys('Escape')
  click('prefix+a');keys('C-u');keys('-l','prefix+t');click('Accept field')
- keys('Down');keys('Enter');keys('C-u');keys('-l','ctrl+g');keys('Enter')
- keys('Down');keys('Enter');keys('C-u');keys('-l','prefix+f');keys('Enter')
+ click('prefix+,');keys('C-u');keys('-l','ctrl+g');click('Accept field')
+ click('prefix+m');keys('C-u');keys('-l','prefix+f');click('Accept field')
  click('Save changes');out=wait('Saved for this workspace');(root/'settings-saved-160.ansi').write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
  (root/'saved.txt').write_text(out)
  import json
+ assert json.loads((root/'harbor/shortcuts.json').read_text())=={'harbor':'prefix+t','settings':'ctrl+g','magpie':'prefix+f'}
+ # A separate keyboard-only edit/save path reuses the persisted values.
+ keys('Escape');keys(',');wait('Harbor · Settings')
+ for value in ['prefix+t','ctrl+g','prefix+f']:
+  keys('Enter');keys('C-u');keys('-l',value);keys('Enter');keys('Down')
+ keys('Down');keys('Enter');wait('Saved for this workspace')
  assert json.loads((root/'harbor/shortcuts.json').read_text())=={'harbor':'prefix+t','settings':'ctrl+g','magpie':'prefix+f'}
  keys('Escape');keys('q');time.sleep(.3)
  keys('C-b');keys('t');wait('HARBOR');keys('q')

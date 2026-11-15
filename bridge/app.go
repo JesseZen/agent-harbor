@@ -939,12 +939,12 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func runHarborApp() error {
 	m := newHarborModel(appService)
 	defer m.cancelRefresh()
-	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion()).Run()
 	return err
 }
 
 func runMagpieApp() error {
 	m := newMagpieModel(appService)
-	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion()).Run()
 	return err
 }

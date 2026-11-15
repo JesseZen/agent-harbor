@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"strings"
@@ -53,8 +54,16 @@ func (p uiPage) view() string {
 	for i, s := range lines {
 		s = " " + s
 		s += strings.Repeat(" ", max(0, p.Width-ansi.StringWidth(s)))
-		lines[i] = paint(fg("text").Background(lipgloss.Color(harborPalette["bg"])), s)
+		if !colorOff() {
+			// Nested controls reset SGR backgrounds. Restore the page surface after
+			// those resets so trailing cells never expose the host terminal theme.
+			r, g, b, _ := lipgloss.Color(harborPalette["bg"]).RGBA()
+			bg := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
+			s = bg + strings.NewReplacer("\x1b[0m", "\x1b[0m"+bg, "\x1b[m", "\x1b[m"+bg, "\x1b[49m", bg).Replace(s) + "\x1b[0m"
+		}
+		lines[i] = s
 	}
+
 	return strings.Join(lines, "\n")
 }
 func (p *uiPage) button(a uiAction, focused bool) {
@@ -89,8 +98,10 @@ func (p *uiPage) field(id, icon, label, value string, focused, editable bool) {
 	if editable {
 		suffix = " ›"
 	}
-	value = ansi.Truncate(value, max(1, p.Width-2-ansi.StringWidth(key)-ansi.StringWidth(suffix)), "…")
-	base := lipgloss.NewStyle()
+	available := max(1, p.Width-2-ansi.StringWidth(key)-ansi.StringWidth(suffix))
+	value = ansi.Truncate(value, available, "…")
+	value += strings.Repeat(" ", max(0, available-ansi.StringWidth(value)))
+	base := lipgloss.NewStyle().Background(lipgloss.Color(harborPalette["bg"]))
 	if focused {
 		base = base.Background(lipgloss.Color(harborPalette["selBg"]))
 	}
@@ -162,4 +173,44 @@ func actionHints(actions []uiAction) string {
 		}
 	}
 	return strings.Join(out, "  ")
+}
+
+// buttons lays out a group in a row when it fits, otherwise stacks it. Both
+// compositions register exactly the cells painted for each control.
+func (p *uiPage) buttons(actions []uiAction, focused string) {
+	needed := 0
+	for _, a := range actions {
+		needed += ansi.StringWidth(a.Label) + 6
+	}
+	if needed > p.Width-2 {
+		for _, a := range actions {
+			p.button(a, focused == a.ID)
+		}
+		return
+	}
+	line := ""
+	x := 1
+	y := len(p.Lines)
+	for _, a := range actions {
+		text := " " + a.Label + " "
+		if focused == a.ID {
+			text = "›" + text + "‹"
+		} else {
+			text = " " + text + " "
+		}
+		role, bg := "key", "button"
+		if a.Primary {
+			role, bg = "ink", "brand"
+		}
+		if a.Disabled != "" {
+			role, bg = "muted", "button"
+		}
+		width := ansi.StringWidth(text)
+		line += paint(fg(role).Background(lipgloss.Color(harborPalette[bg])), text) + "  "
+		if a.Disabled == "" {
+			p.hit(a.ID, x, y, width, 1)
+		}
+		x += width + 2
+	}
+	p.line(line)
 }

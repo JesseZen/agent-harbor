@@ -30,7 +30,7 @@ var headingEmoji = []string{"⚓", "🚢", "📂", "🔌", "💬", "🛟", "🧭
 func colorOff() bool { _, off := os.LookupEnv("NO_COLOR"); return off }
 
 func fg(role string) lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(harborPalette[role]))
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(harborPalette[role])).Background(lipgloss.Color(harborPalette["bg"]))
 }
 
 func paint(style lipgloss.Style, text string) string {

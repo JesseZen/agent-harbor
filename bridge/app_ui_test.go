@@ -54,3 +54,19 @@ func TestSettingsLayoutControlsRemainReachable(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsNavigationProtectsUnsavedValues(t *testing.T) {
+	m := newSettingsModel()
+	m.values.Harbor = "prefix+t"
+	next, cmd := m.navigate("sessions")
+	m = next.(settingsModel)
+	if cmd != nil || m.closed || m.nav != "" || !strings.Contains(m.notice, "Save") {
+		t.Fatal("discarded unsaved settings")
+	}
+	m.saved = m.values
+	next, cmd = m.navigate("sessions")
+	m = next.(settingsModel)
+	if cmd == nil || !m.closed || m.nav != "sessions" {
+		t.Fatal("cannot navigate after save")
+	}
+}

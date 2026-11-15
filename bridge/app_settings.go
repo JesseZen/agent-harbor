@@ -75,6 +75,7 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if target == "search" && !m.editing {
 			m.searching = true
+			m.focusNav = ""
 			return m, nil
 		}
 		if target == "back" {
@@ -86,6 +87,7 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if strings.HasPrefix(target, "control:") && !m.editing {
 			i, _ := strconv.Atoi(strings.TrimPrefix(target, "control:"))
 			m.cursor = i
+			m.focusNav = ""
 			m.searching = false
 			return m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		}
@@ -135,8 +137,12 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "shift+tab":
 				m.searching = false
-				tabs := m.navIDs()
-				m.focusNav = tabs[len(tabs)-1]
+				if m.height >= 19 {
+					tabs := m.navIDs()
+					m.focusNav = tabs[len(tabs)-1]
+				} else {
+					m.cursor = 5
+				}
 			case "enter", "tab":
 				m.searching = false
 				if rows := m.filtered(); len(rows) > 0 {
@@ -197,8 +203,12 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.closed = true
 			return m, tea.Quit
 		case "tab", "down", "j":
-			if key == "tab" && m.cursor == 5 && m.height >= 19 {
-				m.focusNav = "sessions"
+			if key == "tab" && m.cursor == 5 {
+				if m.height >= 19 {
+					m.focusNav = "sessions"
+				} else {
+					m.searching = true
+				}
 			} else {
 				m.cursor = m.nextControl(1)
 			}
@@ -309,12 +319,21 @@ func (m settingsModel) layout() uiPage {
 		p.tabs("settings", m.hover, m.focusNav, experimentalCodexAccounts())
 	}
 	p.search(m.query, "Search settings", m.searching)
+	if p.Height >= 23 {
+		p.line("")
+		p.line(paint(fg("section"), "Workspace shortcuts"))
+		p.line("")
+	}
 	for _, i := range m.filtered() {
 		value := m.values.values()[i]
 		if m.editing && m.cursor == i {
 			value = m.input.View()
 		}
-		p.field("control:"+strconv.Itoa(i), []string{"🚢", "⚙", "🐦"}[i], settingsLabels[i], value, m.cursor == i && !m.searching, true)
+		p.field("control:"+strconv.Itoa(i), []string{"🚢", "⚙", "🐦"}[i], settingsLabels[i], value, m.cursor == i && !m.searching && m.focusNav == "", true)
+		if p.Height >= 28 {
+			p.line("")
+			p.line("")
+		}
 	}
 	if len(m.filtered()) == 0 {
 		p.line("No matching settings. Clear the search to return.")
@@ -323,8 +342,20 @@ func (m settingsModel) layout() uiPage {
 		p.button(uiAction{ID: "accept", Label: "Accept field", Key: "Enter", Primary: true}, true)
 		p.button(uiAction{ID: "back", Label: "Cancel edit", Key: "Esc"}, false)
 	} else {
-		for i, a := range m.actions() {
-			p.button(a, m.cursor == i+3)
+		if p.Height >= 23 {
+			p.line("")
+			p.line(paint(fg("value"), "Shortcuts apply to this Harbor workspace."))
+			for len(p.Lines) < p.Height-6 {
+				p.line("")
+			}
+		}
+		actions := m.actions()
+		if p.Height >= 23 {
+			p.buttons([]uiAction{actions[0], actions[2], actions[1]}, "control:"+strconv.Itoa(m.cursor))
+		} else {
+			for i, a := range actions {
+				p.button(a, m.cursor == i+3)
+			}
 		}
 	}
 	notice := m.notice
@@ -354,7 +385,7 @@ func (m settingsModel) layout() uiPage {
 }
 func (m settingsModel) View() string { return m.layout().view() }
 func runSettingsApp() error {
-	result, err := tea.NewProgram(newSettingsModel(), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	result, err := tea.NewProgram(newSettingsModel(), tea.WithAltScreen(), tea.WithMouseAllMotion()).Run()
 	if err != nil {
 		return err
 	}
@@ -363,7 +394,7 @@ func runSettingsApp() error {
 		m := newHarborModel(appService)
 		defer m.cancelRefresh()
 		m.screen = settings.nav
-		_, err = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+		_, err = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion()).Run()
 	}
 	return err
 }

@@ -60,6 +60,7 @@ try:
 
  project=root/'project-日本語-🚢';project.mkdir()
  for i in range(24): (project/('folder-%02d-日本語'%i)).mkdir()
+ (project/'folder-00-日本語'/'nested-synthetic').mkdir()
  keys('C-b');keys('a');wait('HARBOR')
  for cols,rows in [(160,45),(100,30),(60,20)]:
   tm('resize-window','-t','app:0','-x',str(cols),'-y',str(rows));time.sleep(.5)
@@ -80,6 +81,11 @@ try:
   click('Project');wait('Choose project');keys('Escape');wait('New session')
   click('Project');wait('Choose project');click('Search known projects');keys('-l',str(root/'missing')+'/');wait('Error:');save('directory-error-'+str(cols));click('Retry');wait('Error:');click('Known');wait('Known projects');click('Cancel');wait('New session')
   keys('Escape');wait('Search sessions')
+ tm('resize-window','-t','app:0','-x','100','-y','30');time.sleep(.5)
+ click('New session');wait('Project');click('Project');wait('Choose project')
+ click('Search known projects');keys('-l',str(project)+'/');wait('folder-00')
+ click('folder-00');click('Recursive');wait('nested-synthetic');save('directory-recursive-100')
+ click('Cancel');wait('New session');keys('Escape');wait('Search sessions')
  assert not (root/'harbor/sessions.json').exists() or json.loads((root/'harbor/sessions.json').read_text())==[]
  print('PASS directory popup mouse, keyboard cancel, draft return, errors/retry, sizes',root)
 

@@ -43,6 +43,32 @@ func (p uiPage) target(x, y int) string {
 	}
 	return ""
 }
+
+// Scroll only document content; keep every footer action in the viewport.
+func (p uiPage) withFooter(footer uiPage, height, scroll int) uiPage {
+	available := max(1, height-len(footer.Lines))
+	start := min(max(0, scroll), max(0, len(p.Lines)-available))
+	out := newUIPage(p.Width, height)
+	out.Lines = append(out.Lines, p.Lines[start:min(len(p.Lines), start+available)]...)
+	for len(out.Lines) < available {
+		out.line("")
+	}
+	for _, r := range p.Hits {
+		r.Y -= start
+		if r.Y >= 0 && r.Y+r.H <= available {
+			out.Hits = append(out.Hits, r)
+		}
+	}
+	offset := len(out.Lines)
+	out.Lines = append(out.Lines, footer.Lines...)
+	for _, r := range footer.Hits {
+		r.Y += offset
+		if r.Y+r.H <= height {
+			out.Hits = append(out.Hits, r)
+		}
+	}
+	return out
+}
 func (p uiPage) view() string {
 	lines := append([]string(nil), p.Lines...)
 	for len(lines) < p.Height {
@@ -144,7 +170,7 @@ func (p *uiPage) tabs(current, hover, focus string, accounts bool) {
 	line := ""
 	for _, a := range tabs {
 		text := " " + a.Label + " "
-		if focus == a.ID {
+		if focus == a.ID || focus == "nav:"+a.ID {
 			text = "›" + a.Label + "‹"
 		}
 		width := ansi.StringWidth(text)

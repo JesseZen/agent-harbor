@@ -24,6 +24,9 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 	if !strings.HasPrefix(m.screen, "magpie") {
 		return uiPage{}, false
 	}
+	if m.screen != "magpie" {
+		return m.connectionDocument(), true
+	}
 	p := newUIPage(m.width, 10000)
 	p.line(paint(fg("brand"), "🐦 Harbor · Connections"))
 	if m.screen == "magpie" {
@@ -98,6 +101,36 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 		}
 	}
 	return out, true
+}
+
+func (m harborModel) connectionDocument() uiPage {
+	p := newUIPage(m.width, 10000)
+	p.line(paint(fg("brand"), "🐦 Harbor · Connections"))
+	if m.screen == "magpie-bind" {
+		p.line("Bind an external running Magpie")
+		p.search(m.input.Value(), "Gateway address", true)
+		p.line(note("Harbor verifies identity and never starts or stops external gateways."))
+	} else {
+		for _, line := range strings.Split(m.magpieView(), "\n") {
+			if strings.HasPrefix(line, keysMark) {
+				continue
+			}
+			for _, wrapped := range strings.Split(ansi.Wrap(line, max(1, m.width-2), ""), "\n") {
+				p.line(wrapped)
+			}
+		}
+	}
+	footer := newUIPage(m.width, 10000)
+	actions := []uiAction{}
+	if m.screen != "magpie-busy" {
+		actions = append(actions, uiAction{ID: "conn:esc", Label: "Cancel / Back", Key: "esc"})
+		if m.screen == "magpie-confirm" || m.screen == "magpie-bind" || m.screen == "magpie-context" {
+			actions = append(actions, uiAction{ID: "conn:enter", Label: "Confirm", Key: "enter", Primary: true})
+		}
+	}
+	footer.buttons(actions, m.uiFocus)
+	footer.line(note("↑↓ / PgUp/PgDown scroll · " + actionHints(actions)))
+	return p.withFooter(footer, m.height, m.scroll)
 }
 func (m harborModel) connectionActivate(id string) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(id, "nav:") {
@@ -233,6 +266,33 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			return m, nil, true
 		}
 		if key == "tab" || key == "shift+tab" {
+			if m.screen != "magpie" {
+				p, _ := m.connectionPage()
+				ids := []string{}
+				for _, r := range p.Hits {
+					if r.ID != "" {
+						ids = append(ids, r.ID)
+					}
+				}
+				if len(ids) > 0 {
+					i := -1
+					for j, id := range ids {
+						if id == m.uiFocus {
+							i = j
+						}
+					}
+					if key == "shift+tab" {
+						if i < 0 {
+							i = 0
+						}
+						i = (i - 1 + len(ids)) % len(ids)
+					} else {
+						i = (i + 1) % len(ids)
+					}
+					m.uiFocus = ids[i]
+				}
+				return m, nil, true
+			}
 			h, s := m.height, m.scroll
 			m.height = 10000
 			m.scroll = 0

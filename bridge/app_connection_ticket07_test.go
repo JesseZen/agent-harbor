@@ -145,3 +145,27 @@ func TestConnectionTextOwnsGlobalCharacters(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectionConfirmAlwaysShowsActions(t *testing.T) {
+	for _, size := range [][2]int{{46, 12}, {57, 21}, {105, 33}} {
+		m := connectionFixture()
+		m.width, m.height = size[0], size[1]
+		m.screen = "magpie-confirm"
+		m.action = "start"
+		for _, scroll := range []int{0, 10000} {
+			m.scroll = scroll
+			p, _ := m.connectionPage()
+			for _, id := range []string{"conn:esc", "conn:enter"} {
+				found := false
+				for _, r := range p.Hits {
+					if r.ID == id && r.Y+r.H <= m.height {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("%v scroll%d: action %s hidden", size, scroll, id)
+				}
+			}
+		}
+	}
+}

@@ -432,11 +432,11 @@ def main():
             popup();key('/');text(name);key('Enter');key('Enter');screen('Review query-resume' if a.replacement else 'Review resume');screen(name);
             if a.model_picker and name=='UI-A':screen('relay-a/test-model');screen('high')
             if a.replacement:
-                screen('Use saved conversation')
+                screen('Use recorded conversation')
                 if name=='UI-Native':
                     screen('Native route or login may have changed')
                     screen('A provider name does not verify its destination')
-                reviewed_confirm();screen('Inspect evidence')
+                click('Resume conversation');screen('Inspect evidence')
                 assert not next(r for r in json.loads(run([binary,'sessions','--json']).stdout) if r['name']==name)['running'], 'uncertainty did not gate execution'
                 key('a')
             key('Enter');screen('Ask Codex');time.sleep(1);turn(marker,relay)

@@ -94,7 +94,7 @@ func (p *uiPage) field(id, icon, label, value string, focused, editable bool) {
 		mark = "› "
 	}
 	prefix := mark + icon + strings.Repeat(" ", max(1, 4-ansi.StringWidth(icon)))
-	col := min(24, max(13, p.Width/3))
+	col := min(24, max(20, p.Width/3))
 	key := prefix + label
 	key += strings.Repeat(" ", max(2, col-ansi.StringWidth(key)))
 	suffix := ""

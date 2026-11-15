@@ -39,7 +39,11 @@ func (m harborModel) reviewActions() []uiAction {
 	return append(out, uiAction{ID: "review:enter", Key: "enter", Label: label, Primary: true, Disabled: disabled}, uiAction{ID: "evidence", Key: "i", Label: "Inspect evidence"}, uiAction{ID: "review:esc", Key: "esc", Label: "Cancel"})
 }
 func (m harborModel) reviewEvidence() []string {
-	return strings.Split(ansi.Wrap(cleanUI(m.confirmView()+"\n\n"+m.notice), max(1, m.width-2), ""), "\n")
+	lines := []string{}
+	for _, line := range strings.Split(m.confirmView()+"\n\n"+m.notice, "\n") {
+		lines = append(lines, strings.Split(ansi.Wrap(cleanUI(line), max(1, m.width-2), ""), "\n")...)
+	}
+	return lines
 }
 func (m harborModel) reviewLayout() uiPage {
 	p := newUIPage(m.width, m.height)
@@ -160,24 +164,7 @@ func (m harborModel) updateReviewUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				ids = append(ids, r.ID)
 			}
 		}
-		if len(ids) == 0 {
-			return m, nil, true
-		}
-		at := -1
-		for i, id := range ids {
-			if id == m.uiFocus {
-				at = i
-			}
-		}
-		delta := 1
-		if k == "shift+tab" {
-			delta = -1
-		}
-		if at < 0 {
-			at = 0
-			delta = 0
-		}
-		m.uiFocus = ids[(at+delta+len(ids))%len(ids)]
+		m.uiFocus = uiCycle(m.uiFocus, ids, k == "shift+tab")
 		return m, nil, true
 	}
 	if m.screen == "confirm-evidence" {

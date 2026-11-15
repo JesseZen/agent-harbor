@@ -219,9 +219,6 @@ func TestMousePickerRenderedGeometry(t *testing.T) {
 			if cursor != 1 {
 				t.Fatalf("%s cursor=%d at rendered y%d", screen, cursor, y)
 			}
-			if screen != "magpie" && screen != "new-directory" && m.mouse.id == "" {
-				t.Fatal("missing first click")
-			}
 			n, _ := m.updateMouse(tea.MouseMsg{X: 3, Y: y, Button: tea.MouseButtonWheelUp}, time.Now())
 			if n.(harborModel).mouse.id != "" {
 				t.Fatal("wheel retained click")

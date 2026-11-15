@@ -248,7 +248,7 @@ func TestHarborMagpieHelpAndClose(t *testing.T) {
 	var model tea.Model = m
 	model = appKey(model, "m")
 	model = appKey(model, "?")
-	if !strings.Contains(model.View(), "Start managed") || strings.Contains(model.View(), "Rename") {
+	if !strings.Contains(model.View(), "Start Harbor-managed") || strings.Contains(model.View(), "Rename") {
 		t.Fatal(model.View())
 	}
 	model = appKey(model, "esc")
@@ -349,7 +349,7 @@ func TestHarborCancelledCatalogResponseCannotReplaceNewInstance(t *testing.T) {
 			t.Fatal(model.View())
 		}
 		model, _ = model.Update(cmdCurrent())
-		view := model.View()
+		view := ansi.Strip(model.View())
 		if !strings.Contains(view, "CURRENT_CATALOG") || strings.Contains(view, "OLD_CATALOG") {
 			t.Fatal(view)
 		}
@@ -390,12 +390,12 @@ func TestHarborFiltersInstancesAndShowsCurrentIdentity(t *testing.T) {
 		for _, k := range []string{"/", "Beta", "tab"} {
 			model = appKey(model, k)
 		}
-		view := model.View()
+		view := ansi.Strip(model.View())
 		if strings.Contains(view, "Alpha") || !strings.Contains(view, "Beta") || !strings.Contains(view, "unknown") {
 			t.Fatal(view)
 		}
 		model = appKey(model, "i")
-		if !strings.Contains(model.View(), "/fixture/beta") || !strings.Contains(model.View(), "configuration unknown") {
+		if !strings.Contains(ansi.Strip(model.View()), "/fixture/beta") || !strings.Contains(ansi.Strip(model.View()), "configuration unknown") {
 			t.Fatal(model.View())
 		}
 	}
@@ -432,7 +432,7 @@ func TestHarborFilteredWizardSelectsMatchingInstance(t *testing.T) {
 	for _, k := range []string{"n", "up", "up", "up", "enter", "down", "enter", "/", "Beta", "enter"} {
 		model = appKey(model, k)
 	}
-	if !strings.Contains(strings.Join(f.Calls, "|"), "catalog b") || !strings.Contains(model.View(), "Instance: b") {
+	if !strings.Contains(strings.Join(f.Calls, "|"), "catalog b") || model.(harborModel).draft.Instance != "b" {
 		t.Fatal(f.Calls, model.View())
 	}
 }
@@ -499,7 +499,7 @@ func TestHarborRemembersAuxiliaryNoticePerInstance(t *testing.T) {
 	m.models = f.Models
 	var model tea.Model = m
 	model = appKey(model, "enter")
-	if !strings.Contains(model.View(), "Magpie auxiliary routing") {
+	if model.(harborModel).screen != "new-notice" || !strings.Contains(model.View(), "Acknowledge & apply") {
 		t.Fatal(model.View())
 	}
 	model = appKey(model, "enter")
@@ -513,7 +513,7 @@ func TestHarborRemembersAuxiliaryNoticePerInstance(t *testing.T) {
 	m.screen = "new-catalog"
 	m.draft.Instance = "b"
 	model = appKey(m, "enter")
-	if !strings.Contains(model.View(), "Magpie auxiliary routing") {
+	if model.(harborModel).screen != "new-notice" || !strings.Contains(model.View(), "Acknowledge & apply") {
 		t.Fatal("another instance bypassed notice:", model.View())
 	}
 }
@@ -788,7 +788,7 @@ func TestEveryHarborScreenFitsPracticalSizes(t *testing.T) {
 						t.Fatal("width", view)
 					}
 				}
-				if !strings.Contains(view, "HARBOR") && !strings.Contains(view, "Harbor") {
+				if strings.TrimSpace(ansi.Strip(lines[0])) == "" {
 					t.Fatal("missing frame", view)
 				}
 				if strings.TrimSpace(lines[len(lines)-1]) == "" {

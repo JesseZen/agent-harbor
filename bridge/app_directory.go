@@ -303,65 +303,6 @@ func (m harborModel) updateDirectory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	return m, cmd
 }
-func (m harborModel) directoryView() string {
-	p := m.picker
-	w := max(20, min(140, m.width-4))
-	p.query.Width = max(10, w-12)
-	focus := "query"
-	if p.list {
-		focus = "list"
-	}
-	lines := []string{"📂 Choose a project directory", p.query.View(), ansi.Truncate("Scope: "+p.scope+" · "+cleanUI(p.root)+" · "+focus, w, "…")}
-	status := "Ctrl+R recursive selected root · Ctrl+X stop"
-	if p.searching {
-		status = "Searching… Ctrl+X cancels"
-	} else if p.err != nil {
-		status = "Error: " + p.err.Error()
-	} else if p.truncated {
-		status = fmt.Sprintf("Truncated at %d entries; narrow the root", directoryCap)
-	}
-	lines = append(lines, ansi.Truncate(cleanUI(status), w, "…"))
-	rows := p.matches()
-	count := max(1, m.height-12)
-	start := m.listStart(p.cursor, count)
-	if len(rows) == 0 && !p.searching && p.err == nil {
-		lines = append(lines, "No matching directories.")
-	}
-	for i := start; i < min(len(rows), start+count); i++ {
-		e := rows[i]
-		mark := "  "
-		if i == p.cursor {
-			mark = "› "
-		}
-		line := ansi.Truncate(cleanUI(mark+"["+e.source+"] "+e.path), w, "…")
-		lines = append(lines, line)
-	}
-	if m.width >= 100 && len(rows) > 0 {
-		preview := "Preview: loading…"
-		if p.previewPath == rows[min(p.cursor, len(rows)-1)].path && p.preview != "" {
-			preview = p.preview
-		}
-
-		lines = append(lines, ansi.Truncate(cleanUI(preview), w, "…"))
-	}
-	return strings.Join(lines, "\n")
-}
-
-// Apply spans after fitting/painting, which intentionally sanitizes input ANSI.
-func (m harborModel) paintDirectoryMatches(lines []string) []string {
-	if m.screen != "new-directory" || colorOff() {
-		return lines
-	}
-	p := m.picker
-	rows := p.matches()
-	count := max(1, m.height-12)
-	start := m.listStart(p.cursor, count)
-	for i := 4; i < len(lines) && i-4+start < len(rows) && i-4 < count; i++ {
-		path := rows[i-4+start].path
-		lines[i] = highlightPositions(lines[i], candidatePositions(lines[i], p.filter, []string{path}))
-	}
-	return lines
-}
 
 // Preview effects are bounded and never run from View. Path plus generation
 // guards prevent late reads from painting another selection or a reopened picker.

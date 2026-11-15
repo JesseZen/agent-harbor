@@ -148,7 +148,7 @@ func TestDirectoryVisual(t *testing.T) {
 					t.Fatalf("overflow %d %q", w, line)
 				}
 			}
-			if !strings.Contains(ansi.Strip(view), "enter select") {
+			if !strings.Contains(ansi.Strip(view), "Use this folder") && !strings.Contains(ansi.Strip(view), "Cancel") {
 				t.Fatal("footer missing")
 			}
 			if output != "" {
@@ -232,9 +232,9 @@ func TestDirectoryOrderingAndPreviewEffects(t *testing.T) {
 		t.Fatal("preview not loaded", m.picker.preview)
 	}
 	// Removing a child after loading must not change View: rendering is pure.
-	before := m.directoryView()
+	before := m.directoryPage().view()
 	os.Remove(filepath.Join(root, "alpha"))
-	if m.directoryView() != before {
+	if m.directoryPage().view() != before {
 		t.Fatal("View performed a filesystem read")
 	}
 	n, cmd = m.updateDirectory(tea.KeyMsg{Type: tea.KeyDown})
@@ -272,8 +272,8 @@ func TestDirectoryOrderingAndPreviewEffects(t *testing.T) {
 	if m.picker.preview != "Preview: loading…" {
 		t.Fatal("old preview entered reopened picker")
 	}
-	for _, line := range strings.Split(m.directoryView(), "\n") {
-		if ansi.StringWidth(line) > 140 {
+	for _, line := range strings.Split(m.directoryPage().view(), "\n") {
+		if ansi.StringWidth(line) > m.width {
 			t.Fatal("picker exceeds frame width")
 		}
 	}

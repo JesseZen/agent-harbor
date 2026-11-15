@@ -99,6 +99,7 @@ func (m harborModel) secondaryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 			return m, nil, true
 		}
 		m.screen = "sessions"
+		m.uiFocus = "list"
 		m.notice = "Action completed"
 		next, cmd := m.requestRefresh()
 		return next, cmd, true
@@ -146,19 +147,11 @@ func (m harborModel) secondaryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 		return m, nil, true
 	}
 	if key == "tab" || key == "shift+tab" {
-		index := -1
-		for i, a := range actions {
-			if a.ID == m.uiFocus {
-				index = i
-			}
+		ids := []string{}
+		for _, a := range actions {
+			ids = append(ids, a.ID)
 		}
-		delta := 1
-		if key == "shift+tab" {
-			delta = -1
-		}
-		if len(actions) > 0 {
-			m.uiFocus = actions[(index+delta+len(actions))%len(actions)].ID
-		}
+		m.uiFocus = uiCycle(m.uiFocus, ids, key == "shift+tab")
 		return m, nil, true
 	}
 	if key == "enter" && strings.HasPrefix(m.uiFocus, "secondary:") {
@@ -214,7 +207,11 @@ func (m harborModel) secondaryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 		k.Type = tea.KeyCtrlG
 	}
 	next, cmd := m.update(k)
-	return next, cmd, true
+	n := next.(harborModel)
+	if n.screen == "sessions" && m.screen != "sessions" {
+		n.uiFocus = "list"
+	}
+	return n, cmd, true
 }
 
 func (m onboardingModel) secondaryActions() []uiAction {

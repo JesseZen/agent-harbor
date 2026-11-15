@@ -79,6 +79,7 @@ func TestTicket06SearchAndAppliedMarker(t *testing.T) {
 	}
 	m = selectorKey(m, "esc")
 	m = selectorKey(m, "esc")
+	m = selectorKey(m, "esc")
 	if m.draft != m.formSaved {
 		t.Fatal(m.draft)
 	}

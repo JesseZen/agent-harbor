@@ -2,9 +2,6 @@ package main
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
-	"path/filepath"
-	"strings"
 )
 
 type appFormCreated struct {
@@ -64,6 +61,7 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.screen = "new-name"
 				m.uiFocus = ""
 				m.input.SetValue(m.draft.Name)
+				m.input.CursorEnd()
 				m.input.Focus()
 			case 5:
 				if m.creating {
@@ -234,42 +232,4 @@ func (m *harborModel) formCatalog() tea.Cmd {
 		c, e := m.service.Catalog(id)
 		return appCatalog{generation: g, instance: id, models: c, err: e}
 	}
-}
-func (m harborModel) formView() string {
-	connection, model := "💻 Native "+m.selectedClient()+" configuration and login", "Native configuration"
-	if m.selectedClient() == "codex" && m.environment.NativeConfig != "" {
-		model = m.environment.NativeConfig
-	}
-	if m.draft.Connection == "magpie" {
-		connection = "🐦 Magpie · " + orUnknown(m.draft.Instance)
-		model = orUnknown(m.draft.Model)
-	}
-	if m.draft.Connection != "local" && m.draft.Connection != "magpie" {
-		connection = "Unknown · choose explicitly"
-		model = "Unknown"
-	}
-	name := m.draft.Name
-	if name == "" {
-		name = "Automatic: " + filepath.Base(m.draft.Directory) + " · " + m.draft.Connection
-	} else {
-		name = "Custom: " + name
-	}
-	values := []string{"📂 Directory  " + m.draft.Directory, "🤖 CLI        " + m.selectedClient(), "Connection    " + connection, "Model / group " + model, "Name          " + name, "🚀 Create", "Cancel"}
-	lines := []string{"New session", ""}
-	for i, v := range values {
-		mark := "  "
-		if i == m.formFocus {
-			mark = "› "
-		}
-		lines = append(lines, ansi.Truncate(cleanUI(mark+v), max(20, min(140, m.width-4)), "…"))
-	}
-	if m.draft.Connection == "magpie" {
-		lines = append(lines, "", "Auxiliary requests may use other providers.", "Groups may change. An ID does not verify the destination.")
-	} else {
-		lines = append(lines, "", "Native shares settings and login:", ansi.Truncate(cleanUI(m.environment.LocalHome), max(20, min(140, m.width-4)), "…"))
-		if m.selectedClient() == "codex" && m.environment.NativeConfig != "" {
-			lines = append(lines, cleanUI(m.environment.NativeConfig))
-		}
-	}
-	return strings.Join(lines, "\n")
 }

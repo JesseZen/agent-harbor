@@ -2,6 +2,7 @@ package main
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"strings"
 	"time"
@@ -121,12 +122,12 @@ func (m harborModel) sessionsLayout() uiPage {
 		name := mark + cleanUI(s.Name)
 		status := statusDot(orUnknown(s.Status))
 		name = ansi.Truncate(name, max(4, leftW-ansi.StringWidth(status)-5), "…")
-		text := name + strings.Repeat(" ", max(1, leftW-2-ansi.StringWidth(name+status))) + status
+		base := fg("text")
 		if i == m.cursor {
-			text = paintLine(text, leftW-2, "")
-		} else {
-			text = paintRich(text, fg("text"))
+			base = base.Background(lipgloss.Color(harborPalette["selBg"]))
 		}
+		text := paint(base, name+strings.Repeat(" ", max(1, leftW-2-ansi.StringWidth(name+status)))) + paint(base.Foreground(lipgloss.Color(harborPalette[statusRole(s.Status)])), status)
+		text = highlightSearch(text, m.filter)
 		left.line(text)
 		connection := "Native"
 		if s.Mode == "magpie" {
@@ -321,9 +322,8 @@ func (m harborModel) updateSessionsUIAt(msg tea.Msg, now time.Time) (tea.Model, 
 		}
 		if m.screen == "sessions-more" {
 			if k == "?" {
-				m.previous = m.screen
-				m.screen = "help"
-				return m, nil, true
+				n, c := m.update(msg)
+				return n, c, true
 			}
 			if k == "esc" {
 				m.screen = "sessions"

@@ -106,233 +106,19 @@ func (m harborModel) View() string {
 	if m.screen == "sessions" || m.screen == "sessions-more" {
 		return m.sessionsLayout().view()
 	}
-	width := max(20, min(140, m.width-4))
-	crumb := "Sessions"
-	footer := "↑↓ move  enter act  i details  / filter  , settings  ? help  q close"
-	body := ""
-	switch m.screen {
-	case "accounts", "accounts-result", "accounts-busy":
-		crumb = "Codex accounts · experimental"
-		footer = "s switch  l login  esc back"
-		body = "Codex accounts\n\nSwitch between replies, after all running Codex turns have finished.\n\n" +
-			"s  Select an account with codex-auth\nl  Log in and add an account with Codex\n\n" +
-			"Selection affects the shared Codex home. Only experimental Harbor sessions can be checked here.\n" +
-			"Refreshing running sessions relies on an undocumented Codex behavior and may change."
-		if m.screen == "accounts-result" {
-			body = "Account action result\n\n" + m.accountResult
-			footer = "esc back"
-		} else if m.screen == "accounts-busy" {
-			body = "Waiting for the account action."
-			footer = ""
-		}
-	case "magpie-context-loading", "magpie-context", "magpie", "magpie-bind", "magpie-confirm", "magpie-busy", "magpie-filter", "magpie-detail":
-		crumb = "Magpie"
-		body = m.magpieView()
-		footer = "↑↓ move/scroll  enter act  esc back  ? help  q close"
-		if m.screen == "magpie-filter" || m.screen == "magpie-bind" {
-			footer = "enter apply  esc cancel  ? help  ctrl+c close"
-		}
-		if m.screen == "magpie-detail" {
-			footer = "↑↓ scroll  esc back  ? help  q close"
-		}
-		if m.screen == "magpie-busy" {
-			body = "Working… Waiting for Magpie."
-		}
-	case "new-form", "new-directory", "new-project-choices", "new-project-loading", "new-instance-loading", "new-catalog-loading", "new-project", "new-cli", "new-connection", "new-name", "new-review", "new-instance", "new-catalog", "new-catalog-filter", "new-notice", "new-instance-detail", "new-instance-filter":
-		crumb = "New session"
-		body = m.newView()
-		footer = "enter continue  esc back  ? help  ctrl+c close"
-		if m.screen == "new-form" {
-			footer = "tab / ↑↓ move  enter edit  esc cancel"
-			if m.formFocus == 5 {
-				footer = "enter create  tab / ↑↓ move  esc cancel"
-			}
-			if m.formFocus == 6 {
-				footer = "enter cancel  tab / ↑↓ move"
-			}
-		}
-		if m.screen == "new-name" && m.formActive {
-			footer = "enter accept name  esc cancel edit"
-		}
-		if m.screen == "new-directory" {
-			footer = "tab list  enter select  esc cancel"
-			if m.picker.list {
-				footer = "← parent → in  tab query  enter pick  esc back"
-			}
-		}
-		if m.screen == "new-instance" {
-			footer = "↑↓ move  / filter  i details  enter select  esc back"
-		}
-		if m.screen == "new-instance-detail" {
-			footer = "↑↓ scroll  esc back  ? help  ctrl+c close"
-		}
-	case "error":
-		crumb = "Action needs attention"
-		body = "⚠ Something needs your attention\n\n" + m.notice
-		footer = "↑↓ scroll  r refresh  esc dismiss  q close"
-		if m.errorReturn == "magpie" && m.noticeCanStart {
-			footer = "↑↓ scroll  r refresh  s start managed  esc dismiss"
-		}
-	case "help":
-		crumb = "Keyboard help"
-		footer = "↑↓ scroll  esc back  q close"
-		body = m.helpView()
-	case "delete-history":
-		crumb = "Client history"
-		body = historyRemovalExplanation
-		footer = "enter / esc back"
-
-	case "filter", "rename":
-		crumb = "" + m.screen
-		body = m.input.View()
-		footer = "enter apply  esc cancel  ? help"
-	case "confirm":
-		crumb = "Review " + m.action
-		body = m.confirmView()
-		footer = "↑↓ scroll  enter confirm  esc cancel"
-		if m.action == "query-resume" {
-			footer = "↑↓ scroll  a accept  enter resume  esc cancel"
-		}
-		if (m.action == "query-resume" || m.action == "resume") && errors.Is(m.selectionReviewErr, errCodexProfileMissing) {
-			footer = "↑↓ scroll  b use recorded  a accept  enter resume  esc cancel"
-		}
-		if m.action == "review-reference" {
-			crumb = "Review saved identity"
-			footer = "↑↓ scroll  a accept  enter save  esc cancel"
-		}
-	case "busy":
-		body = "Working…  Waiting for the service to finish."
-	case "detail":
-		if s, ok := m.selected(); ok {
-			crumb = "Session details"
-			body = m.details(s)
-		}
-		footer = "esc back  ? help  q close"
-	default:
-		rows := m.visible()
-		lw := width
-		split := m.width >= 100
-		if split {
-			lw = max(35, width*45/100)
-		}
-		left := []string{fmt.Sprintf("🚢 Sessions · %d", len(rows)), m.searchLine(len(rows), len(m.sessions)), ""}
-		if len(rows) == 0 {
-			left = append(left, "No matching sessions", note("Press / to change the filter, or n to start one."))
-		}
-		count := max(1, (m.height-10)/3)
-		start := m.listStart(m.cursor, count)
-		for i := start; i < min(len(rows), start+count); i++ {
-			s := rows[i]
-			mark := "  "
-			if i == m.cursor {
-				mark = "› "
-			}
-			status := statusDot(orUnknown(s.Status))
-			name := ansi.Truncate(cleanUI(mark+s.Name), max(8, lw-ansi.StringWidth(status)-3), "…")
-			left = append(left, name+strings.Repeat(" ", max(2, lw-1-ansi.StringWidth(name)-ansi.StringWidth(status)))+status)
-			meta := "    📂 " + s.WorkingDirectory + " · " + s.CLI
-			if s.Mode == "magpie" {
-				meta += " · 🐦 " + orUnknown(s.MagpieModel)
-			} else if s.Mode != "" {
-				meta += " · " + s.Mode
-			}
-			left = append(left, ansi.Truncate(cleanUI(meta), lw-1, "…"))
-			reason := ""
-			if s.Reason != "" {
-				reason = ansi.Truncate(cleanUI("    ⚠ "+s.Reason), lw-1, "…")
-			}
-			left = append(left, reason)
-		}
-		body = strings.Join(left, "\n")
-		if split {
-			if s, ok := m.selected(); ok {
-				h := m.height - 7
-				lp := padLines(m.paintSearchBlock(strings.Split(fitBlock(body, lw, h), "\n"), lw-1, ""), h)
-				rw := width - lw - 3
-				detailLines := strings.Split(fitBlock(m.details(s), rw, 10000), "\n")
-				start := min(m.detailScroll, max(0, len(detailLines)-h))
-				rp := paintBlock(detailLines[start:min(len(detailLines), start+h)], rw, "")
-				sep := paint(fg("muted"), "│")
-				for i := range lp {
-					r := ""
-					if i < len(rp) {
-						r = rp[i]
-					}
-					lp[i] = lp[i] + strings.Repeat(" ", max(0, lw-ansi.StringWidth(lp[i]))) + sep + "  " + r
-				}
-				return harborFrame(crumb, lp, m.feedbackLine(), m.noticeLine(), m.listFooter(footer), width, m.height, false)
-			}
+	// Historical model states use the same semantic page shell as live routes.
+	if strings.HasPrefix(m.screen, "new-") && !m.formActive {
+		copy := m
+		copy.formActive = true
+		if p, ok := copy.newSessionPage(); ok {
+			return p.view()
 		}
 	}
-	if m.screen == "new-form" && m.height < 20 {
-		rows := strings.Split(body, "\n")[2:9]
-		context := "Native shares settings/login: " + m.environment.LocalHome
-		if m.selectedClient() == "codex" && m.environment.NativeConfig != "" {
-			context = m.environment.NativeConfig
-		}
-		if m.draft.Connection == "magpie" {
-			context = "Auxiliary routes may differ; groups may change."
-		}
-		if m.notice != "" {
-			context = "! details · " + m.notice
-		}
-		lines := []string{paint(fg("brand").Bold(true), " ⚓ HARBOR › New session")}
-		lines = append(lines, paintBlock(rows, width, "")...)
-		lines = append(lines, paint(fg("muted"), ansi.Truncate(cleanUI(context), width, "…")), paintKeys(ansi.Truncate(footer, width, "…")))
-		return strings.Join(lines, "\n")
-	}
-	if m.searchList() {
-		footer = m.searchHints()
-	}
-	mode := ""
-	if m.screen == "help" {
-		mode = "help"
-	}
-	if m.screen == "error" || m.screen == "detail" || m.screen == "magpie-detail" || m.screen == "new-instance-detail" || m.screen == "help" || m.screen == "magpie-confirm" || m.screen == "confirm" || m.screen == "new-review" || m.screen == "new-notice" {
-		wrapped := strings.Split(fitBlock(body, width, 10000), "\n")
-		start := min(m.scroll, max(0, len(wrapped)-max(1, m.height-7)))
-		body = strings.Join(wrapped[start:], "\n")
-	}
-	content := m.paintSearchBlock(strings.Split(fitBlock(body, width, m.height-7), "\n"), width, mode)
-	content = m.paintDirectoryMatches(content)
-	return harborFrame(crumb, content, m.feedbackLine(), m.noticeLine(), m.listFooter(footer), width, m.height, false)
-}
-
-func (m harborModel) noticeLine() string {
-	if m.searchList() && m.searchFocus == m.screen {
-		return "Type to search · Tab switches focus · Esc clears."
-	}
-	if m.screen == "error" {
-		return "Esc returns to the previous screen."
-	}
-
-	if strings.HasPrefix(m.screen, "magpie") {
-		return "s start  x stop  b bind  u default  w web  r refresh"
-	}
+	body := m.notice
 	if strings.HasPrefix(m.screen, "new-") {
-		if m.formActive {
-			return "Only Create saves this session."
-		}
-		return "Nothing is saved until the final review."
+		body = m.newView() + "\n\n" + m.notice
 	}
-	if m.screen == "sessions" {
-		if s, ok := m.selected(); ok && !s.External && !s.Running && s.Runtime.Presence != "observed" {
-			if _, err := savedReferenceForReview(s.session); err == nil {
-				return "v review saved identity  n new  m Magpie  ? help"
-			}
-		}
-	}
-	if experimentalCodexAccounts() {
-		return "n new  a accounts  m Magpie  s stop  x remove  r refresh"
-	}
-	return "n new  m Magpie  s stop  x remove  r refresh"
-}
-
-func padLines(lines []string, n int) []string {
-	for len(lines) < n {
-		lines = append(lines, "")
-	}
-	return lines
+	return secondaryDocument(m.width, m.height, "Harbor", body, []uiAction{{ID: "secondary:esc", Label: "Back", Key: "esc"}}, m.uiFocus, m.scroll).view()
 }
 
 func fitBlock(s string, width, height int) string {
@@ -365,17 +151,30 @@ func fitBlock(s string, width, height int) string {
 }
 
 func (m harborModel) helpView() string {
-	body := ""
-	switch {
-	case strings.HasPrefix(m.previous, "magpie"):
-		body = "🐦 Magpie instances\n\n↑/k ↓/j  Move selection or scroll review\n/        Filter instances\ni        Inspect identity and warnings\nEnter    Review management / confirm action\ns        Start managed instance\nx        Stop managed instance\nb        Bind an external running gateway\nu        Use selected instance for new sessions\nw        Open managed web UI\nr        Refresh identity and status\nEsc      Back / cancel\nq        Close Harbor\n\n• External processes are never started or stopped."
-	case strings.HasPrefix(m.previous, "new-"):
-		body = "✨ Create a session\n\nTab / Shift+Tab  Move form focus\n↑ ↓      Move form focus or picker selection\nEnter    Edit focused field; Create saves\nEnter in editor  Accept only that field\nEsc      Cancel local edit; on form cancel draft\n/        Search instances or model catalog\ni        Inspect selected instance\n?        Help from the form or a picker\nCtrl+C   Close Harbor\n\n• Text fields own ordinary characters.\n• Initial focus is Create. Review fields on the form.\n• Magpie acknowledgement returns to Create."
-
-	default:
-		body = m.sessionsHelp()
+	parent := m
+	parent.screen = m.previous
+	actions := []uiAction{}
+	if p, ok := parent.additionalPage(); ok {
+		actions = p.Actions
 	}
-	return body
+	if m.previous == "confirm" || m.previous == "confirm-evidence" {
+		actions = parent.reviewActions()
+	}
+	if len(actions) > 0 {
+		lines := []string{"Harbor · " + m.previous, "", "Tab / Shift+Tab  Move control focus", "↑↓  Select a list row or scroll text", "Enter  Apply the focused control", "/  Search a list; text input owns ordinary characters", "Esc  Clear search, leave its field, then cancel the local page", "PgUp/PgDown  Scroll long documents", ""}
+		seen := map[string]bool{}
+		for _, a := range actions {
+			if a.Key != "" && !seen[a.ID] {
+				seen[a.ID] = true
+				lines = append(lines, actionHints([]uiAction{a}))
+			}
+		}
+		if strings.HasPrefix(m.previous, "new-") {
+			lines = append(lines, "", "Only Create saves and launches a session; field edits and connection Apply update the draft.")
+		}
+		return strings.Join(lines, "\n")
+	}
+	return m.sessionsHelp()
 }
 
 func (m harborModel) confirmView() string {

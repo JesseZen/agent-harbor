@@ -203,7 +203,7 @@ func TestNativeCodexReviewShowsHomeDefaultsWithoutSecrets(t *testing.T) {
 	}
 	m, _ := formFixture()
 	m.environment.NativeConfig = summary
-	if !strings.Contains(m.formView(), "provider magpie") {
+	if !strings.Contains(m.View(), "provider magpie") {
 		t.Fatal("new-session form hid native configuration")
 	}
 	m.width, m.height = 60, 20

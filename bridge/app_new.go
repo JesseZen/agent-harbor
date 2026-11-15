@@ -251,7 +251,10 @@ func (m harborModel) newView() string {
 	width := max(20, min(140, m.width-4))
 	switch m.screen {
 	case "new-form":
-		return m.formView()
+		copy := m
+		copy.formActive = true
+		p, _ := copy.newSessionPage()
+		return p.view()
 	case "new-instance-detail":
 		return m.instanceDetails()
 	case "new-instance-filter":
@@ -259,7 +262,7 @@ func (m harborModel) newView() string {
 	case "new-project-loading", "new-instance-loading", "new-catalog-loading":
 		return "⏳ Loading…\n\n" + note("Esc cancels this request.")
 	case "new-directory":
-		return m.directoryView()
+		return m.directoryPage().view()
 	case "new-project-choices":
 		lines := []string{"📂 Choose a project directory", keysMark + "↑↓ move  enter select  esc return", ""}
 		count := max(1, m.height-10)

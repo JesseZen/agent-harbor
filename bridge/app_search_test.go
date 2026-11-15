@@ -132,6 +132,9 @@ func TestInlineSearchVisual(t *testing.T) {
 		for _, screen := range []string{"sessions", "magpie", "new-instance", "new-catalog"} {
 			m := searchFixture()
 			m.screen = screen
+			if strings.HasPrefix(screen, "new-") {
+				m.formActive = true
+			}
 			m.width, m.height = size[0], size[1]
 			m = keySearch(m, "/")
 			q := "Harbor"
@@ -194,7 +197,8 @@ func TestSearchLargeCatalogScrolledSpans(t *testing.T) {
 	}
 	m.catalogFilter = "model"
 	m.catalogCursor = 9999
-	plain := m.newView()
+	m.formActive = true
+	plain := m.View()
 	if !strings.Contains(plain, m.filteredModels()[9999].ID) || strings.Contains(plain, m.filteredModels()[0].ID) {
 		t.Fatal("wrong scrolled candidates")
 	}
@@ -202,8 +206,8 @@ func TestSearchLargeCatalogScrolledSpans(t *testing.T) {
 	old := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	defer lipgloss.SetColorProfile(old)
-	lines := m.paintSearchBlock(strings.Split(fitBlock(plain, 56, 13), "\n"), 56, "")
-	if len(lines) > 13 {
+	lines := strings.Split(m.View(), "\n")
+	if len(lines) > m.height {
 		t.Fatal("render unbounded")
 	}
 	for _, line := range lines[4:] {

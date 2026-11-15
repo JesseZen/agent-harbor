@@ -24,6 +24,26 @@ type uiPage struct {
 	Width, Height int
 	Lines         []string
 	Hits          []uiRect
+	Actions       []uiAction
+}
+
+func uiCycle(current string, ids []string, reverse bool) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	for i, id := range ids {
+		if id == current {
+			step := 1
+			if reverse {
+				step = len(ids) - 1
+			}
+			return ids[(i+step)%len(ids)]
+		}
+	}
+	if reverse {
+		return ids[len(ids)-1]
+	}
+	return ids[0]
 }
 
 func newUIPage(w, h int) uiPage { return uiPage{Width: max(1, w), Height: max(1, h)} }
@@ -49,6 +69,7 @@ func (p uiPage) withFooter(footer uiPage, height, scroll int) uiPage {
 	available := max(1, height-len(footer.Lines))
 	start := min(max(0, scroll), max(0, len(p.Lines)-available))
 	out := newUIPage(p.Width, height)
+	out.Actions = append(append([]uiAction{}, p.Actions...), footer.Actions...)
 	out.Lines = append(out.Lines, p.Lines[start:min(len(p.Lines), start+available)]...)
 	for len(out.Lines) < available {
 		out.line("")
@@ -98,6 +119,7 @@ func (p uiPage) view() string {
 	return strings.Join(lines, "\n")
 }
 func (p *uiPage) button(a uiAction, focused bool) {
+	p.Actions = append(p.Actions, a)
 	text := " " + cleanUI(a.Label) + " "
 	if focused {
 		text = "›" + text + "‹"
@@ -219,6 +241,7 @@ func (p *uiPage) buttons(actions []uiAction, focused string) {
 		}
 		return
 	}
+	p.Actions = append(p.Actions, actions...)
 	line := ""
 	x := 1
 	y := len(p.Lines)

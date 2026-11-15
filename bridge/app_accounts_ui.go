@@ -59,29 +59,9 @@ func (m harborModel) accountsPage() (uiPage, bool) {
 		footer.line(note(actionHints(actions)))
 	}
 	footer.line(note("↑↓ / PgUp/PgDown scroll · Tab controls"))
-	available := max(1, m.height-len(footer.Lines))
-	start := min(m.scroll, max(0, len(content.Lines)-available))
-	p := newUIPage(m.width, m.height)
-	p.Lines = append(p.Lines, content.Lines[start:min(len(content.Lines), start+available)]...)
-	for len(p.Lines) < available {
-		p.line("")
-	}
-	for _, r := range content.Hits {
-		r.Y -= start
-		if r.ID != "" && r.Y >= 0 && r.Y+r.H <= available {
-			p.Hits = append(p.Hits, r)
-		}
-	}
-	offset := len(p.Lines)
-	p.Lines = append(p.Lines, footer.Lines...)
-	for _, r := range footer.Hits {
-		r.Y += offset
-		if r.Y+r.H <= m.height {
-			p.Hits = append(p.Hits, r)
-		}
-	}
-	return p, true
+	return content.withFooter(footer, m.height, m.scroll), true
 }
+
 func (m harborModel) accountActivate(id string) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(id, "nav:") {
 		return m.activateSessions(id)
@@ -167,23 +147,7 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 					ids = append(ids, r.ID)
 				}
 			}
-			if len(ids) > 0 {
-				i := -1
-				for j, id := range ids {
-					if id == m.uiFocus {
-						i = j
-					}
-				}
-				if key == "shift+tab" {
-					if i < 0 {
-						i = 0
-					}
-					i = (i - 1 + len(ids)) % len(ids)
-				} else {
-					i = (i + 1) % len(ids)
-				}
-				m.uiFocus = ids[i]
-			}
+			m.uiFocus = uiCycle(m.uiFocus, ids, key == "shift+tab")
 		case "enter":
 			n, c := m.accountActivate(m.uiFocus)
 			return n, c, true

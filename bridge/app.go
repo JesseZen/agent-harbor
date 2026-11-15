@@ -53,6 +53,7 @@ type appRoute struct {
 // harborModel owns interaction only. All product effects cross the service seam.
 type harborModel struct {
 	secondaryHelpScroll int
+	secondaryHelpFocus  string
 	reviewOpenedAt      time.Time
 
 	refreshContext   context.Context
@@ -219,6 +220,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			overlayScroll := m.scroll
 			m.screen = m.previous
 			m.scroll = m.secondaryHelpScroll
+			m.uiFocus = m.secondaryHelpFocus
 			next, cmd := m.Update(msg)
 			underlying := next.(harborModel)
 			underlying.previous = underlying.screen
@@ -652,6 +654,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if key == "esc" || key == "?" {
 				m.screen = m.previous
 				m.scroll = m.secondaryHelpScroll
+				m.uiFocus = m.secondaryHelpFocus
 			}
 			if key == "q" {
 				if m.cancelRefresh != nil {
@@ -669,6 +672,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if key == "?" {
 			m.secondaryHelpScroll = m.scroll
+			m.secondaryHelpFocus = m.uiFocus
 			m.scroll = 0
 			m.previous = m.screen
 			m.screen = "help"

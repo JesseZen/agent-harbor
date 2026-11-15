@@ -33,11 +33,18 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 		for i := start; i < min(len(rows), start+count); i++ {
 			r := rows[i]
 			p.field("selector-instance:"+r.ID, selectorMark(m.formSaved.Connection == "magpie" && m.formSaved.Instance == r.ID), r.Name, r.ID+" · "+r.Health, i == m.instanceCursor, false)
+			p.Lines[len(p.Lines)-1] = highlightSearch(p.Lines[len(p.Lines)-1], m.instanceFilter)
 		}
 		if len(rows) > 0 {
 			r := rows[min(max(0, m.instanceCursor), len(rows)-1)]
 			p.line(cleanUI(r.Address))
 			wrap("Configuration: " + cleanUI(orUnknown(r.ConfigDir)))
+			if r.Detail != "" {
+				wrap(cleanUI(r.Detail))
+			}
+			for _, warning := range r.Warnings {
+				wrap(cleanUI(warning))
+			}
 		}
 		footer.button(uiAction{ID: "selector-select", Label: "Select instance", Key: "enter", Primary: true}, m.uiFocus == "selector-select")
 	case "new-catalog":
@@ -57,6 +64,7 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 				label += " · " + r.OwnedBy
 			}
 			p.field("selector-model:"+r.ID, selectorMark(m.formSaved.Connection == "magpie" && m.formSaved.Instance == m.draft.Instance && m.formSaved.Model == r.ID), r.ID, label, i == m.catalogCursor, false)
+			p.Lines[len(p.Lines)-1] = highlightSearch(p.Lines[len(p.Lines)-1], m.catalogFilter)
 		}
 		wrap("Auxiliary requests may send conversation parts to other providers.")
 		wrap("Groups may switch members; an ID does not prove the destination.")
@@ -86,7 +94,11 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 	if m.notice != "" {
 		wrap(cleanUI(m.notice))
 	}
-	footer.line(paint(fg("key"), "PgUp/PgDown scroll · Tab controls"))
+	hint := "PgUp/PgDown scroll · Tab controls"
+	if m.uiFocus == "selector-search" {
+		hint = "Type search · tab list · Esc clear/back"
+	}
+	footer.line(paint(fg("key"), hint))
 	return p.withFooter(footer, m.height, m.scroll), true
 }
 func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
@@ -105,6 +117,7 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 			if m.screen == "new-instance" {
 				m.input.SetValue(m.instanceFilter)
 			}
+			m.input.CursorEnd()
 			m.input.Focus()
 		case strings.HasPrefix(id, "selector-instance:"):
 			for i, r := range m.instanceRows() {
@@ -171,20 +184,34 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 	}
 	k := key.String()
 	if m.uiFocus == "selector-search" {
-		if k == "esc" || k == "enter" || k == "tab" {
-			m.uiFocus = ""
+		if k == "esc" && m.input.Value() != "" {
+			m.input.SetValue("")
+			if m.screen == "new-instance" {
+				m.instanceFilter = ""
+				m.instanceCursor = 0
+			} else {
+				m.catalogFilter = ""
+				m.catalogCursor = 0
+			}
 			return m, nil, true
 		}
-		var c tea.Cmd
-		m.input, c = m.input.Update(key)
-		if m.screen == "new-instance" {
-			m.instanceFilter = m.input.Value()
-			m.instanceCursor = 0
-		} else {
-			m.catalogFilter = m.input.Value()
-			m.catalogCursor = 0
+		if k == "esc" || k == "enter" {
+			m.uiFocus = ""
+			m.input.Blur()
+			return m, nil, true
 		}
-		return m, c, true
+		if k != "tab" && k != "shift+tab" {
+			var c tea.Cmd
+			m.input, c = m.input.Update(key)
+			if m.screen == "new-instance" {
+				m.instanceFilter = m.input.Value()
+				m.instanceCursor = 0
+			} else {
+				m.catalogFilter = m.input.Value()
+				m.catalogCursor = 0
+			}
+			return m, c, true
+		}
 	}
 	switch k {
 	case "?", "ctrl+c", "ctrl+g":
@@ -206,27 +233,26 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 		}
 	case "tab", "shift+tab":
 		ids := []string{}
+		listed := false
 		for _, h := range p.Hits {
+			if h.ID == "search" {
+				ids = append(ids, "selector-search")
+			}
+			if strings.HasPrefix(h.ID, "selector-") && strings.Contains(h.ID, ":") && !listed {
+				ids = append(ids, "selector-list")
+				listed = true
+			}
 			if strings.HasPrefix(h.ID, "selector-") && !strings.Contains(h.ID, ":") {
 				ids = append(ids, h.ID)
 			}
 		}
-		if len(ids) > 0 {
-			idx := -1
-			for i, id := range ids {
-				if id == m.uiFocus {
-					idx = i
-				}
-			}
-			step := 1
-			if k == "shift+tab" {
-				step = len(ids) - 1
-			}
-			m.uiFocus = ids[(idx+step+len(ids))%len(ids)]
+		m.uiFocus = uiCycle(m.uiFocus, ids, k == "shift+tab")
+		if m.uiFocus == "selector-search" {
+			return act("search")
 		}
 		return m, nil, true
 	case "enter":
-		if m.uiFocus != "" {
+		if m.uiFocus != "" && m.uiFocus != "selector-list" {
 			return act(m.uiFocus)
 		}
 		if m.screen == "new-catalog" {

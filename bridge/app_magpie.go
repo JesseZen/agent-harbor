@@ -94,6 +94,7 @@ func (m harborModel) updateMagpie(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "b":
 		m.screen = "magpie-bind"
 		m.input.SetValue("http://127.0.0.1:3425")
+		m.input.CursorEnd()
 		m.input.Focus()
 	case "r":
 		m.generation++

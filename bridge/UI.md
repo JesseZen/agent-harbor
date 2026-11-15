@@ -1,8 +1,8 @@
 # Harbor UI contract
 
-The migration starts with Settings. Legacy pages remain supported until each
-page is migrated and verified. Do not infer semantics from a formatted string
-in new pages.
+All active popup routes use semantic pages. Do not infer semantics from a
+formatted string. UI actions also supply contextual help, including disabled
+reasons. Documents share a scrollable body and fixed action area.
 
 `app_ui.go` owns the cell layout. A page builds a `uiPage` with its actual inner
 viewport dimensions. Each control appends rendered rows and hit rectangles in
@@ -58,7 +58,13 @@ Harbor releases their terminal and restores its own mouse reporting on return.
 They are not Harbor page layouts. The experimental account switch stays hidden
 unless enabled; synthetic checks do not prove live ChatGPT account switching.
 
-The legacy sequential creation states can still be constructed by historical
-model tests. Normal creation enters the form after the guarded environment
-load. The final integration cleanup must remove old rendering paths only after
-all real routes use the page contract above.
+Normal creation enters the form after the guarded environment load. Historical
+model tests can construct sequential creation states; their plain summaries use
+the same semantic document shell. The old frame painter, string-based style
+guessing and independently reconstructed mouse rectangles have been removed.
+
+Printable characters belong to the focused input. Esc clears a nonempty search,
+then leaves it, then cancels the local page. Tab and Shift+Tab cycle actual
+controls. Help restores its parent control and scroll position. A secondary
+page returning to Sessions restores list focus; a stale editor action cannot
+consume the next Enter. Ctrl+C closes Harbor and Ctrl+G dismisses feedback.

@@ -29,70 +29,49 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 	}
 	p := newUIPage(m.width, 10000)
 	p.line(paint(fg("brand"), "🐦 Harbor · Connections"))
-	if m.screen == "magpie" {
-		p.tabs("magpie", m.uiHover, m.uiFocus, experimentalCodexAccounts())
-		if m.notice != "" {
-			for _, line := range strings.Split(ansi.Wrap(m.notice, max(1, m.width-2), ""), "\n") {
-				p.line(line)
-			}
-		}
-		p.search(m.instanceFilter, "Search gateways", m.searchFocus == "magpie")
-		if m.searchFocus == "magpie" {
-			p.line(note("Type search · tab list · Esc clear/back"))
-		}
-		a := m.connectionActions()
-		p.buttons(a[:2], m.uiFocus)
-		p.line(paint(fg("section"), "Magpie instances"))
-		rows := m.instanceRows()
-		for i, r := range rows {
-			p.field("instance:"+r.ID, "🐦", r.Name, r.Kind+" · "+r.Health, i == m.instanceCursor, false)
-		}
-		if len(rows) == 0 {
-			p.line("No recorded instances. Bind external or start Harbor-managed.")
-		}
-		if len(rows) > 0 {
-			r := rows[min(m.instanceCursor, len(rows)-1)]
-			p.line(paint(fg("section"), "Selected instance · "+cleanUI(r.Name)))
-			p.field("", "🔌", "Address", r.Address, false, false)
-			p.field("", "🧩", "Ownership", r.Kind, false, false)
-			p.field("", "●", "Status", r.Health, false, false)
-			if r.Detail != "" {
-				p.line(r.Detail)
-			}
-			p.buttons(a[2:len(a)-3], m.uiFocus)
-			for _, line := range strings.Split(ansi.Wrap("Default affects future new sessions only; existing connections stay unchanged.", max(1, m.width-2), ""), "\n") {
-				p.line(note(line))
-			}
-		}
-		p.line(paint(fg("section"), "Harbor-managed gateway · "+managedInstanceID))
-		p.line(note("Lifecycle targets Harbor ownership independently of selection."))
-		p.buttons(a[len(a)-3:], m.uiFocus)
-		p.line(note(actionHints(a)))
-	} else {
-		if m.screen == "magpie-busy" {
-			p.line("Working on " + m.action + " · " + m.instanceID)
-			p.line(note("Please wait; this operation cannot be cancelled."))
-		} else if m.screen == "magpie-bind" {
-			p.line("Bind an external running Magpie")
-			p.search(m.input.Value(), "Gateway address", true)
-			p.line(note("Harbor verifies identity and never starts or stops external gateways."))
-		} else {
-			for _, line := range strings.Split(ansi.Wrap(m.magpieView(), max(1, m.width-2), ""), "\n") {
-				p.line(line)
-			}
-		}
-		if m.screen != "magpie-busy" && m.screen != "magpie-context-loading" {
-			a := []uiAction{{ID: "conn:esc", Label: "Cancel / Back", Key: "esc"}}
-			if m.screen == "magpie-confirm" || m.screen == "magpie-bind" || m.screen == "magpie-context" {
-				a = append(a, uiAction{ID: "conn:enter", Label: "Confirm", Key: "enter", Primary: true})
-			}
-			p.buttons(a, m.uiFocus)
+	p.tabs("magpie", m.uiHover, m.uiFocus, experimentalCodexAccounts())
+	if m.notice != "" {
+		for _, line := range strings.Split(ansi.Wrap(m.notice, max(1, m.width-2), ""), "\n") {
+			p.line(line)
 		}
 	}
+	p.search(m.instanceFilter, "Search gateways", m.searchFocus == "magpie")
+	if m.searchFocus == "magpie" {
+		p.line(note("Type search · tab list · Esc clear/back"))
+	}
+	a := m.connectionActions()
+	p.buttons(a[:2], m.uiFocus)
+	p.line(paint(fg("section"), "Magpie instances"))
+	rows := m.instanceRows()
+	for i, r := range rows {
+		p.field("instance:"+r.ID, "🐦", r.Name, r.Kind+" · "+r.Health, i == m.instanceCursor, false)
+	}
+	if len(rows) == 0 {
+		p.line("No recorded instances. Bind external or start Harbor-managed.")
+	}
+	if len(rows) > 0 {
+		r := rows[min(m.instanceCursor, len(rows)-1)]
+		p.line(paint(fg("section"), "Selected instance · "+cleanUI(r.Name)))
+		p.field("", "🔌", "Address", r.Address, false, false)
+		p.field("", "🧩", "Ownership", r.Kind, false, false)
+		p.field("", "●", "Status", r.Health, false, false)
+		if r.Detail != "" {
+			p.line(r.Detail)
+		}
+		p.buttons(a[2:len(a)-3], m.uiFocus)
+		for _, line := range strings.Split(ansi.Wrap("Default affects future new sessions only; existing connections stay unchanged.", max(1, m.width-2), ""), "\n") {
+			p.line(note(line))
+		}
+	}
+	p.line(paint(fg("section"), "Harbor-managed gateway · "+managedInstanceID))
+	p.line(note("Lifecycle targets Harbor ownership independently of selection."))
+	p.buttons(a[len(a)-3:], m.uiFocus)
+	p.line(note(actionHints(a)))
 
 	p.line(note("Tab controls · ↑↓ select · PgUp/PgDown scroll · Esc back"))
 	start := min(m.scroll, max(0, len(p.Lines)-m.height))
 	out := newUIPage(m.width, m.height)
+	out.Actions = p.Actions
 	out.Lines = append(out.Lines, p.Lines[start:min(len(p.Lines), start+m.height)]...)
 	for _, r := range p.Hits {
 		r.Y -= start
@@ -274,23 +253,7 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 						ids = append(ids, r.ID)
 					}
 				}
-				if len(ids) > 0 {
-					i := -1
-					for j, id := range ids {
-						if id == m.uiFocus {
-							i = j
-						}
-					}
-					if key == "shift+tab" {
-						if i < 0 {
-							i = 0
-						}
-						i = (i - 1 + len(ids)) % len(ids)
-					} else {
-						i = (i + 1) % len(ids)
-					}
-					m.uiFocus = ids[i]
-				}
+				m.uiFocus = uiCycle(m.uiFocus, ids, key == "shift+tab")
 				return m, nil, true
 			}
 			h, s := m.height, m.scroll
@@ -306,18 +269,18 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 				}
 			}
 			if len(ids) > 0 {
-				i := -1
+				names := []string{}
+				for _, r := range ids {
+					names = append(names, r.ID)
+				}
+				m.uiFocus = uiCycle(m.uiFocus, names, key == "shift+tab")
+				i := 0
 				for j, r := range ids {
 					if r.ID == m.uiFocus {
 						i = j
+						break
 					}
 				}
-				if key == "shift+tab" {
-					i = (i - 1 + len(ids)) % len(ids)
-				} else {
-					i = (i + 1) % len(ids)
-				}
-				m.uiFocus = ids[i].ID
 				m.searchFocus = ""
 				m.input.Blur()
 				if ids[i].Y < m.scroll {

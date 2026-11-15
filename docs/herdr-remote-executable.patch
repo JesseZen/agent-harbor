@@ -1,0 +1,643 @@
+diff --git a/src/cli/machine.rs b/src/cli/machine.rs
+index 2459805..540c0ad 100644
+--- a/src/cli/machine.rs
++++ b/src/cli/machine.rs
+@@ -32,6 +32,8 @@ struct MachineListRow<'a> {
+     session: &'a str,
+     enabled: bool,
+     selected: bool,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    remote_executable: Option<&'a str>,
+ }
+ 
+ pub(super) fn run_machine_command(args: &[String]) -> std::io::Result<i32> {
+@@ -75,6 +77,7 @@ fn list(args: &[String]) -> std::io::Result<i32> {
+             session: &profile.session,
+             enabled: profile.enabled,
+             selected: catalog.selected_profile.as_ref() == Some(&profile.id),
++            remote_executable: profile.remote_executable.as_deref(),
+         })
+         .collect::<Vec<_>>();
+     if json {
+@@ -136,7 +139,11 @@ fn status(args: &[String]) -> std::io::Result<i32> {
+             let (status, error) = if !profile.enabled {
+                 ("disabled", None)
+             } else {
+-                match crate::remote::check_saved_ssh(&profile.target, &profile.session) {
++                match crate::remote::check_saved_ssh(
++                    &profile.target,
++                    &profile.session,
++                    profile.remote_executable.as_deref(),
++                ) {
+                     Ok(()) => ("reachable", None),
+                     Err(error) => {
+                         let message = error.to_string();
+@@ -199,7 +206,11 @@ fn reconnect(args: &[String]) -> std::io::Result<i32> {
+         eprintln!("SSH authentication failed; the saved machine was not changed.");
+         return Ok(1);
+     }
+-    crate::remote::check_saved_ssh(&profile.target, &profile.session)?;
++    crate::remote::check_saved_ssh(
++        &profile.target,
++        &profile.session,
++        profile.remote_executable.as_deref(),
++    )?;
+     println!(
+         "Machine {} is reachable. Open Herdr clients retry within 30 seconds.",
+         profile.id
+@@ -212,17 +223,22 @@ struct AddArgs {
+     target: String,
+     label: Option<String>,
+     session: Option<String>,
++    executable: Option<String>,
+ }
+ 
+ fn parse_add_args(args: &[String]) -> Result<AddArgs, String> {
+-    let args = super::expand_equals_args(args, &["--label", "--remote-session"]);
++    let args = super::expand_equals_args(
++        args,
++        &["--label", "--remote-session", "--remote-executable"],
++    );
+     let mut target = None;
+     let mut label = None;
+     let mut session = None;
++    let mut executable = None;
+     let mut index = 0;
+     while index < args.len() {
+         let (name, value) = match args[index].as_str() {
+-            "--label" | "--remote-session" => {
++            "--label" | "--remote-session" | "--remote-executable" => {
+                 let Some(value) = args.get(index + 1) else {
+                     return Err(format!("missing value for {}", args[index]));
+                 };
+@@ -239,6 +255,13 @@ fn parse_add_args(args: &[String]) -> Result<AddArgs, String> {
+             }
+         };
+         match name {
++            "--remote-executable" if executable.is_none() => {
++                crate::remote::validate_remote_executable(&value)?;
++                executable = Some(value);
++            }
++            "--remote-executable" => {
++                return Err("--remote-executable can only be specified once".into())
++            }
+             "--label" if label.is_none() => label = Some(value),
+             "--remote-session" if session.is_none() => session = Some(value),
+             "--remote-session" => {
+@@ -258,6 +281,7 @@ fn parse_add_args(args: &[String]) -> Result<AddArgs, String> {
+         target,
+         label,
+         session,
++        executable,
+     })
+ }
+ 
+@@ -301,6 +325,7 @@ fn add(args: &[String]) -> std::io::Result<i32> {
+         target,
+         label,
+         session,
++        executable,
+     } = match parse_add_args(args) {
+         Ok(args) => args,
+         Err(error) => {
+@@ -312,7 +337,8 @@ fn add(args: &[String]) -> std::io::Result<i32> {
+     let session =
+         if session.is_none() && std::io::stdin().is_terminal() && std::io::stderr().is_terminal() {
+             let discovered = (|| {
+-                let connection = crate::remote::SavedSshSetup::connect(&target)?;
++                let connection =
++                    crate::remote::SavedSshSetup::connect(&target, executable.as_deref())?;
+                 let sessions = connection.running_sessions()?;
+                 let session = select_remote_session(&sessions, &target)?;
+                 setup = Some(connection);
+@@ -347,7 +373,7 @@ fn add(args: &[String]) -> std::io::Result<i32> {
+     }
+     let metadata = match setup
+         .map(Ok)
+-        .unwrap_or_else(|| crate::remote::SavedSshSetup::connect(&target))
++        .unwrap_or_else(|| crate::remote::SavedSshSetup::connect(&target, executable.as_deref()))
+         .and_then(|setup| setup.prepare(&session))
+     {
+         Ok(metadata) => metadata,
+@@ -376,6 +402,12 @@ fn add(args: &[String]) -> std::io::Result<i32> {
+             return Ok(2);
+         }
+     };
++    catalog
++        .ssh
++        .iter_mut()
++        .find(|profile| profile.id == id)
++        .expect("new profile")
++        .remote_executable = executable;
+     store_catalog(&catalog).map_err(|error| {
+         std::io::Error::other(format!(
+             "remote prepared, but machine was not saved: {error}"
+@@ -583,6 +615,37 @@ fn store_catalog(catalog: &EndpointCatalog) -> std::io::Result<()> {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn explicit_remote_executable_is_a_path_and_is_not_repeated() {
++        let parse = |values: &[&str]| {
++            parse_add_args(&values.iter().map(|v| v.to_string()).collect::<Vec<_>>())
++        };
++        assert_eq!(
++            parse(&[
++                "host",
++                "--remote-executable",
++                "/srv/Harbor's workspace/remote"
++            ])
++            .unwrap()
++            .executable
++            .as_deref(),
++            Some("/srv/Harbor's workspace/remote")
++        );
++        for values in [
++            vec!["host", "--remote-executable", "herdr"],
++            vec!["host", "--remote-executable", "/bin/a\nwrong"],
++            vec![
++                "host",
++                "--remote-executable",
++                "/bin/a",
++                "--remote-executable",
++                "/bin/b",
++            ],
++        ] {
++            assert!(parse(&values).is_err());
++        }
++    }
++
+     #[test]
+     fn add_parser_preserves_values_across_argument_orders() {
+         for (args, session) in [
+@@ -611,6 +674,7 @@ mod tests {
+             assert_eq!(
+                 parse_add_args(&args).unwrap(),
+                 AddArgs {
++                    executable: None,
+                     target: "workstation.coder".into(),
+                     label: Some("coder".into()),
+                     session: session.map(str::to_owned),
+@@ -697,6 +761,7 @@ mod tests {
+             session: "agents",
+             enabled: true,
+             selected: false,
++            remote_executable: None,
+         })
+         .unwrap();
+         assert!(!encoded.contains("password"));
+diff --git a/src/cli/spec/machine.rs b/src/cli/spec/machine.rs
+index dc4eefa..1f1ada4 100644
+--- a/src/cli/spec/machine.rs
++++ b/src/cli/spec/machine.rs
+@@ -37,7 +37,9 @@ pub(super) fn command() -> Command {
+                 .arg(
+                     option("remote-session", "NAME")
+                         .help("Select a session explicitly (default without an interactive terminal)"),
+-                ),
++                )
++                .arg(option("remote-executable", "PATH")
++                    .help("Use this exact remote POSIX executable without installation fallback")),
+         )
+         .subcommand(
+             profile_command("rename", "Rename a saved SSH machine").arg(
+diff --git a/src/cli/target.rs b/src/cli/target.rs
+index cb9e6ac..88f58f6 100644
+--- a/src/cli/target.rs
++++ b/src/cli/target.rs
+@@ -79,6 +79,7 @@ pub(super) fn api_client() -> io::Result<ApiClient> {
+                     target.profile.id.as_str(),
+                     &target.profile.target,
+                     &target.profile.session,
++                    target.profile.remote_executable.as_deref(),
+                     true,
+                     true,
+                 )
+@@ -140,6 +141,7 @@ pub(super) fn server_status(
+             target.profile.id.as_str(),
+             &target.profile.target,
+             &target.profile.session,
++            target.profile.remote_executable.as_deref(),
+             !stale_metadata,
+             false,
+         )?);
+diff --git a/src/client/endpoint/activation_tests.rs b/src/client/endpoint/activation_tests.rs
+index 3cece78..0ac4007 100644
+--- a/src/client/endpoint/activation_tests.rs
++++ b/src/client/endpoint/activation_tests.rs
+@@ -87,6 +87,7 @@ fn shell_and_registry_with_source_failure(source_fail_after_write: bool) -> Test
+         crate::client::ClientShellConfig::from_config(&crate::config::Config::default()),
+     );
+     let profile = super::super::SavedSshEndpoint {
++        remote_executable: None,
+         id: super::super::ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
+         label: "Remote".into(),
+         target: "dev@example.com".into(),
+diff --git a/src/client/endpoint/catalog.rs b/src/client/endpoint/catalog.rs
+index b1812ce..0fd4dbc 100644
+--- a/src/client/endpoint/catalog.rs
++++ b/src/client/endpoint/catalog.rs
+@@ -22,6 +22,8 @@ pub(crate) struct SavedSshEndpoint {
+     pub(crate) label: String,
+     pub(crate) target: String,
+     pub(crate) session: String,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub(crate) remote_executable: Option<String>,
+     pub(crate) enabled: bool,
+ }
+ 
+@@ -36,6 +38,7 @@ impl SavedSshEndpoint {
+             label: label.into(),
+             target: target.into(),
+             session: session.into(),
++            remote_executable: None,
+             enabled: true,
+         };
+         profile.validate()?;
+@@ -67,6 +70,9 @@ impl SavedSshEndpoint {
+             return Err("SSH target must not contain a password".into());
+         }
+         crate::session::validate_name(&self.session)?;
++        if let Some(path) = &self.remote_executable {
++            crate::remote::validate_remote_executable(path)?;
++        }
+         Ok(())
+     }
+ }
+@@ -395,6 +401,25 @@ mod tests {
+             .join("endpoints.json")
+     }
+ 
++    #[test]
++    fn explicit_executable_roundtrips_and_old_profiles_default_to_discovery() {
++        let mut profile = SavedSshEndpoint::new("Build", "host", "agent-harbor").unwrap();
++        profile.remote_executable = Some("/srv/private workspace/remote-herdr-identity".into());
++        profile.validate().unwrap();
++        let encoded = serde_json::to_string(&profile).unwrap();
++        let decoded: SavedSshEndpoint = serde_json::from_str(&encoded).unwrap();
++        assert_eq!(profile, decoded);
++        profile.remote_executable = None;
++        let old = serde_json::to_string(&profile).unwrap();
++        assert!(!old.contains("remote_executable"));
++        assert!(serde_json::from_str::<SavedSshEndpoint>(&old)
++            .unwrap()
++            .remote_executable
++            .is_none());
++        profile.remote_executable = Some("relative/herdr".into());
++        assert!(profile.validate().is_err());
++    }
++
+     #[test]
+     fn catalog_roundtrip_persists_profiles_without_secret_fields() {
+         let path = path("roundtrip");
+diff --git a/src/client/endpoint/supervisor.rs b/src/client/endpoint/supervisor.rs
+index a46820c..75c89a9 100644
+--- a/src/client/endpoint/supervisor.rs
++++ b/src/client/endpoint/supervisor.rs
+@@ -478,6 +478,7 @@ fn connect_once(
+                 profile.id.as_str(),
+                 &profile.target,
+                 &profile.session,
++                profile.remote_executable.as_deref(),
+                 Arc::clone(&cancelled),
+             )?;
+             (connected.stream, Box::new(connected.bridge))
+@@ -822,6 +823,7 @@ mod tests {
+ 
+     fn profile() -> super::super::SavedSshEndpoint {
+         super::super::SavedSshEndpoint {
++            remote_executable: None,
+             id: ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
+             label: "Build".into(),
+             target: "build".into(),
+diff --git a/src/client/shell/tests/endpoint_requests.rs b/src/client/shell/tests/endpoint_requests.rs
+index 1f51f06..9d3b83e 100644
+--- a/src/client/shell/tests/endpoint_requests.rs
++++ b/src/client/shell/tests/endpoint_requests.rs
+@@ -92,6 +92,7 @@ fn worktree_created_result() -> crate::api::schema::ResponseResult {
+ 
+ fn add_remote(state: &mut ClientShellState) -> ClientEndpointId {
+     let profile = crate::client::endpoint::SavedSshEndpoint {
++        remote_executable: None,
+         id: crate::client::endpoint::ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
+         label: "Build".into(),
+         target: "dev@build.example".into(),
+diff --git a/src/client/shell/tests/endpoints.rs b/src/client/shell/tests/endpoints.rs
+index 5d92c45..810b1e3 100644
+--- a/src/client/shell/tests/endpoints.rs
++++ b/src/client/shell/tests/endpoints.rs
+@@ -9,6 +9,7 @@ use crossterm::event::{KeyModifiers, MouseButton, MouseEventKind};
+ 
+ fn remote_profile() -> SavedSshEndpoint {
+     SavedSshEndpoint {
++        remote_executable: None,
+         id: ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
+         label: "Build".into(),
+         target: "dev@build.example".into(),
+diff --git a/src/client/shell/tests/link_hover.rs b/src/client/shell/tests/link_hover.rs
+index 40173fd..cbb2611 100644
+--- a/src/client/shell/tests/link_hover.rs
++++ b/src/client/shell/tests/link_hover.rs
+@@ -93,6 +93,7 @@ fn ctrl_hover_pending_request_does_not_block_another_endpoint_with_the_same_boot
+     let mouse = hover_mouse(&state, 1, 0);
+     let old_id = hover_request(&state.handle_raw_events(vec![RawInputEvent::Mouse(mouse)]));
+     let profile = SavedSshEndpoint {
++        remote_executable: None,
+         id: ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
+         label: "Other connection".into(),
+         target: "host".into(),
+diff --git a/src/client/shell/tests/mobile.rs b/src/client/shell/tests/mobile.rs
+index 4dac549..5e43598 100644
+--- a/src/client/shell/tests/mobile.rs
++++ b/src/client/shell/tests/mobile.rs
+@@ -73,6 +73,7 @@ fn mobile_layout_reserves_only_client_header() {
+ fn mobile_switcher_can_activate_an_online_saved_machine() {
+     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+     let profile = crate::client::endpoint::SavedSshEndpoint {
++        remote_executable: None,
+         id: crate::client::endpoint::ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
+         label: "Build".into(),
+         target: "build".into(),
+diff --git a/src/remote.rs b/src/remote.rs
+index 39c8bd5..ab37d22 100644
+--- a/src/remote.rs
++++ b/src/remote.rs
+@@ -12,6 +12,16 @@ pub(crate) use attach::*;
+ pub(crate) use host::run_remote_client_bridge;
+ pub(crate) use saved::*;
+ 
++// A path, never a shell command. Explicit targets must not fall back to PATH.
++pub(crate) fn validate_remote_executable(path: &str) -> Result<(), String> {
++    if !path.starts_with('/') || path.len() > 4096 || path.chars().any(char::is_control) {
++        return Err(
++            "remote executable must be an absolute POSIX path without control characters".into(),
++        );
++    }
++    Ok(())
++}
++
+ pub(crate) fn run_remote_api_bridge(args: &[String]) -> std::io::Result<()> {
+     match args {
+         [] => {
+diff --git a/src/remote/attach.rs b/src/remote/attach.rs
+index 6a0338d..5208f5d 100644
+--- a/src/remote/attach.rs
++++ b/src/remote/attach.rs
+@@ -106,13 +106,18 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
+     )
+ }
+ 
+-pub(crate) fn check_saved_ssh(target: &str, session: &str) -> io::Result<()> {
++pub(crate) fn check_saved_ssh(
++    target: &str,
++    session: &str,
++    executable: Option<&str>,
++) -> io::Result<()> {
+     super::validate_remote_target(target)
+         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+     crate::session::validate_name(session)
+         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+     let mut ssh = RemoteSsh::new_noninteractive(target.to_owned());
+     ssh.session_name = session.to_owned();
++    ssh.set_remote_executable(executable)?;
+     let check = || {
+         let remote = find_installed_remote_herdr(&ssh)?;
+         match remote_server_status(&ssh, &remote, false)? {
+@@ -152,18 +157,19 @@ pub(crate) struct SavedSshSetup {
+ }
+ 
+ impl SavedSshSetup {
+-    pub(crate) fn connect(target: &str) -> io::Result<Self> {
++    pub(crate) fn connect(target: &str, executable: Option<&str>) -> io::Result<Self> {
+         super::validate_remote_target(target)
+             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+         let manage = crate::config::Config::load()
+             .config
+             .remote
+             .manage_ssh_config;
+-        let ssh = RemoteSsh::new(
++        let mut ssh = RemoteSsh::new(
+             target.to_owned(),
+             manage,
+             crate::session::DEFAULT_SESSION_NAME.to_owned(),
+         );
++        ssh.set_remote_executable(executable)?;
+         let remote_herdr =
+             RemoteHerdr::for_platform(detect_remote_platform(&ssh)?.into_setup_platform());
+         let candidates = remote_binary_candidates(&ssh, &remote_herdr)?;
+@@ -815,6 +821,7 @@ fn authentication_command_with_config(
+ }
+ 
+ pub(super) struct RemoteSsh {
++    remote_executable: Option<String>,
+     target: String,
+     session_name: String,
+     managed_config: Option<ManagedSshConfig>,
+@@ -835,6 +842,7 @@ impl RemoteSsh {
+         };
+ 
+         Self {
++            remote_executable: None,
+             target,
+             session_name,
+             managed_config,
+@@ -854,6 +862,15 @@ impl RemoteSsh {
+         ssh
+     }
+ 
++    pub(super) fn set_remote_executable(&mut self, path: Option<&str>) -> io::Result<()> {
++        if let Some(path) = path {
++            super::validate_remote_executable(path)
++                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
++        }
++        self.remote_executable = path.map(str::to_owned);
++        Ok(())
++    }
++
+     fn target(&self) -> &str {
+         &self.target
+     }
+@@ -1507,6 +1524,18 @@ fn prepare_discovered_remote_herdr(
+     live_handoff_enabled: bool,
+     require_surface_interest: bool,
+ ) -> io::Result<PreparedRemoteHerdr> {
++    if ssh.remote_executable.is_some() {
++        let candidate = candidates
++            .first()
++            .ok_or_else(|| io::Error::other("explicit remote executable unavailable"))?;
++        if !remote_binary_supports_endpoint_requirement(ssh, candidate, require_surface_interest)? {
++            return Err(io::Error::other("explicit remote executable is missing or incompatible; prepare that installation explicitly"));
++        }
++        return Ok(PreparedRemoteHerdr {
++            remote_herdr: candidate.clone(),
++            stop_after_install_approved: false,
++        });
++    }
+     if remote_herdr.platform.is_windows() {
+         return prepare_windows_remote_herdr(
+             ssh,
+@@ -1676,6 +1705,28 @@ pub(super) fn discover_remote_api_metadata(
+     session: &str,
+ ) -> io::Result<crate::client::endpoint::SshMachineMetadata> {
+     let platform = detect_remote_platform(ssh)?.platform;
++    if let Some(path) = &ssh.remote_executable {
++        if platform.is_windows() {
++            return Err(io::Error::new(
++                io::ErrorKind::Unsupported,
++                "explicit remote executable requires a POSIX host",
++            ));
++        }
++        let candidate = RemoteHerdr::for_platform(platform).with_posix_path(path);
++        let probe =
++            ssh.framed_user_shell_output(&remote_api_bridge_command(&candidate, session, true))?;
++        if !probe.status.success()
++            || String::from_utf8_lossy(&probe.stdout).trim() != "herdr-api-bridge-v1"
++        {
++            return Err(command_failed(
++                "explicit remote executable API check failed",
++                &probe,
++            ));
++        }
++        return candidate
++            .machine_metadata()
++            .ok_or_else(|| io::Error::other("invalid explicit executable metadata"));
++    }
+     if !platform.is_windows() {
+         // Deliver the discovery script on stdin (`/bin/sh -s`). OpenSSH for
+         // Windows hands the SSH command argument to the login shell wrapped in
+@@ -1851,6 +1902,15 @@ fn remote_binary_candidates(
+     ssh: &RemoteSsh,
+     remote_herdr: &RemoteHerdr,
+ ) -> io::Result<Vec<RemoteHerdr>> {
++    if let Some(path) = &ssh.remote_executable {
++        if remote_herdr.platform.is_windows() {
++            return Err(io::Error::new(
++                io::ErrorKind::Unsupported,
++                "explicit remote executable requires a POSIX host",
++            ));
++        }
++        return Ok(vec![remote_herdr.clone().with_posix_path(path)]);
++    }
+     if remote_herdr.platform.is_windows() {
+         let output = ssh.framed_user_shell_output(&windows_remote_binary_candidate_command())?;
+         if !output.status.success() {
+@@ -3678,6 +3738,29 @@ mod tests {
+     use super::*;
+ 
+     #[cfg(unix)]
++    #[test]
++    fn explicit_remote_executable_never_discovers_another_installation() {
++        let mut ssh = RemoteSsh::new("unused-host".into(), false, "agent-harbor".into());
++        let path = "/srv/Harbor's workspace/remote-herdr-fixed";
++        ssh.set_remote_executable(Some(path)).unwrap();
++        let template = RemoteHerdr::for_platform(RemotePlatform {
++            os: "linux",
++            arch: "x86_64",
++        });
++        let candidates = remote_binary_candidates(&ssh, &template).unwrap();
++        assert_eq!(candidates.len(), 1);
++        assert_eq!(candidates[0].resolved_executable.as_deref(), Some(path));
++        assert!(candidates[0]
++            .executable
++            .command(&["status", "client"])
++            .starts_with(&shell_quote(path)));
++        let windows = RemoteHerdr::for_platform(RemotePlatform {
++            os: "windows",
++            arch: "x86_64",
++        });
++        assert!(remote_binary_candidates(&ssh, &windows).is_err());
++    }
++
+     #[test]
+     #[ignore = "requires a private loopback OpenSSH fixture"]
+     fn shared_transport_loopback_fixture() {
+@@ -3688,6 +3771,7 @@ mod tests {
+         let config_path = directory.join("config");
+         fs::copy(config, &config_path).unwrap();
+         let ssh = RemoteSsh {
++            remote_executable: None,
+             target: "fixture".into(),
+             session_name: "fixture".into(),
+             managed_config: Some(ManagedSshConfig {
+@@ -4310,6 +4394,7 @@ mod tests {
+         let config_path = managed_config.options.config_path.clone();
+         let control_path = managed_config.options.control_path.clone().unwrap();
+         let ssh = RemoteSsh {
++            remote_executable: None,
+             target: "example".to_string(),
+             session_name: crate::session::DEFAULT_SESSION_NAME.into(),
+             managed_config: Some(managed_config),
+@@ -4382,6 +4467,7 @@ mod tests {
+         );
+ 
+         let ssh = RemoteSsh {
++            remote_executable: None,
+             target: "example".to_string(),
+             session_name: crate::session::DEFAULT_SESSION_NAME.into(),
+             managed_config: Some(managed_config),
+@@ -4462,6 +4548,7 @@ mod tests {
+         )
+         .expect("write isolated probe config");
+         let ssh = RemoteSsh {
++            remote_executable: None,
+             target: "herdr-probe.invalid".into(),
+             session_name: "probe-options".into(),
+             managed_config: Some(managed_config),
+@@ -4603,6 +4690,7 @@ mod tests {
+     #[test]
+     fn remote_ssh_commands_compress_without_managed_config() {
+         let ssh = RemoteSsh {
++            remote_executable: None,
+             target: "example".to_string(),
+             session_name: crate::session::DEFAULT_SESSION_NAME.into(),
+             managed_config: None,
+diff --git a/src/remote/saved.rs b/src/remote/saved.rs
+index 58f04c9..132a808 100644
+--- a/src/remote/saved.rs
++++ b/src/remote/saved.rs
+@@ -21,9 +21,11 @@ pub(crate) fn connect_saved_ssh(
+     profile_id: &str,
+     target: &str,
+     session: &str,
++    executable: Option<&str>,
+     cancelled: Arc<AtomicBool>,
+ ) -> io::Result<SavedSshStream> {
+     let mut ssh = validated_saved_ssh(profile_id, target, session)?;
++    ssh.set_remote_executable(executable)?;
+     ssh.cancelled = Arc::clone(&cancelled);
+     ssh.prepare_shared_transport()?;
+     let remote_herdr = find_installed_remote_herdr(&ssh)?;
+@@ -70,14 +72,19 @@ impl SavedSshApiBridge {
+         profile_id: &str,
+         target: &str,
+         session: &str,
++        executable: Option<&str>,
+         use_cached_metadata: bool,
+         allow_retry: bool,
+     ) -> io::Result<Self> {
+-        let ssh = validated_saved_ssh(profile_id, target, session)?;
++        let mut ssh = validated_saved_ssh(profile_id, target, session)?;
++        ssh.set_remote_executable(executable)?;
+         let mut can_retry = allow_retry;
+         let metadata_cache =
+             crate::client::endpoint::SshMetadataCache::new(profile_id, target, session)?;
+-        let cached = use_cached_metadata.then(|| metadata_cache.load()).flatten();
++        let cached = use_cached_metadata
++            .then(|| metadata_cache.load())
++            .flatten()
++            .filter(|metadata| executable.is_none_or(|path| metadata.executable == path));
+         let used_cached_metadata = cached.is_some();
+         let metadata = match cached {
+             Some(metadata) => metadata,
+diff --git a/src/server/headless/tests/surface_interest.rs b/src/server/headless/tests/surface_interest.rs
+index a7da046..a10096c 100644
+--- a/src/server/headless/tests/surface_interest.rs
++++ b/src/server/headless/tests/surface_interest.rs
+@@ -554,6 +554,7 @@ async fn two_headless_servers_drive_atomic_endpoint_handoff() {
+     let remote_snapshot = client_shell_snapshot(&target_control);
+ 
+     let profile = SavedSshEndpoint {
++        remote_executable: None,
+         id: ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
+         label: "Remote".into(),
+         target: "dev@example.com".into(),

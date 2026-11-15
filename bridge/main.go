@@ -26,6 +26,10 @@ func run(args []string) error {
 		return openHerdr()
 	}
 	switch args[0] {
+	case "remote":
+		return remoteCommand(args[1:])
+	case "_remote-herdr":
+		return remoteHerdr(args[1:])
 	case "version", "--version":
 		fmt.Println("agent-harbor-bridge " + version)
 		return nil

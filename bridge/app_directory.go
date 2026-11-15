@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -19,6 +20,8 @@ const directoryCap = 2000
 
 type directoryEntry struct{ path, source string }
 type directoryPicker struct {
+	details                    bool
+	detailScroll               int
 	previewPath, preview       string
 	previewGeneration          uint64
 	previewCancel              context.CancelFunc
@@ -26,6 +29,7 @@ type directoryPicker struct {
 	query                      textinput.Model
 	saved, root, filter        string
 	entries                    []directoryEntry
+	known                      []directoryEntry
 	cursor                     int
 	list, searching, truncated bool
 	err                        error
@@ -133,6 +137,8 @@ func (m *harborModel) openDirectoryPicker() tea.Cmd {
 	for _, path := range m.environment.Projects {
 		add(path, "recent")
 	}
+	p.known = append([]directoryEntry(nil), p.entries...)
+	m.uiFocus = "search"
 	m.picker = p
 	m.screen = "new-directory"
 	return m.requestDirectoryPreview()
@@ -185,6 +191,8 @@ func (m harborModel) updateDirectory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.formActive {
 			m.screen = "new-form"
 		}
+		m.uiFocus = ""
+		m.formFocus = 0
 		m.input.SetValue(p.saved)
 		return m, nil
 	case "tab":
@@ -232,6 +240,8 @@ func (m harborModel) updateDirectory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		p.generation++
 		p.stopPreview()
+		m.uiFocus = ""
+		m.formFocus = 0
 		m.input.SetValue(path)
 		m.input.CursorEnd()
 		m.screen = "new-project"
@@ -264,6 +274,12 @@ func (m harborModel) updateDirectory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	p.query, cmd = p.query.Update(msg)
 	if old != p.query.Value() {
 		q := p.query.Value()
+		if p.cancel != nil {
+			p.cancel()
+		}
+		p.generation++
+		p.searching = false
+		p.err = nil
 		p.filter = q
 		p.cursor = 0
 		if strings.HasPrefix(q, "/") || strings.HasPrefix(q, "~/") {
@@ -278,6 +294,10 @@ func (m harborModel) updateDirectory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				p.filter = ""
 			}
 			return m, tea.Batch(cmd, m.browseDirectory(root, false))
+		}
+		if p.scope != "known sources" {
+			p.entries = append([]directoryEntry(nil), p.known...)
+			p.scope = "known sources"
 		}
 		return m, tea.Batch(cmd, m.requestDirectoryPreview())
 	}
@@ -402,4 +422,220 @@ func (m *harborModel) requestDirectoryPreview() tea.Cmd {
 	p.previewCancel = cancel
 	generation := p.previewGeneration
 	return func() tea.Msg { return loadDirectoryPreview(ctx, path, generation) }
+}
+
+// Directory controls use the same layout and stable object IDs as the other pages.
+func (m harborModel) directoryPage() uiPage {
+	p := newUIPage(m.width, m.height)
+	d := m.picker
+	rows := d.matches()
+	p.line(paint(fg("brand"), "📂 Choose project"))
+	p.search(d.query.Value(), "Search known projects or enter /path/", m.uiFocus == "search")
+	scope := "Known projects · search only known paths"
+	if d.scope != "known sources" {
+		scope = "Browse: " + d.scope + " · " + cleanUI(d.root)
+	}
+	p.line(paint(fg("muted"), scope))
+	status := "↑↓ select · Tab controls · Enter use · Esc cancel"
+	if d.searching {
+		status = "Searching… Ctrl+X stop"
+	} else if d.err != nil {
+		status = "Error: " + cleanUI(d.err.Error()) + " · Retry or Known"
+	} else if d.truncated {
+		status = "Results truncated; narrow browse root"
+	} else if len(rows) == 0 {
+		status = "No matching directories; change search or browse"
+	}
+	p.line(status)
+	// Keep actions above the variable-height list so even short popups can return.
+	disabled := ""
+	if len(rows) == 0 || d.searching {
+		disabled = "Select a directory first"
+	}
+	p.buttons([]uiAction{{ID: "dir-use", Label: "Use this folder", Key: "enter", Primary: true, Disabled: disabled}, {ID: "dir-cancel", Label: "Cancel", Key: "esc"}}, m.uiFocus)
+	p.buttons([]uiAction{{ID: "dir-browse", Label: "Browse", Key: "ctrl+b"}, {ID: "dir-recursive", Label: "Recursive", Key: "ctrl+r"}, {ID: "dir-known", Label: "Known", Key: "ctrl+k"}}, m.uiFocus)
+	p.buttons([]uiAction{{ID: "dir-retry", Label: "Retry", Key: "ctrl+t"}, {ID: "dir-details", Label: "Full path / preview", Key: "ctrl+p"}}, m.uiFocus)
+	if d.details {
+		selected := d.root
+		if len(rows) > 0 {
+			selected = rows[min(d.cursor, len(rows)-1)].path
+		}
+		text := cleanUI(selected) + "\n" + cleanUI(d.preview)
+		if d.err != nil {
+			text += "\nError: " + cleanUI(d.err.Error())
+		}
+		lines := strings.Split(ansi.Wrap(text, max(1, p.Width-4), ""), "\n")
+		p.line("↑↓ scroll path · Esc back to results")
+		available := max(0, p.Height-len(p.Lines))
+		offset := min(d.detailScroll, max(0, len(lines)-available))
+		for _, line := range lines[offset:min(len(lines), offset+available)] {
+			p.line(line)
+		}
+		return p
+	}
+	remaining := max(0, p.Height-len(p.Lines))
+	count := remaining / 2
+	start := max(0, d.cursor-count+1)
+	for i := start; i < min(len(rows), start+count); i++ {
+		e := rows[i]
+		y := len(p.Lines)
+		mark := "  "
+		if i == d.cursor {
+			mark = "› "
+		}
+		style := fg("text")
+		if i == d.cursor {
+			style = style.Background(lipgloss.Color(harborPalette["selBg"]))
+		}
+		p.line(paint(style, mark+"📂 "+cleanUI(filepath.Base(e.path))) + paint(fg("muted"), " · "+cleanUI(e.source)))
+		p.line(paint(fg("value"), "    "+cleanUI(e.path)))
+		p.hit("dir-path:"+e.path, 1, y, p.Width-2, 2)
+	}
+	if len(rows) > 0 {
+		selected := rows[min(d.cursor, len(rows)-1)].path
+		// Wrap the complete selected path by terminal cells for long Unicode paths.
+		path := cleanUI(selected)
+		if p.Height-len(p.Lines) > 2 {
+			for _, line := range strings.Split(ansi.Wrap(path, max(1, p.Width-4), ""), "\n") {
+				if len(p.Lines) >= p.Height-1 {
+					break
+				}
+				p.line(line)
+			}
+		}
+		if len(p.Lines) < p.Height {
+			p.line(paint(fg("muted"), d.preview))
+		}
+	}
+	return p
+}
+func (m harborModel) directoryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	activate := func(id string) (tea.Model, tea.Cmd, bool) {
+		d := &m.picker
+		switch {
+		case id == "dir-details":
+			d.details = !d.details
+			d.detailScroll = 0
+			return m, nil, true
+		case id == "search":
+			m.uiFocus = "search"
+			d.list = false
+			d.query.Focus()
+			return m, nil, true
+		case strings.HasPrefix(id, "dir-path:"):
+			for i, e := range d.matches() {
+				if "dir-path:"+e.path == id {
+					d.cursor = i
+					break
+				}
+			}
+			m.uiFocus = "dir-list"
+			d.list = true
+			d.query.Blur()
+			return m, m.requestDirectoryPreview(), true
+		case id == "dir-known":
+			if d.cancel != nil {
+				d.cancel()
+			}
+			d.generation++
+			d.searching = false
+			d.err = nil
+			d.scope = "known sources"
+			d.entries = append([]directoryEntry(nil), d.known...)
+			d.query.SetValue("")
+			d.filter = ""
+			d.cursor = 0
+			return m, m.requestDirectoryPreview(), true
+		case id == "dir-browse" || id == "dir-recursive" || id == "dir-retry":
+			root := d.root
+			rows := d.matches()
+			if id != "dir-retry" && len(rows) > 0 {
+				root = rows[min(d.cursor, len(rows)-1)].path
+			}
+			d.query.SetValue("")
+			d.filter = ""
+			return m, m.browseDirectory(root, id == "dir-recursive" || id == "dir-retry" && d.scope == "recursive"), true
+		case id == "dir-use":
+			n, c := m.updateDirectory(uiKey("enter"))
+			return n, c, true
+		case id == "dir-cancel":
+			n, c := m.updateDirectory(uiKey("esc"))
+			return n, c, true
+		}
+		return m, nil, true
+	}
+	if mouse, ok := msg.(tea.MouseMsg); ok {
+		if mouse.Action == tea.MouseActionPress {
+			if mouse.Button == tea.MouseButtonLeft {
+				return activate(m.directoryPage().target(mouse.X, mouse.Y))
+			}
+			key := ""
+			if mouse.Button == tea.MouseButtonWheelDown {
+				key = "down"
+			}
+			if mouse.Button == tea.MouseButtonWheelUp {
+				key = "up"
+			}
+			if key != "" {
+				n, c := m.updateDirectory(uiKey(key))
+				return n, c, true
+			}
+		}
+		return m, nil, true
+	}
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil, false
+	}
+	if m.picker.details {
+		switch key.String() {
+		case "esc":
+			m.picker.details = false
+			return m, nil, true
+		case "up":
+			m.picker.detailScroll = max(0, m.picker.detailScroll-1)
+			return m, nil, true
+		case "down":
+			m.picker.detailScroll++
+			return m, nil, true
+		}
+	}
+	switch key.String() {
+	case "ctrl+p":
+		return activate("dir-details")
+	case "tab", "shift+tab":
+		ids := []string{"search", "dir-list", "dir-use", "dir-cancel", "dir-browse", "dir-recursive", "dir-known", "dir-retry", "dir-details"}
+		i := 0
+		for j, id := range ids {
+			if id == m.uiFocus {
+				i = j
+			}
+		}
+		step := 1
+		if key.String() == "shift+tab" {
+			step = len(ids) - 1
+		}
+		m.uiFocus = ids[(i+step)%len(ids)]
+		m.picker.list = m.uiFocus != "search"
+		if m.picker.list {
+			m.picker.query.Blur()
+		} else {
+			m.picker.query.Focus()
+		}
+		return m, nil, true
+	case "ctrl+b":
+		return activate("dir-browse")
+	case "ctrl+r":
+		return activate("dir-recursive")
+	case "ctrl+k":
+		return activate("dir-known")
+	case "ctrl+t":
+		return activate("dir-retry")
+	case "enter":
+		if strings.HasPrefix(m.uiFocus, "dir-") && m.uiFocus != "dir-list" {
+			return activate(m.uiFocus)
+		}
+	}
+	n, c := m.updateDirectory(key)
+	return n, c, true
 }

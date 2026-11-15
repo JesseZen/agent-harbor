@@ -35,6 +35,8 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 	}
 	p := newUIPage(m.width, m.height)
 	switch m.screen {
+	case "new-directory":
+		return m.directoryPage(), true
 	case "new-form":
 		p.line(paint(fg("brand"), "New session"))
 		model := "Native " + m.selectedClient() + " configuration (read-only)"
@@ -130,6 +132,9 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 	return p, true
 }
 func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	if m.screen == "new-directory" && m.formActive {
+		return m.directoryPageInput(msg)
+	}
 	p, ok := m.newSessionPage()
 	if !ok {
 		return m, nil, false

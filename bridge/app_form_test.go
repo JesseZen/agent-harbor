@@ -106,7 +106,7 @@ func TestFormPracticalSizesAndVisual(t *testing.T) {
 			m.draft.Directory = "/projects/日本語/" + strings.Repeat("long-project/", 12)
 			m.draft.Name = "作業 " + strings.Repeat("name", 24)
 			view := m.View()
-			for _, v := range []string{"Directory", "CLI", "Connection", "Name", "Create", "Cancel", "enter create"} {
+			for _, v := range []string{"Project", "Client", "Connection", "Name", "Create", "Cancel", "Enter open"} {
 				if !strings.Contains(cleanUI(view), v) {
 					t.Fatalf("%v missing %s: %s", size, v, view)
 				}
@@ -167,7 +167,7 @@ func TestFormCompactPopupFitsEveryControl(t *testing.T) {
 	for _, focus := range []int{0, 4, 5, 6} {
 		m.formFocus = focus
 		view := m.View()
-		for _, text := range []string{"Directory", "CLI", "Connection", "Model / group", "Name", "Create", "Cancel"} {
+		for _, text := range []string{"Project", "Client", "Connection", "Model", "Name", "Create", "Cancel"} {
 			if !strings.Contains(view, text) {
 				t.Fatal(text, view)
 			}
@@ -177,7 +177,7 @@ func TestFormCompactPopupFitsEveryControl(t *testing.T) {
 		}
 	}
 	m.notice = "Gateway unavailable"
-	if !strings.Contains(m.View(), "! details") {
+	if !strings.Contains(m.View(), "Details") {
 		t.Fatal(m.View())
 	}
 }
@@ -223,7 +223,7 @@ func TestFormNoColorFocusAndHelp(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	m, _ := formFixture()
 	view := m.View()
-	if strings.Contains(view, "\x1b[") || !strings.Contains(view, "› 🚀 Create") {
+	if strings.Contains(view, "\x1b[") || !strings.Contains(view, "› Create") {
 		t.Fatal(view)
 	}
 	n := appKey(m, "?").(harborModel)

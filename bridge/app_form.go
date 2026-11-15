@@ -44,6 +44,9 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			case 1:
 				m.screen = "new-cli"
+				m.input.SetValue("")
+				m.uiFocus = ""
+				m.clientCursor = 0
 			case 2:
 				m.screen = "new-connection"
 				m.connectionCursor = 0
@@ -52,13 +55,14 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			case 3:
 				if m.draft.Connection != "magpie" {
-					m.notice = "Native Codex uses its own model configuration."
+					m.notice = "Native " + m.selectedClient() + " uses its own model configuration and login; choose the model in that client."
 					return m, nil
 				}
 				cmd := m.formCatalog()
 				return m, cmd
 			case 4:
 				m.screen = "new-name"
+				m.uiFocus = ""
 				m.input.SetValue(m.draft.Name)
 				m.input.Focus()
 			case 5:

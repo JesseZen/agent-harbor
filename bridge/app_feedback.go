@@ -100,7 +100,9 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		n.restoreSearchSelection(oldID)
 	case appInstances:
-		n.restoreSearchSelection(oldID)
+		if m.contextInstance == "" {
+			n.restoreSearchSelection(oldID)
+		}
 	}
 	if n.screen == "sessions" && n.searchSelectedID() != oldID {
 		n.detailScroll = 0

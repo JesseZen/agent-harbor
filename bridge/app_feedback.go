@@ -27,6 +27,9 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.settings != nil && !isRuntimeRefresh(msg) {
 		return m.update(msg)
 	}
+	if next, cmd, handled := m.updateReviewUI(msg); handled {
+		return next, cmd
+	}
 	if next, cmd, handled := m.updateSessionsUI(msg); handled {
 		return next, cmd
 	}
@@ -43,6 +46,10 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	deferReset := func(next tea.Model, cmd tea.Cmd) (tea.Model, tea.Cmd) {
 		n := next.(harborModel)
+		if n.screen == "confirm" && m.screen != "confirm" {
+			n.reviewOpenedAt = time.Now()
+			n.uiFocus = "review:esc"
+		}
 		if n.screen == "sessions" && n.searchSelectedID() != m.searchSelectedID() {
 			n.detailScroll = 0
 		}

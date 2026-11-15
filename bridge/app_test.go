@@ -6,10 +6,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"strings"
 	"testing"
+	"time"
 )
 
 func appKey(m tea.Model, key string) tea.Model {
 	if h, ok := m.(harborModel); ok {
+		h.reviewOpenedAt = time.Time{}
+		if key == "enter" {
+			h.uiFocus = ""
+		}
+		m = h // appKey models separate, deliberate human key presses.
 		if f, ok := h.service.(*fakeApplicationService); ok && f.Sessions == nil {
 			f.Sessions = append([]sessionView{}, h.sessions...)
 		}

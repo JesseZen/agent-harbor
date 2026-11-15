@@ -52,6 +52,8 @@ type appRoute struct {
 
 // harborModel owns interaction only. All product effects cross the service seam.
 type harborModel struct {
+	reviewOpenedAt time.Time
+
 	refreshContext   context.Context
 	cancelRefresh    context.CancelFunc
 	refreshing       bool
@@ -313,14 +315,22 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case appSessionInspected:
-		if m.refreshContext.Err() != nil || m.screen != "busy" {
+		if m.refreshContext.Err() != nil || m.screen != "busy" || m.reviewed.ID != msg.expected.ID {
 			return m, nil
 		}
+		found := false
 		for _, row := range m.sessions {
-			if row.ID == msg.expected.ID && !sameRuntimeTarget(row.Runtime, msg.current.Runtime) {
-				msg.err = errors.New("runtime changed during inspection; refresh and review")
+			if row.ID == msg.expected.ID {
+				found = true
+				if !sameRuntimeTarget(row.Runtime, msg.current.Runtime) || !sameSession(row.session, msg.current.session) {
+					msg.err = errors.New("target changed during inspection; refresh and review")
+				}
 			}
 		}
+		if !found {
+			msg.err = errors.New("target disappeared during inspection; refresh and select again")
+		}
+
 		if msg.err != nil || !sameSession(msg.expected.session, msg.current.session) || !sameRuntimeTarget(msg.expected.Runtime, msg.current.Runtime) {
 			m.screen = "sessions"
 			m.notice = "Target changed or is unavailable; refresh and review again."
@@ -356,6 +366,24 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.scroll = 0
 		m.screen = "confirm"
 		return m, nil
+	case appReviewedResult:
+		if m.screen != "busy" || msg.generation != m.generation || msg.target != m.reviewed.ID {
+			return m, nil
+		}
+		var err error
+		switch v := msg.result.(type) {
+		case appOpened:
+			err = v.err
+		case appResult:
+			err = v.err
+		}
+		if err != nil {
+			m.screen = "confirm"
+			m.notice = err.Error() + " · Inspect evidence, retry or Cancel."
+			m.reviewOpenedAt = time.Now()
+			return m, nil
+		}
+		return m.update(msg.result)
 	case appResult:
 		m.screen = "sessions"
 		m.notice = "Action completed"
@@ -772,6 +800,9 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			a := sessionApproval{Session: m.reviewed, MagpieSelection: m.reviewedSelection, Observation: m.reviewedObservation, Confirmed: true, DevelopmentQuery: m.action == "query-resume", QueryUncertaintyAccepted: m.queryAccepted}
 			action := m.action
+			m.generation++
+			generation := m.generation
+			target := m.reviewed.ID
 			m.screen = "busy"
 			return m, func() tea.Msg {
 				var e error
@@ -793,9 +824,9 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					e = m.service.Open(a)
 				}
 				if action == "resume" || action == "start" || action == "query-resume" {
-					return appOpened{e}
+					return appReviewedResult{generation, target, appOpened{e}}
 				}
-				return appResult{e}
+				return appReviewedResult{generation, target, appResult{e}}
 			}
 		}
 		if m.screen == "busy" {
@@ -914,6 +945,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scroll = 0
 				m.screen = "confirm"
 			case "enter":
+				m.reviewed = s.session
 				m.screen = "busy"
 				return m, func() tea.Msg {
 					v, e := m.service.GetContext(m.refreshContext, s.ID)

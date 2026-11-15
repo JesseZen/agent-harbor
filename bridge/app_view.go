@@ -97,6 +97,9 @@ func (m harborModel) View() string {
 	if m.settings != nil {
 		return m.settings.View()
 	}
+	if m.screen == "confirm" || m.screen == "confirm-evidence" {
+		return m.reviewLayout().view()
+	}
 	if m.screen == "sessions" || m.screen == "sessions-more" {
 		return m.sessionsLayout().view()
 	}
@@ -395,7 +398,7 @@ func (m harborModel) confirmView() string {
 		} else if m.nativeReview != "" {
 			lines = append(lines, note(m.nativeReview))
 		}
-		lines = append(lines, "", note("The saved identity is not currently verified. Review the original conversation and connection."), note("Press a to accept this uncertainty, then Enter to save the review. This does not resume the conversation."))
+		lines = append(lines, "", note("The saved identity is not currently verified. Review the original conversation and connection."), note("Choose Use saved conversation, then Save reviewed reference. This does not resume the conversation."))
 		if m.referenceAccepted {
 			lines = append(lines, "Saved identity uncertainty explicitly accepted.")
 		}
@@ -419,7 +422,7 @@ func (m harborModel) confirmView() string {
 	case "remove":
 		lines = append(lines, "🗑 Remove only the Harbor record", note("Codex history is kept."))
 	case "query-resume":
-		lines = append(lines, "Development query candidate", note("Query proves syntax only. Conversation existence, login and external writers cannot be verified."), note("Press a to accept these uncertainties, then Enter to confirm the recorded connection and conversation."))
+		lines = append(lines, "Development query candidate", note("Query proves syntax only. Conversation existence, login and external writers cannot be verified."), note("Choose Use recorded conversation before resuming this object. Login and other writers remain unverified."))
 		if m.queryAccepted {
 			lines = append(lines, "Uncertainty explicitly accepted.")
 		}

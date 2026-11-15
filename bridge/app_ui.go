@@ -31,7 +31,7 @@ func (p *uiPage) line(s string) {
 	p.Lines = append(p.Lines, ansi.Truncate(s, max(1, p.Width-2), "…"))
 }
 func (p *uiPage) hit(id string, x, y, w, h int) {
-	if w > 0 && h > 0 {
+	if w > 0 && h > 0 && y >= 0 && y+h <= p.Height {
 		p.Hits = append(p.Hits, uiRect{x, y, w, h, id})
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"strconv"
 	"strings"
@@ -78,6 +79,13 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focusNav = ""
 			return m, nil
 		}
+		if target == "details" {
+			m.focusNav = ""
+			m.searching = false
+			m.details = true
+			m.scroll = 0
+			return m, nil
+		}
 		if target == "back" {
 			return m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 		}
@@ -147,6 +155,8 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searching = false
 				if rows := m.filtered(); len(rows) > 0 {
 					m.cursor = rows[0]
+				} else {
+					m.cursor = 3
 				}
 			case "backspace":
 				r := []rune(m.query)
@@ -304,7 +314,7 @@ func (m settingsModel) layout() uiPage {
 	if m.details {
 		text := m.notice
 		if text == "" {
-			text = "Shortcuts affect only this owned Harbor workspace. prefix is Ctrl+B. Native Herdr settings remain prefix+s. Direct Ctrl keys intercept input before the CLI and may conflict with terminal encodings or Emacs bindings. Only unoccupied supported chords are accepted."
+			text = actionHints(m.actions()) + "\n\n" + "Shortcuts affect only this owned Harbor workspace. prefix is Ctrl+B. Native Herdr settings remain prefix+s. Direct Ctrl keys intercept input before the CLI and may conflict with terminal encodings or Emacs bindings. Only unoccupied supported chords are accepted."
 		}
 		rows := strings.Split(ansi.Wrap(cleanUI(text), max(1, p.Width-2), ""), "\n")
 		count := max(1, p.Height-4)
@@ -365,22 +375,25 @@ func (m settingsModel) layout() uiPage {
 	if notice == "" {
 		notice = "Workspace only. prefix = Ctrl+B; Herdr settings: prefix+s."
 	}
-	available := max(0, p.Height-len(p.Lines)-1)
-	for _, r := range strings.Split(ansi.Wrap(cleanUI(notice), max(1, p.Width-2), ""), "\n") {
-		if available == 0 {
-			break
-		}
-		p.line(paint(fg("value"), r))
-		available--
+	// Keep the full notice reachable by mouse even in the smallest popup.
+	if !m.editing && !m.searching && len(p.Lines) < p.Height-1 {
+		y := len(p.Lines)
+		label := " Details "
+		p.line(paint(fg("key").Background(lipgloss.Color(harborPalette["button"])), label) + " " + ansi.Truncate(cleanUI(notice), max(1, p.Width-12), "…"))
+		p.hit("details", 1, y, 9, 1)
 	}
-	hint := "Tab move  Enter edit/action  / search  i details  Esc back"
+	hint := "Tab move  Enter edit  / search  i Details  Esc Cancel"
+	if m.cursor >= 3 && m.cursor <= 5 {
+		hint = "Tab move  " + actionHints([]uiAction{m.actions()[m.cursor-3]}) + "  i Details"
+	}
 	if m.editing {
-		hint = "Enter accept field  Esc cancel edit"
+		hint = "Enter Accept field  Esc Cancel edit"
 	}
 	if m.searching {
 		hint = "Type search  Tab controls  Esc clear/back"
 	}
 	p.line(paintKeys(ansi.Truncate(hint, max(1, p.Width-2), "…")))
+
 	return p
 }
 func (m settingsModel) View() string { return m.layout().view() }

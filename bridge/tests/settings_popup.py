@@ -2,7 +2,7 @@
 """Real Herdr 0.9.5 mouse regression; owns all state and synthetic records."""
 import argparse, http.server, os, pathlib, shlex, shutil, subprocess, tempfile, threading, time
 
-p=argparse.ArgumentParser();p.add_argument('--binary',required=True);p.add_argument('--herdr',required=True);p.add_argument('--codex',required=True);a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--binary',required=True);p.add_argument('--herdr',required=True);p.add_argument('--codex',required=True);p.add_argument('--no-color',action='store_true');a=p.parse_args()
 # Exclusively own the discovery address; never probe an existing service.
 class DiscoveryHandler(http.server.BaseHTTPRequestHandler):
  def do_GET(self): self.send_error(404)
@@ -15,6 +15,7 @@ except OSError:
 threading.Thread(target=discovery.serve_forever,daemon=True).start()
 root=pathlib.Path(tempfile.mkdtemp(prefix='harbor03-smoke-',dir='/tmp')).resolve()
 env={'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','TERM':'xterm-256color','SHELL':'/bin/sh','LANG':'en_US.UTF-8','COLORTERM':'truecolor'}
+if a.no_color:env['NO_COLOR']='1'
 for key,leaf in [('HOME','home'),('XDG_CONFIG_HOME','config'),('XDG_DATA_HOME','data'),('XDG_STATE_HOME','state'),('XDG_CACHE_HOME','cache'),('XDG_RUNTIME_DIR','runtime'),('TMPDIR','tmp'),('CODEX_HOME','codex'),('CODEX_SQLITE_HOME','sqlite')]:
  (root/leaf).mkdir(mode=0o700);env[key]=str(root/leaf)
 (root/'codex/config.toml').write_text('check_for_update_on_startup = false\n')
@@ -67,6 +68,7 @@ try:
  tm('send-keys','-t','app:0.0','-l',f'\x1b[<35;{x};{y+1}M');time.sleep(.4)
  motion=tm('capture-pane','-e','-p','-t','app:0.0');(root/'hover-160.ansi').write_text(motion)
  (root/'motion.txt').write_text('underline observed through Herdr' if '\x1b[4m' in motion else 'motion underline not observed; click and keyboard supported')
+ click('Details');wait('Shortcuts affect only');click('Back');wait('Search settings')
  click('Search settings');keys('-l','Magpie');assert 'prefix+m' in capture() and 'prefix+a' not in capture()
  keys('Escape');keys('Escape')
  click('prefix+a');keys('C-u');keys('-l','prefix+t');click('Accept field')

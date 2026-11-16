@@ -157,12 +157,13 @@ func TestHarborResumeShowsServiceRefusals(t *testing.T) {
 	for _, size := range [][2]int{{60, 20}, {100, 30}, {160, 45}} {
 
 		for _, reason := range []string{"directory missing", "instance changed", "identity unknown", "model missing", "gateway offline", "ID ambiguous", "conversation open elsewhere"} {
-			f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", Started: true, WorkingDirectory: "/projects/api", Mode: "local", CodexSessionID: "01912345-6789-7abc-8def-0123456789ab"}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Exited"}}}
+			f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", Conversation: savedReviewFixture().Conversation, Started: true, WorkingDirectory: "/projects/api", Mode: "local", CodexSessionID: "01912345-6789-7abc-8def-0123456789ab"}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Exited"}}}
 			m := newHarborModel(f)
 			var model tea.Model = m
 			model, _ = model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 			model, _ = model.Update(m.Init()())
 			model = appKey(model, "enter")
+			model = appKey(model, "a")
 			f.Err = fmt.Errorf("%s", reason)
 			model = appKey(model, "enter")
 			if !strings.Contains(model.View(), reason) {
@@ -177,12 +178,13 @@ func TestHarborResumeShowsServiceRefusals(t *testing.T) {
 }
 
 func TestHarborLongRefusalIsReadable(t *testing.T) {
-	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", Started: true}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Exited"}}}
+	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", Conversation: savedReviewFixture().Conversation, Started: true}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Exited"}}}
 	m := newHarborModel(f)
 	var model tea.Model = m
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
 	model, _ = model.Update(m.Init()())
 	model = appKey(model, "enter")
+	model = appKey(model, "a")
 	f.Err = fmt.Errorf("The instance identity differs from the recorded configuration. Nothing was started. Check Magpie providers and bind the intended instance before retrying.")
 	model = appKey(model, "enter")
 	model = appKey(model, "i")

@@ -20,6 +20,7 @@ func TestCandidateShortSessionUsesOfficialFinalReport(t *testing.T) {
 	}
 	h := filepath.Join(b.root, "bin", "herdr")
 	os.WriteFile(h, []byte(`#!/bin/sh
+if test "$1 $2" = "integration status"; then echo "codex: current (v10)"; exit 0; fi
 case "$*" in
  "integration status") echo "Codex: current (test)";;
  *) if test -f "$CAPTURE"; then
@@ -54,6 +55,7 @@ func TestCandidateInitialIdentityNeedsExplicitChoice(t *testing.T) {
 	}
 	h := filepath.Join(b.root, "bin", "herdr")
 	os.WriteFile(h, []byte(`#!/bin/sh
+if test "$1 $2" = "integration status"; then echo "codex: current (v10)"; exit 0; fi
 echo '{"result":{"pane":{"agent_session":{"source":"official:opaque-source/v2","agent":"codex","kind":"path","value":"/opaque/conversation with spaces"}}}}'
 `), 0700)
 	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h)
@@ -90,7 +92,7 @@ func TestCandidateChangedIdentityAndLostSocketRequireReview(t *testing.T) {
 			}
 			h := filepath.Join(b.root, "bin", "herdr")
 			report := filepath.Join(b.root, "report")
-			os.WriteFile(h, []byte("#!/bin/sh\nif test -f \"$HOME/report\"; then cat \"$HOME/report\"; else echo '{\"result\":{\"pane\":{}}}'; fi\n"), 0700)
+			os.WriteFile(h, []byte("#!/bin/sh\nif test \"$1 $2\" = \"integration status\"; then echo \"codex: current (v10)\"; exit 0; fi\nif test -f \"$HOME/report\"; then cat \"$HOME/report\"; else echo '{\"result\":{\"pane\":{}}}'; fi\n"), 0700)
 			writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply\n"), 0700)
 			socket := queryTestSocket(t, b)
 			b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+socket, "HERDR_BIN_PATH="+h)
@@ -180,6 +182,7 @@ func TestCandidateStopWaitsForFinalExitBookkeeping(t *testing.T) {
 	}
 	h := filepath.Join(b.root, "bin", "herdr")
 	os.WriteFile(h, []byte(`#!/bin/sh
+if test "$1 $2" = "integration status"; then echo "codex: current (v10)"; exit 0; fi
 case "$*" in
  *"tab list"*) cat "$HOME/tab-info.json";;
  *"pane process-info"*) echo '{"result":{"process_info":{"pane_id":"opaque-pane","shell_pid":321,"foreground_processes":[{"pid":321,"name":"sh"}]}}}';;
@@ -236,6 +239,7 @@ func TestCandidateFinalReadFailureRecovery(t *testing.T) {
 		ready    bool
 	}{
 		{"exhausted_then_empty", "3", false, false},
+		{"active_exhausted_then_empty", "3", false, false},
 		{"transient_within_budget", "2", false, true},
 		{"exhausted_then_fresh_identity", "3", true, true},
 	} {
@@ -246,6 +250,7 @@ func TestCandidateFinalReadFailureRecovery(t *testing.T) {
 			}
 			h := filepath.Join(b.root, "bin", "herdr")
 			stub := `#!/bin/sh
+if test "$1 $2" = "integration status"; then echo "codex: current (v10)"; exit 0; fi
 if test -f "$HOME/final"; then
  n=0; test ! -f "$HOME/count" || n=$(cat "$HOME/count")
  n=$((n+1)); echo "$n" > "$HOME/count"
@@ -261,7 +266,13 @@ else echo '{"result":{"pane":{}}}'; fi
 				finalResponse = `echo '{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"01912345-6789-7abc-8def-0123456789ab"}}}}' `
 			}
 			os.WriteFile(h, []byte(strings.ReplaceAll(strings.ReplaceAll(stub, "FAILURE_COUNT", tc.failures), "FINAL_RESPONSE", finalResponse)), 0700)
-			writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply\ntouch \"$HOME/final\"\n"), 0700)
+			clientScript := "#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply\ntouch \"$HOME/final\"\n"
+			if tc.name == "active_exhausted_then_empty" {
+				// Exhaust one periodic observation while the client is still alive.
+				// An empty final read must not turn that uncertainty back into ready.
+				clientScript += "while ! test -f \"$HOME/count\" || test \"$(cat \"$HOME/count\")\" -lt 3; do sleep .05; done\n"
+			}
+			writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte(clientScript), 0700)
 			b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h)
 			cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "create", "--dir", b.project)
 			cmd.Env = b.env
@@ -305,6 +316,7 @@ func TestCandidateRepeatedOfficialObservationPreservesStopApproval(t *testing.T)
 	}
 	h := filepath.Join(b.root, "bin", "herdr")
 	os.WriteFile(h, []byte(`#!/bin/sh
+if test "$1 $2" = "integration status"; then echo "codex: current (v10)"; exit 0; fi
 case "$*" in
  *"tab list"*) cat "$HOME/tab-info.json";;
  *"pane process-info"*) echo '{"result":{"process_info":{"pane_id":"opaque-pane","shell_pid":321,"foreground_processes":[{"pid":321,"name":"sh"}]}}}';;

@@ -78,7 +78,8 @@ func TestReviewActionsReachableAtPopupSizes(t *testing.T) {
 		m.screen = "confirm"
 		m.action = "query-resume"
 		m.reviewed = savedReviewFixture().session
-		for _, id := range []string{"review:a", "evidence", "review:esc"} {
+		m.reviewed.CodexConnection = "caller"
+		for _, id := range []string{"review:enter", "evidence", "review:esc"} {
 			found := false
 			for _, r := range m.reviewLayout().Hits {
 				if r.ID == id {

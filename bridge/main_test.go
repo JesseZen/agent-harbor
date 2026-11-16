@@ -87,7 +87,7 @@ func newTestBridge(t *testing.T) testBridge {
 	if err := os.WriteFile(filepath.Join(bin, "codex"), data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "codex", "config.toml"), []byte("check_for_update_on_startup = false\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "codex", "config.toml"), []byte("check_for_update_on_startup = false\n[features]\nhooks = true\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	return testBridge{t, root, project, []string{
@@ -468,7 +468,7 @@ func (b *testBridge) prepareQuery(id string) {
 	}
 	h := filepath.Join(b.root, "bin", "query-herdr")
 	plan, _ := json.Marshal(resumeCommandPlan{1, "codex", []string{"codex", "resume", chosen.CodexSessionID}})
-	script := "#!/bin/sh\nif test \"$1 $2\" = \"agent resume-command\"; then cat >/dev/null; printf '%s\n' '" + string(plan) + "'; else echo '{\"result\":{\"pane\":{}}}'; fi\n"
+	script := "#!/bin/sh\nif test \"$1 $2\" = \"integration status\"; then echo 'codex: current (v10)'; exit 0; fi\nif test \"$1 $2\" = \"agent resume-command\"; then cat >/dev/null; printf '%s\n' '" + string(plan) + "'; else echo '{\"result\":{\"pane\":{}}}'; fi\n"
 	if err := os.WriteFile(h, []byte(script), 0700); err != nil {
 		b.t.Fatal(err)
 	}

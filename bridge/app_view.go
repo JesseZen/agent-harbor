@@ -20,6 +20,9 @@ func cleanUI(s string) string {
 func (m harborModel) details(s sessionView) string {
 	lines := []string{"🚢 " + cleanUI(s.Name), "Profile: " + m.profileDisplayLabel(s.Profile), statusDot(orUnknown(s.Status))}
 	lines = append(lines, kv("Presence", s.Runtime.Presence), kv("Runtime association", map[bool]string{true: "associated", false: "unassociated"}[s.Runtime.Associated]))
+	if s.Runtime.RunVerified && !s.Runtime.Associated {
+		lines = append(lines, "Terminal run verified; Conversation identity unverified.")
+	}
 	if s.External {
 		lines = append(lines, "Unmanaged")
 	}
@@ -224,10 +227,7 @@ func (m harborModel) confirmView() string {
 	case "remove":
 		lines = append(lines, "🗑 Remove only the Harbor record", note("Codex history is kept."))
 	case "query-resume":
-		lines = append(lines, "Development query candidate", note("Query proves syntax only. Conversation existence, login and external writers cannot be verified."), note("Choose Use recorded conversation before resuming this object. Login and other writers remain unverified."))
-		if m.queryAccepted {
-			lines = append(lines, "Uncertainty explicitly accepted.")
-		}
+		lines = append(lines, "Development query candidate", note("Query proves syntax only. Conversation existence, login and external writers cannot be verified."), note("Resume confirms this saved conversation and connection in one step."))
 		fallthrough
 	case "resume":
 		lines = append(lines, "🚀 Resume this conversation", note("Confirm the intended account and no other writer."))

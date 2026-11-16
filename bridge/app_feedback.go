@@ -55,6 +55,9 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if n.screen == "confirm" && m.screen != "confirm" {
 			n.reviewOpenedAt = time.Now()
 			n.uiFocus = "review:esc"
+			if n.action == "query-resume" || n.action == "resume" {
+				n.uiFocus = "review:enter"
+			}
 		}
 		if n.screen == "sessions" && n.searchSelectedID() != m.searchSelectedID() {
 			n.detailScroll = 0

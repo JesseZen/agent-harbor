@@ -6,9 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -28,20 +26,13 @@ func candidateRunPlan(s session, env []string) (runPlan, error) {
 	return runPlan{Profile: s.Profile, SessionID: s.ID, Token: hex.EncodeToString(token), Home: home}, err
 }
 
-// Installation status is diagnostic only: it cannot prove feature enablement,
-// trust approval or operation in the client's effective configuration context.
+// Installation and hook enablement are not identity evidence. Only a fresh
+// pane report in this run can establish the Conversation reference.
 func candidateIdentityCapture(id, token, client string) (func(), func() error) {
 	herdr, pane, socket := os.Getenv("HERDR_BIN_PATH"), os.Getenv("HERDR_PANE_ID"), os.Getenv("HERDR_SOCKET_PATH")
 	socketID := socketIdentity(socket)
-	warning := "Official identity integration is unproven; inspect Herdr integration status in this CLI configuration, enable/trust its hooks, then explicitly review recovery."
-	if herdr != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		out, err := exec.CommandContext(ctx, herdr, "integration", "status").Output()
-		cancel()
-		if err == nil && strings.Contains(strings.ToLower(string(out)), strings.ToLower(os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID"))+": current") {
-			warning = "Official integration installed; hook enablement and trust remain unproven until a fresh pane identity report."
-		}
-	}
+	warning := "Conversation identity not reported; inspect this Profile's client integration and hook trust."
+
 	validContext := herdr != "" && pane != "" && socketID != "" && os.Getenv("HERDR_PLUGIN_ID") == "agent-harbor.bridge" && (os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") == client || os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") == "session")
 	if !validContext {
 		warning = "Official identity observation unavailable: missing managed pane/socket context; reopen in managed Herdr and review recovery."
@@ -91,7 +82,7 @@ func candidateIdentityCapture(id, token, client string) (func(), func() error) {
 					if finishing && observedThisRun && !blocked && !finalReadUnresolved && state == "missing" && s.Conversation != nil {
 						s.Conversation.Status = "observed"
 						s.Recovery = "ready"
-						s.IdentityWarning = "Client exited; retained the fresh official identity observed during this run. Final pane report is empty; connection, login and writer review remain required."
+						s.IdentityWarning = ""
 						return all, nil
 					}
 					if finalReadUnresolved && state == "missing" {
@@ -141,7 +132,7 @@ func candidateIdentityCapture(id, token, client string) (func(), func() error) {
 					}
 					s.ConversationIDSource = "herdr-hook"
 					s.Recovery = "ready"
-					s.IdentityWarning = "Official pane identity observed; recovery still requires connection, login and writer review."
+					s.IdentityWarning = ""
 				} else {
 					s.Recovery = "needs_review"
 					s.IdentityWarning = "Pane identity is initial/unverified or changed; inspect show and use reassociate with the saved reference to explicitly review the original conversation and connection."
@@ -175,9 +166,9 @@ func candidateIdentityCapture(id, token, client string) (func(), func() error) {
 		}
 		state := "missing"
 		if err != nil {
-			if finishing {
-				finalReadUnresolved = true
-			}
+			// An exhausted periodic read can race with client exit. Only a
+			// fresh identity report can resolve it; an empty final read cannot.
+			finalReadUnresolved = true
 			state = "observation_unavailable"
 		}
 		if err := update(ref, state); err != nil {

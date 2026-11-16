@@ -4,7 +4,8 @@ import argparse, http.server, os, pathlib, shlex, shutil, subprocess, tempfile, 
 from e2e_local import MockResponses, FIRST, SECOND
 from fixture_process import stop_codex
 
-p=argparse.ArgumentParser();p.add_argument('--binary',required=True);p.add_argument('--herdr',required=True);p.add_argument('--codex',required=True);p.add_argument('--work-root',required=True);a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--skip-identity',action='store_true',help='verify explicitly skipped setup cannot enter an invalid recovery confirmation');p.add_argument('--preinstalled',action='store_true',help='prepare hooks in the fixture rather than through Harbor startup');p.add_argument('--binary',required=True);p.add_argument('--herdr',required=True);p.add_argument('--codex',required=True);p.add_argument('--work-root',required=True);a=p.parse_args()
+if a.preinstalled and a.skip_identity:p.error('--skip-identity requires startup setup')
 # Exclusively own the discovery address; never probe an existing service.
 class DiscoveryHandler(http.server.BaseHTTPRequestHandler):
  def do_GET(self): self.send_error(404)
@@ -58,7 +59,7 @@ def until(predicate,label,timeout=40):
 try:
  codex_version=run([root/'bin/codex','--version']).stdout.strip()
  herdr_version=run([root/'bin/herdr','--version']).stdout.strip()
- run([root/'bin/herdr','integration','install','codex'])
+ if a.preinstalled:run([root/'bin/herdr','integration','install','codex'])
  launcher=root/'launch.sh'
  launcher.write_text('#!/bin/sh\n'+''.join('export '+key+'='+shlex.quote(value)+'\n' for key,value in env.items())+'cd '+shlex.quote(str(root/'project'))+'\nagent-harbor\nread answer\n')
  launcher.chmod(0o700)
@@ -66,7 +67,12 @@ try:
  wait('First run');wait(codex_version);wait(herdr_version)
  key('Enter');wait('Review: local');key('Enter');wait('Harbor ^B a')
  key('C-b','a');wait('HARBOR');key('n');wait('New session')
- key('Enter');wait('Ask Codex');time.sleep(2)
+ key('Enter')
+ if not a.preinstalled:
+  wait('Type yes to prepare recovery');text('skip' if a.skip_identity else 'yes');key('Enter')
+ until(lambda:'Ask Codex' in capture() or 'Hooks need review' in capture(),'Codex startup or hook trust')
+ if 'Hooks need review' in capture():key('Down','Enter')
+ wait('Ask Codex');time.sleep(2)
  (root/'initial-screen.txt').write_text(capture())
  if 'hook needs review' in capture() or 'hook needs' in capture():
   key('t');time.sleep(.5);key('Escape');time.sleep(.5)
@@ -76,14 +82,21 @@ try:
   key('t');time.sleep(.5);key('Escape');time.sleep(.5);text(FIRST);key('Enter')
  until(lambda:any(FIRST in marks for _,marks in server.observed),'first native turn')
  wait('HELLO_FROM_ISOLATED_MOCK')
+ if a.skip_identity:
+  assert not records()[0].get('conversation'), 'skipped setup inferred identity'
+  text('/exit');key('Enter');until(lambda:records()[0].get('process_group',0)==0,'exit without identity')
+  key('C-b','a');wait('HARBOR');key('Enter');time.sleep(.5)
+  page=wait('Conversation identity was not captured')
+  assert 'Review resume' not in page and 'Resume conversation' not in page, 'offered impossible recovery'
+  (root/'missing-identity-screen.txt').write_text(page)
+  print('PASS skipped identity setup preserves missing reference and blocks invalid UI recovery before confirmation',codex_version,herdr_version,root,flush=True)
+  raise SystemExit(0)
  until(lambda:records()[0].get('conversation'),'upstream reference')
  rec=records()[0];assert rec['conversation']['reference']['value']==rec['codex_session_id']
- # stop explicitly below
- # Stop requires explicit approval.
- subprocess.run([root/'bin/agent-harbor','stop-session',rec['id']],env=env,input='yes\n',text=True,capture_output=True,check=True)
+ # Normal client exit must preserve the fresh official identity.
+ text('/exit');key('Enter')
  until(lambda:records()[0].get('process_group',0)==0,'exit')
- # Existing identity review remains mandatory; bind preserves neutral provenance.
- run([root/'bin/agent-harbor','bind',rec['id'],rec['codex_session_id']])
+ assert records()[0]['conversation']['status']=='observed', 'normal exit lost official identity'
  rec=records()[0]
  managed=root/'h/herdr/bin/herdr'
  # Launch the public development command inside the managed workspace.
@@ -98,7 +111,7 @@ try:
  text(SECOND);key('Enter')
  until(lambda:any(FIRST in marks and SECOND in marks for _,marks in server.observed),'exact recovered context')
  assert records()[0]['codex_session_id']==rec['codex_session_id']
- print('PASS real interactive Codex query recovery, same native connection and context',codex_version,herdr_version,root,flush=True)
+ print('PASS startup identity preparation, normal exit and real Codex query recovery, same native connection and context',codex_version,herdr_version,root,flush=True)
 finally:
  run([root/'bin/agent-harbor','stop'],check=False)
  run([tmux,'-S',sock,'kill-server'],check=False)

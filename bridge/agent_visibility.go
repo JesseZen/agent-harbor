@@ -257,10 +257,6 @@ func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, 
 			v.Runtime.SnapshotAt, v.Runtime.Instance, v.Runtime.RunVerified = at, identity, true
 			v.Running = true
 			v.Status = runtimeLabel(v.Runtime)
-			if v.Reason != "" {
-				v.Reason += " "
-			}
-			v.Reason += "The live terminal run is verified; conversation identity is unverified and recovery still requires review."
 			continue
 		}
 		name := agent.Name

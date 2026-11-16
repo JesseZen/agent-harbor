@@ -137,16 +137,7 @@ func (m harborModel) sessionsLayout() uiPage {
 			connection = "External · connection unknown"
 		}
 		left.line(paint(fg("value"), "  "+cleanUI(s.CLI)+" · "+connection+" · "+m.profileDisplayLabel(s.Profile)))
-		reason := s.Reason
-		if reason == "" {
-			reason = s.IdentityWarning
-		}
-		if reason == "" && s.Runtime.Presence == "unknown" {
-			reason = "Runtime unknown; inspect evidence before recovery."
-		}
-		if s.DiscoveryWarning != "" {
-			reason = s.DiscoveryWarning
-		}
+		reason := sessionAttention(s)
 		if m.selectionMissing {
 			reason = "Selected target changed. Select a session."
 		}
@@ -175,11 +166,9 @@ func (m harborModel) sessionsLayout() uiPage {
 				conversation = s.Conversation.Reference.Value
 			}
 			right.field("", "💬", "Conversation", orUnknown(conversation), false, false)
-			for _, warning := range []string{s.Reason, s.DiscoveryWarning, s.IdentityWarning} {
-				if warning != "" {
-					for _, r := range strings.Split(ansi.Wrap(cleanUI(warning), max(1, right.Width-2), ""), "\n") {
-						right.line(paint(fg("warn"), r))
-					}
+			if warning := sessionAttention(s); warning != "" {
+				for _, r := range strings.Split(ansi.Wrap(cleanUI(warning), max(1, right.Width-2), ""), "\n") {
+					right.line(paint(fg("warn"), r))
 				}
 			}
 		}

@@ -47,6 +47,7 @@ func TestSavedReferenceReviewRequiresExplicitChoice(t *testing.T) {
 		if got := model.(harborModel); got.screen != "confirm" || got.action != "review-reference" {
 			t.Fatalf("%v did not open reference review: %s", size, model.View())
 		}
+		model = appKey(model, "i")
 		visible := ""
 		for i := 0; i < 80; i++ {
 			visible += model.View()

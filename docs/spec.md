@@ -8,6 +8,26 @@ On restart or recovery Harbor must preserve the intended conversation and connec
 
 Use documented upstream integration interfaces. Unsupported operations must be presented clearly. Keep user credentials and conversations out of logs and test fixtures.
 
+Before a managed Codex launch, Harbor checks Herdr's identity integration in the
+Session's bound Profile environment. An isolated Profile prepares the official
+integration automatically unless hooks were explicitly disabled. Existing
+environments and explicitly disabled hooks require a choice to prepare recovery,
+continue without automatic recovery, or cancel. Codex owns hook trust; Harbor
+never approves it on the user's behalf. Installation alone is not Conversation
+identity: only an observed reference can make recovery ready. Records without a
+captured reference stop before recovery confirmation and require explicit
+association with the original Conversation. Normal identity observations do not
+produce warning banners; blocking summaries stay brief and details retain evidence.
+
+When recovery has a complete saved reference and no conflicting identity evidence,
+the Resume action confirms that exact reference and its recorded connection in
+one step. Evidence is optional detail, not a prerequisite navigation step. A failed
+launch retains the reviewed snapshot for retry; any intervening record or runtime
+change still requires a fresh review. Recovery focuses Resume by default, preserves
+that focus on failure, and returns from details to Details. Arrow keys navigate the
+actions. Missing references and actual identity or connection conflicts remain
+blocking; recovery never substitutes another conversation.
+
 An explicit Session name takes precedence over automatic titles. New Codex
 Sessions created with an empty name initially show the project and connection,
 then copy the first available title once into Harbor and Herdr's tab/pane

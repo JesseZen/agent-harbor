@@ -20,6 +20,7 @@ def main():
     p.add_argument('--live-state-probe',action='store_true',help='exercise automatic popup refresh and reconnect')
     p.add_argument('--state-probe',action='store_true',help='stop after real runtime state comparison')
     p.add_argument('--renamed-codex',action='store_true',help='exercise native Codex symlink with a nonstandard target basename')
+    p.add_argument('--recovery-review',action='store_true',help='replay an unavailable final identity observation and test one-action recovery plus retry')
     p.add_argument('--profiles',action='store_true',help='run the Profile A/B UI, runtime and recovery journey with isolated native clients')
     p.add_argument('--session-names',action='store_true',help='exercise one-time Codex title capture and manual Herdr display names')
     p.add_argument('--model-picker',action='store_true',help='exercise Magpie models, Codex effort and profile recovery')
@@ -193,7 +194,10 @@ def main():
                 click('Connection');screen('Choose instance and model');click('Native');click('Select');screen('New session')
             click('Name');screen('Session name');text(name);click('Apply');screen('New session')
             click('Create')
-            wait(lambda:'Ask Codex' in capture() or 'Hooks need review' in capture(), 'Codex prompt or hook review')
+            wait(lambda:any(label in capture() for label in ('Ask Codex','Hooks need review','Type yes to prepare recovery')), 'Codex prompt or identity setup')
+            if 'Type yes to prepare recovery' in capture():
+                text('skip' if a.session_names else 'yes');key('Enter')
+                wait(lambda:'Ask Codex' in capture() or 'Hooks need review' in capture(), 'Codex prompt or hook review')
             if 'Hooks need review' in capture():
                 key('Down','Enter')
             screen('Ask Codex');time.sleep(1)
@@ -264,16 +268,48 @@ def main():
             for name in ('PF Alpha','PF Beta'):
                 popup();key('p');screen('Harbor · Profiles');key('n');screen('Create isolated Profile');text(name);key('Enter');screen('Profile saved');key('Escape');key('q')
             profiles={p['name']:p for p in profile_rows()}
-            for name,synthetic_key in [('PF Alpha','sk-profile-alpha'),('PF Beta','sk-profile-beta')]:
+            for name in ('PF Alpha','PF Beta'):
                 client=profiles[name]['clients'][0]
                 # Explicitly authored synthetic fixture settings. No user data,
                 # grant, history or registry is imported from another Profile.
                 home=pathlib.Path(client['home']);home.joinpath('config.toml').write_text(config)
-                profile_env=dict(env,CODEX_HOME=client['home'],CODEX_SQLITE_HOME=client['sqlite'],TMPDIR=client['runtime'],XDG_RUNTIME_DIR=client['runtime'])
-                subprocess.run([str(root/'bin/codex'),'login','--with-api-key'],env=profile_env,input=synthetic_key+'\n',text=True,capture_output=True,check=True,timeout=30)
-                subprocess.run([str(root/'bin/herdr'),'integration','install','codex'],env=profile_env,text=True,capture_output=True,check=True,timeout=30)
+                # API-only recovery uses an explicitly signed-out client. A synthetic
+                # OpenAI key is not a confirmed ChatGPT account for --skip-api.
+                assert not home.joinpath('auth.json').exists()
+                # Harbor prepares the scoped identity integration on first launch.
             profile_select('PF Alpha')
             first=create('PF-A-one','relay-a/test-model');turn('AH_LOCAL_FIRST',relay_a)
+            if a.recovery_review:
+                before=next(r for r in records() if r['id']==first['id'])
+                run([binary,'stop']);tm('kill-session','-t','app')
+                open_workspace();screen('Harbor ^B a')
+                popup();key('/');text('PF-A-one');key('Enter');key('c');screen('Close inspected shell');reviewed_confirm();time.sleep(.5)
+                if 'HARBOR' in capture():key('q')
+                # Replay the user's persisted final-read failure using the exact
+                # reference captured from this fixture's real first turn. No ID,
+                # Profile, connection or exit evidence is invented or changed.
+                rows=records();saved=next(r for r in rows if r['id']==first['id'])
+                saved['conversation']['status']='observation_unavailable';saved['recovery']='needs_review'
+                (root/'harbor/sessions.json').write_text(json.dumps(rows))
+                run([binary,'magpie','stop']);started=False
+                popup();key('/');text('PF-A-one');key('Enter');key('Enter');screen('Review query-resume')
+                assert 'Use recorded conversation' not in capture(),'separate acceptance step still required'
+                (root/'recovery-before-click.txt').write_text(capture())
+                time.sleep(.3)  # pass the popup's input-penetration guard
+                click('Resume conversation')
+                wait(lambda:len(next(r for r in records() if r['id']==first['id']).get('reassociations',[]))==1,'saved reference reviewed by Resume')
+                screen('Review query-resume');time.sleep(.5)
+                failed=capture();(root/'recovery-retry-screen.txt').write_text(failed)
+                assert '› Resume conversation' in failed or '> Resume conversation' in failed,'failure moved focus away from Resume'
+                assert 'conversation observation needs review' not in failed,'same identity review dead end'
+                run([binary,'magpie','start']);started=True
+                click('Resume conversation');screen('Ask Codex');time.sleep(1);turn('AH_LOCAL_SECOND',relay_a)
+                wait(lambda:any('AH_LOCAL_FIRST' in marks and 'AH_LOCAL_SECOND' in marks for _,marks in relay_a.observed),'same conversation after combined review and retry')
+                current=next(r for r in records() if r['id']==first['id'])
+                assert all(current.get(k)==before.get(k) for k in ('profile','codex_home','codex_session_id','instance_id','mode','codex_connection'))
+                assert len(current.get('reassociations',[]))==1,'retry repeated identity acceptance'
+                print('PASS one-action saved-reference recovery, real gateway failure with Resume focus retained, same-page retry and exact original Magpie conversation',root,flush=True)
+                return 0
             profile_select('PF Beta')
             second=create('PF-B-one','relay-b/test-model');turn('AH_RELAY_B',relay_b)
             profile_select('PF Alpha')
@@ -285,7 +321,7 @@ def main():
             assert a1['codex_home']==a2['codex_home']!=b1['codex_home']
             assert len({r['codex_session_id'] for r in records()})==3
             b_auth=pathlib.Path(profiles['PF Beta']['clients'][0]['home'])/'auth.json'
-            b_before=b_auth.read_bytes();b_pid=b1['process_group']
+            b_before=b_auth.read_bytes() if b_auth.exists() else None;b_pid=b1['process_group']
             result=run([binary,'stop-session',a1['id']],check=False,input='yes\n')
             assert result.returncode==0,result.stdout+result.stderr
             wait(lambda:next(r for r in records() if r['id']==a1['id']).get('process_group',0)==0,'A stopped before recovery')
@@ -302,7 +338,7 @@ def main():
             resumed=next(r for r in records() if r['id']==a1['id'])
             assert resumed['codex_session_id']==a1['codex_session_id'] and resumed['profile']==a1['profile']
             assert resumed['instance_id']==a1['instance_id'] and resumed['codex_home']==a1['codex_home']
-            assert b_auth.read_bytes()==b_before and next(r for r in records() if r['id']==b1['id'])['process_group']==b_pid
+            assert (b_auth.read_bytes() if b_auth.exists() else None)==b_before and next(r for r in records() if r['id']==b1['id'])['process_group']==b_pid
             for name,other_marker in [('PF Alpha','AH_RELAY_B'),('PF Beta','AH_LOCAL_FIRST')]:
                 home=pathlib.Path(profiles[name]['clients'][0]['home'])
                 assert any(home.joinpath('sessions').rglob('*.jsonl')), 'Profile history absent'

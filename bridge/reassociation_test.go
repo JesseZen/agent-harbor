@@ -68,7 +68,7 @@ func TestReassociationServiceRejectsStaleConflictAndRecordsRejection(t *testing.
 	if v.Conversation != nil || v.Recovery != "needs_review" || len(v.Reassociations) != 1 || v.Reassociations[0].Accepted {
 		t.Fatal("rejection lost")
 	}
-	if !strings.Contains(v.Reason, "reassociate") {
+	if !strings.Contains(v.Reason, "explicitly associate") {
 		t.Fatalf("missing action: %s", v.Reason)
 	}
 	if err := h.Reassociate(sessionApproval{Session: v.session, Confirmed: true}, ref, "reviewed original"); err != nil {

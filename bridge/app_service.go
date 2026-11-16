@@ -98,7 +98,22 @@ func (harborService) ValidateDirectory(path string) error {
 	}
 	return nil
 }
-func (harborService) Open(a sessionApproval) error {
+
+type recoveryOpenError struct {
+	err      error
+	approval sessionApproval
+}
+
+func (e *recoveryOpenError) Error() string { return e.err.Error() }
+func (e *recoveryOpenError) Unwrap() error { return e.err }
+
+func (harborService) Open(a sessionApproval) (err error) {
+	reviewed := false
+	defer func() {
+		if err != nil && reviewed {
+			err = &recoveryOpenError{err: err, approval: a}
+		}
+	}()
 
 	if !a.Confirmed {
 		return errors.New("launch cancelled")
@@ -114,6 +129,24 @@ func (harborService) Open(a sessionApproval) error {
 	}
 	if err := waitForLaunchState(a.Session); err != nil {
 		return err
+	}
+	if a.DevelopmentQuery && a.SavedReferenceAccepted && queryReferenceCheck(a.Session) != nil {
+		ref, checkErr := savedReferenceForReview(a.Session)
+		if checkErr != nil {
+			return checkErr
+		}
+		updated, reviewErr := reassociateRecord(a, ref, "Confirmed the saved conversation and connection in the recovery action")
+		if reviewErr != nil {
+			return reviewErr
+		}
+		a.Session = updated
+		reviewed = true
+		if checkErr := validateApprovalRuntime(a); checkErr != nil {
+			return checkErr
+		}
+		if checkErr := waitForLaunchState(a.Session); checkErr != nil {
+			return checkErr
+		}
 	}
 	if a.DevelopmentQuery {
 		if !a.QueryUncertaintyAccepted {

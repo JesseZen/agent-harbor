@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClientPickerDoesNotPromoteIntegrationFixtureToLifecycleSupport(t *testing.T) {
@@ -47,24 +48,20 @@ func TestClientPickerPreservesExercisedNativeSubsetAndConnectionIntent(t *testin
 	}
 }
 
-func TestNeutralRecoveryRequiresSeparateUncertaintyAcceptance(t *testing.T) {
+func TestNeutralRecoveryUsesSingleExplicitConfirmation(t *testing.T) {
 	t.Setenv("AGENT_HARBOR_IDENTITY_CANDIDATE", "1")
 	m, _ := formFixture()
 	m.formActive = false
 	m.screen = "sessions"
 	m.sessions = []sessionView{{session: session{ID: "neutral", CLI: "future-kind", Started: true, Conversation: &conversationEvidence{Reference: herdrIdentity{Agent: "future-kind", Kind: "path", Value: "/opaque/conversation"}}}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}}}
 	m = appKey(m, "enter").(harborModel)
-	if !strings.Contains(m.View(), "Query proves syntax only") {
+	if !strings.Contains(m.View(), "Resume this saved conversation") {
 		t.Fatal(m.View())
 	}
+	m.reviewOpenedAt = time.Time{}
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd != nil || next.(harborModel).screen != "confirm" {
-		t.Fatal("uncertainty bypassed")
-	}
-	m = appKey(next, "a").(harborModel)
-	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd == nil {
-		t.Fatal("explicit approval cannot proceed")
+	if cmd == nil || next.(harborModel).screen != "busy" {
+		t.Fatal("explicit resume confirmation did not proceed")
 	}
 }
 
@@ -175,17 +172,18 @@ func TestRecoveryConfirmationShowsSavedNeutralReferenceAndApprovesSameRecord(t *
 					t.Fatalf("confirmation overflows width %d", width)
 				}
 			}
+			m.reviewOpenedAt = time.Time{}
 			next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			if cmd != nil {
-				t.Fatal("uncertainty acceptance bypassed")
+				t.Fatal("returning from details launched the conversation")
 			}
-			m = appKey(next, "a").(harborModel)
+			m = appKey(next, "up").(harborModel)
 			_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			if cmd == nil {
-				t.Fatal("accepted recovery cannot proceed")
+				t.Fatal("Resume confirmation cannot proceed")
 			}
 			cmd()
-			if !sameSession(original, f.approved.Session) || !f.approved.DevelopmentQuery || !f.approved.QueryUncertaintyAccepted || !f.approved.Confirmed {
+			if !sameSession(original, f.approved.Session) || !f.approved.DevelopmentQuery || !f.approved.QueryUncertaintyAccepted || !f.approved.SavedReferenceAccepted || !f.approved.Confirmed {
 				t.Fatalf("approval changed the reviewed record: %+v", f.approved)
 			}
 		})

@@ -87,6 +87,17 @@ recovery; the fixture still waits for the observation to disappear before
 asserting the final state. The bounded retry is covered by bridge unit tests;
 real-client timing evidence remains fixture-specific.
 
+`query_recovery_real.py` now starts with no preinstalled Herdr integration. It
+approves Harbor's scoped setup prompt, handles Codex's native hook trust review,
+finishes a turn, exits with `/exit`, and recovers the exact Conversation and
+context without `bind` or `reassociate`. `--preinstalled` retains the prepared
+fixture path; `--skip-identity` checks that explicitly skipped setup leaves the
+reference missing and stops UI recovery before confirmation. The Profile A/B gate likewise leaves scoped integration installation
+to Harbor at first launch. Setup tests cover approval, skip, cancellation, explicit
+hooks disablement, installation failure, repeated launches and an unrelated
+ambient Codex home. Missing-reference UI tests stop before confirmation; normal
+identity reminders must not be rendered as list warnings.
+
 Add `--model-picker` to exercise the real Magpie catalog in Codex, save a model
 and reasoning effort for one Harbor session, make a temporary choice in a second
 session, and check the saved choice and actual request after recovery. The
@@ -131,7 +142,7 @@ python3 bridge/tests/app_acceptance.py --replacement --profiles --onboarding man
 ```
 
 This creates Profiles through the UI, explicitly authors fixture-only settings
-and credentials, runs simultaneous A/B and same-Profile Conversations, and resumes
+with signed-out API connections, runs simultaneous A/B and same-Profile Conversations, and resumes
 A's fixed Conversation/instance while B is selected. It then restarts the workspace and gateway and recovers both A and B while the other Profile is selected. The runner preserves all
 pre-existing services. Discovery port 3425 must be exclusively available; exit 77
 is a blocked gate. The fixture's credentials/settings are synthetic setup, not
@@ -160,3 +171,12 @@ real codex-auth, A/B real request identities, remote execution and native macOS
 package journeys. Use the maintained application/package runner after integrating
 #19; controlled-tool tests are not substitutes for these gates. Real disposable
 account authorization and later model requests must be tested separately.
+
+For the saved-reference recovery dead end and focus regression, run
+`app_acceptance.py --replacement --profiles --recovery-review --onboarding managed`
+with the same executable arguments as the Profile gate. It captures a real first
+Codex turn, directly restarts Harbor, and replays only the final observation status
+as unavailable in fixture-owned state. It verifies one Resume action records the
+exact saved reference, a real gateway failure preserves Resume focus, and same-page
+retry restores the original Magpie conversation and first-turn context. No user
+state is modified; this remains synthetic-provider evidence.

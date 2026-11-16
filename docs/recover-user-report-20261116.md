@@ -1,7 +1,10 @@
 # Agent Harbor Recover：用户问题记录与后续排查入口
 
-日期：2026-11-16。状态：**开放，尚未修复或完成复现验收**。
-代码基线：`c88c08880893a665eb9066473f87e922a1cafe19`。
+日期：2026-11-16。状态：**已实现修复候选；用户实机复验待完成，缺失身份的旧记录仍需显式关联**。
+原问题代码基线：`c88c08880893a665eb9066473f87e922a1cafe19`。
+
+## 重要
+用户补充说`以下的 ctrl b q 退出再进 不是项目的问题, 而是用户运行的脚本包含了"$harbor" stop && "$harbor" open 的命令, 改成 "$harbor" open 就没问题了`. 现在的主要问题是会话的恢复问题, 黄字频繁出现的问题等.
 
 ## 用户明确报告的现象
 
@@ -109,3 +112,180 @@
 每秒观察 Herdr 的循环至少在初始提交 `154ec7d` 已存在，不是命名功能新加的定时器。当前每个活跃会话正常情况下每秒启动一次 `herdr pane get`，身份更新还会保存会话记录；写入路径含文件和目录同步。命名增加记录读取，成功后不再扫描标题索引。尚无 CPU、I/O 或耗电基准。
 
 用户关心性能；可调查事件通知、连接复用、只在状态变化时落盘和缓存。先保证状态与恢复正确，避免在这份问题记录中将尚未测量的收益当成事实。
+
+## 2026-11-17 隔离复现与诊断
+
+以下为修复前的诊断记录；后续实现见文末。诊断阶段未修改产品代码或替换用户程序。测试为 Linux amd64、真实
+Codex 0.169.0、Herdr 0.9.5 本地 query 候选、受控原生 provider；使用独立
+HOME、Codex home、SQLite、Harbor 状态和 tmux socket，不使用用户凭据。
+运行的 Harbor 为 `c88c088` 命名修复候选；当前 `f3737f9` 相比该提交没有
+`bridge/` 代码变化。以下结果不代表 macOS、真实账号或 Magpie 恢复已验收。
+
+### 已复现的失败路径
+
+1. 不安装 Herdr Codex 集成、关闭 hooks，正常新建并完成一轮请求。
+2. Harbor 显示 `Idle`、`running=true`，但没有 Conversation ID，
+   `recovery=needs_review`，并显示用户截图中的两段身份警告。
+3. 使用 Codex `/exit` 正常退出，等待 runner 写入进程结束；身份仍为空。
+4. 公共 `resume --development-query` 命令拒绝：
+   `query recovery requires an upstream-observed reference; legacy records require explicit review and reassociate before query recovery`。
+
+另一次独立 UI 复现也通过：正常 `/exit` 后，从 Sessions 进入 Review resume，
+Conversation 显示 unknown，Resume 按钮仍可操作；确认后出现同一条缺失
+引用的拒绝文字。保留了列表页和拒绝页的终端捕获。
+
+之前用 `stop-session` 也得到相同结果；正常 `/exit` 的独立复现说明这条
+失败路径不依赖强制停止或用户曾经使用的 `stop && open` 脚本。
+
+### 对照结果
+
+在新的隔离环境安装 Herdr 官方 Codex 集成，完成 Codex hooks 信任后，
+同样完成一轮、正常 `/exit`。Conversation ID 被捕获，退出后仍为
+`observed`。无需手动 `bind` 或 `reassociate`，在 managed Herdr 窗格内
+执行 query recovery 成功；第二轮受控 provider 请求同时包含第一轮和
+第二轮标记，且保存的 Conversation ID 不变。
+
+注意：Herdr `integration install codex` 本身会把 `features.hooks` 设为
+`true`。仅在安装前写入 `hooks=false`，不能作为“已安装但未启用”的
+对照；本轮没有把这种情况误记为 hooks 关闭仍能捕获身份。
+
+### 代码确认的问题
+
+- **身份采集缺少准备流程。** `candidateIdentityCapture` 读取 Herdr
+  `pane.get.agent_session`，没有报告就不会生成恢复引用。
+  `CreateProfile` 创建独立客户端目录，启动流程没有为该 Profile 安装或
+  引导准备 Codex 身份集成。能启动、聊天和自动命名，并不表示具备恢复
+  身份。已完成聊天却没有捕获 ID，是本次复现的直接阻塞点，不能通过
+  放宽 `queryReferenceCheck` 或猜测最近对话修复。
+- **恢复入口允许进入必败确认。** `appSessionInspected` 在已退出且
+  Conversation 为空时仍选择 `resume`，`reviewActions` 不因缺少引用禁用
+  Resume；实际执行才被 query 检查拒绝。`deriveSession` 还把这种新记录
+  标成 Legacy，容易误导为迁移问题。
+- **黄色说明重复且混入正常信息。** `deriveSession` 生成身份缺失原因，
+  `agent_visibility.go` 再追加同义说明；Sessions 右栏把 `Reason`、
+  `DiscoveryWarning`、`IdentityWarning` 全部展开并染黄。即便身份已经
+  观察到，observer 仍会保存一段正常的恢复提醒，UI 同样显示为黄色。
+- **安装诊断存在配置作用域疑点。** `candidateIdentityCapture` 调用
+  `integration status` 时没有传入客户端的 Profile 环境，并以
+  `HERDR_PLUGIN_ENTRYPOINT_ID` 而非 client 匹配状态行。通用 `session`
+  入口和独立 Codex home 需要单独回归；这是静态代码发现，尚未当作本次
+  身份缺失的实机根因。
+
+### 修复顺序
+
+先补齐按 Session 绑定的 Profile 准备、检查和引导身份集成的流程，并用
+默认新建环境直接验证恢复，避免测试先手动补齐产品缺少的前置条件。
+已有缺失 ID 的记录需要单独设计明确的身份选择，安装 hooks 不会自动
+补回它们原来的 Conversation。随后让恢复入口提前说明具体缺项，移除
+错误的 Legacy 标签，并把正常提醒、简短阻塞原因和详细证据分别呈现。
+保留身份冲突、连接及 Profile 检查。最终验收仍须验证同一 Conversation
+和连接的实际恢复，不能只检查黄字消失。
+
+## 2026-11-17 修复候选与验证
+
+用户随后授权修复。候选已实现：
+
+- managed Codex 启动前，在 Session 绑定的 Profile 环境和项目目录检查
+  官方身份集成。隔离 Profile 自动准备；已有环境或明确关闭 hooks 的
+  配置先询问是否准备、跳过或取消。已准备好的环境不重复询问。
+  使用 Herdr 官方安装命令，信任仍交由 Codex 原生界面确认。
+- 缺少 Conversation 的已退出记录在进入恢复确认前即说明阻塞原因；
+  确认页的按钮和键盘路径也保留缺失引用检查。新记录不再误标 Legacy。
+- 列表仅展示一条简短问题说明，详细身份观察保留在详情。正常观察到
+  身份或正常退出后保留身份，不再生成黄色提醒。
+- race 验证发现并补修另一条状态漏洞：周期身份读取耗尽重试后，客户端
+  恰好退出，原逻辑可能用最终空报告恢复 `ready`。现在这类未解决读取
+  失败必须由新的有效身份报告解除。新增确定性用例先复现失败再验证修复。
+
+已完成 Linux amd64 验证：
+
+- 全量 Go 测试通过（最终一轮 90.231s）；定向恢复与 identity race 通过
+  （130.865s），`go vet ./...` 通过。
+- `query_recovery_real.py` 从未安装集成的环境开始，由 Harbor 准备并在
+  Codex 中完成信任；完成一轮、正常 `/exit`、恢复相同 Conversation，
+  第二轮实际请求包含原上下文，无需手工 `bind` 或 `reassociate`。
+- `--skip-identity` 实机负向用例通过：明确跳过准备后仍能聊天，但不会
+  推断 ID；正常退出后 UI 在恢复确认之前说明缺失身份。
+- `app_acceptance.py --replacement --profiles --onboarding managed` 通过：
+  A/B 与同 Profile 多 Conversation 并发、原生/API-only Magpie 连接、
+  另一 Profile 被选中时恢复原对话，以及工作区/网关重启后的双向恢复。
+  此用例不再手动为各 Profile 安装 hooks，而由 Harbor 首次启动准备。
+
+真实客户端版本为 Codex 0.169.0、Herdr 0.9.5 本地 query 候选。Profile
+验收使用 pinned Magpie 0.1.3528 加 caller-only 与 Profile isolation 两个
+已有本地补丁；不是上游正式发布。本轮修正了验收前置条件：合成 OpenAI
+API key 不是已确认的 ChatGPT 账号，API-only 路径明确保持未登录；不放宽
+产品账号或网关隔离检查。真实账号授权及远程恢复仍未覆盖。
+
+macOS arm64 原生隔离验收也已通过：同为 Codex 0.169.0、Herdr 0.9.5
+本地 query 候选，未预装身份集成，由 Harbor 准备并经 Codex 信任后完成
+聊天、正常 `/exit` 和同一 Conversation/上下文的真实恢复。该结果仅覆盖
+原生恢复链路；完整 macOS A/B、Magpie 和真实账号矩阵仍单独保留。
+
+修复没有补造旧记录从未保存的 Conversation ID，也没有替换用户当前程序、
+停止现有服务或改动用户凭据及历史。已有缺失引用的记录仍须明确选择并
+关联原对话，不能视为已自动修复。
+
+后续用户授权替换当前程序：已备份旧二进制，并原子替换本机 macOS arm64
+启动入口，校验候选 SHA-256 和 `--version` 成功。未重启服务，替换前运行的
+相关进程均仍存在。新启动的面板和会话使用新版；已有 runner 不会热更新。
+
+### 替换后补充：未发送第一条消息即停止 Harbor
+
+用户在 2026-11-17 再次报告：新建 Magpie Codex 会话，直接 stop Harbor
+再重新进入，看到缺失 Conversation ID 的提示。用户随后明确：已经选择
+信任 hooks，但没有完成一轮聊天，正在另行尝试聊天后再停止的路径。
+
+新增隔离实机对照（Linux、真实 Codex 0.169.0、同上 Herdr 和 Magpie
+候选、API-only 连接）确认：
+
+- 信任 hooks 但未发消息：stop 前就没有观察到 Conversation ID；客户端
+  home 中没有持久化的 conversation JSONL 或名称索引。直接 stop/reopen
+  后同样缺失引用。不是 stop 删除了已经保存的 ID；当前界面仍将其显示
+  为身份未捕获，尚不能区别“未开始对话”和“聊天后身份采集失败”。
+- 完成第一轮再直接 `stop` Harbor（不先 stop-session）：stop 前后均有
+  同一个完整引用，未显示缺失 ID 提示。恢复前仍需显式检查并关闭 Herdr
+  恢复出来的空闲 shell；随后通过 Harbor 恢复原 Magpie Conversation，
+  第二轮实际请求保留第一轮上下文，Profile、实例、连接形式及 ID 均相同。
+
+这一轮是明确的直接停服对照。此前 Profile A/B 重启验收先逐个停止客户端，
+不能单独代替本轮证据。上述结果不代表已完成用户真实 caller 连接的复验。
+不应仅凭缺失引用把已启动的记录静默重置为新对话；空白启动与丢失身份
+需要进一步区分，或通过明确的新建选择处理。
+
+### 完成首轮聊天后的恢复死循环与焦点（2026-11-17）
+
+用户随后完成聊天并提供新截图：Conversation 已有完整 ID，点击 Resume
+却返回 `conversation observation needs review`，只有 Inspect evidence 和
+Cancel 可来回切换；失败及详情返回后焦点还会落到 Cancel。
+
+本机只读核对发现，该记录的保存引用和观察引用一致、没有冲突候选，状态为
+`observation_unavailable`，已有结束证据。旧 UI 的 query 不确定性确认与
+保存引用复核分属两条路径，Resume 只完成前者，因而无法完成该页要求。
+恢复确认默认 Cancel、方向键打开详情进一步加重了导航混乱。
+
+本轮修复把无冲突保存引用的复核并入 Resume，一次确认原 ID、Profile 和
+连接后继续恢复；Details 为可选证据。恢复默认聚焦 Resume，失败保留该焦点，
+详情返回聚焦 Details，方向键直接导航动作。确认后发生连接故障时，UI 保留
+该次实际写入的复核快照供原页重试；记录或运行目标变化仍拒绝旧确认。另修复
+审计 JSON 序列化格式被误认成记录变化的问题。没有替换身份或放宽真实冲突、
+缺失引用、活跃进程及连接校验。
+
+本轮验证：
+
+- Linux 全部 Go 测试通过（87.035s），恢复、保存引用及复核竞态测试通过，
+  `go vet ./...` 通过；新增测试覆盖失败重试、后续编辑拒绝和真实冲突拒绝。
+- Linux 与 macOS 均通过真实 Codex 0.169.0、Herdr 0.9.5 本地 query 候选、
+  Magpie Profile 候选的隔离验收：完成首轮后直接停止/重启 Harbor，仅在
+  fixture 自有状态重放最终观察不可用；鼠标一次点击 Resume 完成原引用复核，
+  故意停止 fixture Magpie 后显示具体连接失败并保留 Resume 焦点；恢复 Magpie
+  后同页重试，原 Conversation 的实际第二轮请求带有首轮上下文，Profile、
+  ID、实例和连接形式相同，仅记录一次复核。
+- macOS 原生连接的真实 Codex 正常退出、恢复同一 ID 与上下文也通过。
+
+上述 Magpie 实测使用合成 API provider；用户真实 caller 账号路径仍须用户
+复验，Herdr query 仍为本地开发候选，不能视为上游发布能力。
+
+本轮已再次备份并原子替换本机启动程序，校验版本和二进制散列成功。
+未停止用户服务、改写用户会话记录或代替用户接受复核；关闭旧面板重新打开
+后才会使用新 UI。

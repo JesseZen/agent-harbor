@@ -247,18 +247,19 @@ func TestNativeRecoveryReviewShowsRouteUncertaintyAndNavigation(t *testing.T) {
 			t.Fatalf("%v recovery review did not start at the top: %+v", size, model)
 		}
 		view := cleanUI(strings.Join(model.reviewEvidence(), "\n")) + " " + cleanUI(model.View())
-		for _, want := range []string{"Native route or login may have changed", "A provider name does not verify its destination", "Inspect evidence", "Use recorded conversation", "Resume conversation"} {
+		for _, want := range []string{"Native route or login may have changed", "A provider name does not verify its destination", "Details", "Resume confirms this saved conversation", "Resume conversation"} {
 			if !strings.Contains(view, want) {
 				t.Fatalf("%v recovery review hid %q: %s", size, want, view)
 			}
 		}
-		if next, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil || next.(harborModel).screen != "confirm" {
-			t.Fatalf("%v allowed recovery without accepting the uncertainty", size)
+		model.reviewOpenedAt = time.Time{}
+		if next, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd == nil || next.(harborModel).screen != "busy" {
+			t.Fatalf("%v explicit resume confirmation did not proceed", size)
 		}
 		model.scroll = model.scrollLimit()
 		model = appKey(model, "esc").(harborModel)
 		model = appKey(model, "enter").(harborModel)
-		if model.scroll != 0 || !strings.Contains(cleanUI(model.View()), "Native route or login may have changed") {
+		if model.scroll != 0 || !strings.Contains(cleanUI(model.View()), "Resume this saved conversation") {
 			t.Fatalf("%v reused the previous review's scroll position", size)
 		}
 		model.action = "review-reference"

@@ -6,6 +6,24 @@ The candidate patch is [herdr-resume-command.patch](herdr-resume-command.patch),
 
 Herdr is licensed under Apache-2.0; its license and bundled dependency notices are in `bridge/licenses/`. Magpie is distributed under its own license, also included in that directory.
 
+## Preparing Codex recovery identity
+
+Managed Codex startup checks `integration status` and the hooks setting using the
+Session's resolved Profile environment and project directory. It installs the
+official integration through `herdr integration install codex` for isolated
+Profiles, asking first for an existing environment or explicitly disabled hooks.
+The choice `skip` opens the client without promising automatic recovery; cancel
+does not start it. A prepared environment does not prompt for installation again.
+Codex still presents its own hook trust review. Harbor neither edits trust hashes
+nor treats installation as proof of the active Conversation.
+
+This does not recover an ID that was never captured. For an ended record without
+a reference, Harbor stops before resume confirmation. Inspect the original
+client history and explicitly associate the intended Conversation; do not select
+the globally newest history entry. Existing conflict, Profile and connection
+checks remain in force. Normal observed identities no longer generate yellow
+reminders in the Sessions list; uncertain observations remain visible in details.
+
 ## Session display names
 
 Verified upstream HEAD on 2026-11-16 is still `ee5bfb5041bb3e4a49d591c72308aae3c81ecdde`.

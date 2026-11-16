@@ -33,6 +33,7 @@ type sessionApproval struct {
 	MagpieSelection          *codexSelection
 	DevelopmentQuery         bool
 	QueryUncertaintyAccepted bool
+	SavedReferenceAccepted   bool
 	Confirmed                bool
 	OverrideReason           string
 }
@@ -102,9 +103,9 @@ func deriveSession(s session) sessionView {
 	v := sessionView{session: s, WriterLockCheck: "not inspected; explicitly review external writer uncertainty"}
 	if s.Conversation == nil && (s.Started || s.CodexSessionID != "" || len(s.Reassociations) > 0) {
 		if s.CodexSessionID == "" && s.RunToken != "" && processGroupActive(s.ProcessGroup) {
-			v.Reason = "Conversation identity has not yet been observed; recovery requires review."
+			v.Reason = "Conversation identity pending; approve the client identity hook if prompted."
 		} else {
-			v.Reason = "Legacy conversation needs review: unassociated; inspect Herdr identity and use reassociate SESSION_ID REFERENCE_JSON REVIEW_REASON, then explicitly approve query recovery."
+			v.Reason = missingConversationRecovery
 		}
 		return v
 	}

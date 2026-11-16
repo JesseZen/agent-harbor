@@ -219,6 +219,11 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 			return err
 		}
 	}
+	if os.Getenv("HERDR_PLUGIN_ID") == "agent-harbor.bridge" {
+		if err := prepareCodexRecovery(s, environment, os.Getenv("HERDR_BIN_PATH"), cmd.Env, os.Stdin, os.Stdout); err != nil {
+			return err
+		}
+	}
 	if err := beginRun(s, kind, plan); err != nil {
 		return err
 	}

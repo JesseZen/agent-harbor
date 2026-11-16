@@ -43,21 +43,29 @@ func savedReferenceForReview(s session) (herdrIdentity, error) {
 }
 
 func (harborService) Reassociate(a sessionApproval, ref herdrIdentity, reason string) error {
+	_, err := reassociateRecord(a, ref, reason)
+	return err
+}
+
+// Return exactly the record written under the launch lock. Recovery can carry
+// this approval forward without accepting a concurrently edited record.
+func reassociateRecord(a sessionApproval, ref herdrIdentity, reason string) (session, error) {
+	var reviewed session
 	if strings.TrimSpace(reason) == "" || strings.ContainsAny(reason, "\r\n\x00") {
-		return errors.New("review reason required")
+		return session{}, errors.New("review reason required")
 	}
 	if ref.Source == "" || ref.Agent != a.Session.CLI || ref.Kind == "" || ref.Value == "" {
-		return errors.New("complete upstream reference required; inspect Herdr identity or explicitly review a compatibility reference")
+		return session{}, errors.New("complete upstream reference required; inspect Herdr identity or explicitly review a compatibility reference")
 	}
 	if a.Observation != nil {
 		if err := validateApprovalRuntime(a); err != nil {
-			return err
+			return session{}, err
 		}
 		if a.Observation.Presence == "observed" {
-			return errors.New("a live target is observed; stop it before reassociation")
+			return session{}, errors.New("a live target is observed; stop it before reassociation")
 		}
 	}
-	return changeSessionRecord(a.Session.ID, func(s session) (*session, error) {
+	err := changeSessionRecord(a.Session.ID, func(s session) (*session, error) {
 		if !sameSession(s, a.Session) {
 			return nil, errors.New("session changed; review its details again")
 		}
@@ -92,8 +100,20 @@ func (harborService) Reassociate(a sessionApproval, ref herdrIdentity, reason st
 			s.Candidates = nil
 			s.IdentityWarning = "Manually reviewed compatibility reference; upstream identity remains unproven. Use resume --development-query and review conversation, login and connection uncertainty."
 		}
-		return &s, nil
+		// Match the persisted representation, including the indented raw JSON
+		// audit snapshot. Otherwise DeepEqual mistakes serialization for an edit.
+		encoded, err := json.MarshalIndent([]session{s}, "", "  ")
+		if err != nil {
+			return nil, err
+		}
+		var persisted []session
+		if err := json.Unmarshal(encoded, &persisted); err != nil {
+			return nil, err
+		}
+		reviewed = persisted[0]
+		return &reviewed, nil
 	})
+	return reviewed, err
 }
 func reassociateCommand(args []string) error {
 	if len(args) != 3 {

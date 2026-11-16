@@ -129,7 +129,6 @@ type harborModel struct {
 	catalogCursor       int
 	connectionCursor    int
 	clientCursor        int
-	queryAccepted       bool
 	referenceAccepted   bool
 }
 
@@ -384,6 +383,10 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = "Runtime unknown or not confirmed ended; use c to inspect a restored shell, then review recovery."
 			return m, nil
 		}
+		if s.Started && s.Conversation == nil {
+			m.notice = missingConversationRecovery
+			return m, nil
+		}
 		m.reviewed = s.session
 		m.nativeReview = msg.nativeConfig
 		m.reviewedSelection = msg.selection
@@ -392,7 +395,6 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		observation := s.Runtime
 		m.reviewedObservation = &observation
 		m.action = "resume"
-		m.queryAccepted = false
 		if s.Conversation != nil {
 			m.action = "query-resume"
 		}
@@ -415,7 +417,12 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if err != nil {
 			m.screen = "confirm"
-			m.notice = err.Error() + " · Inspect evidence, retry or Cancel."
+			var recoveryErr *recoveryOpenError
+			if errors.As(err, &recoveryErr) {
+				m.reviewed = recoveryErr.approval.Session
+				m.reviewedObservation = recoveryErr.approval.Observation
+			}
+			m.notice = err.Error()
 			m.reviewOpenedAt = time.Now()
 			return m, nil
 		}
@@ -817,16 +824,8 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectionFallback = true
 				return m, nil
 			}
-			if m.action == "query-resume" && key == "a" {
-				m.queryAccepted = true
-				return m, nil
-			}
 			if m.action == "review-reference" && key == "a" {
 				m.referenceAccepted = true
-				return m, nil
-			}
-			if m.action == "query-resume" && key == "enter" && !m.queryAccepted {
-				m.notice = "Press a to explicitly accept query uncertainty, or Esc to cancel."
 				return m, nil
 			}
 			if m.action == "review-reference" && key == "enter" && !m.referenceAccepted {
@@ -840,7 +839,11 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if key != "enter" {
 				return m, nil
 			}
-			a := sessionApproval{Session: m.reviewed, MagpieSelection: m.reviewedSelection, Observation: m.reviewedObservation, Confirmed: true, DevelopmentQuery: m.action == "query-resume", QueryUncertaintyAccepted: m.queryAccepted}
+			if (m.action == "query-resume" || m.action == "resume") && m.reviewed.Conversation == nil {
+				m.notice = missingConversationRecovery
+				return m, nil
+			}
+			a := sessionApproval{Session: m.reviewed, MagpieSelection: m.reviewedSelection, Observation: m.reviewedObservation, Confirmed: true, DevelopmentQuery: m.action == "query-resume", QueryUncertaintyAccepted: m.action == "query-resume", SavedReferenceAccepted: m.action == "query-resume"}
 			action := m.action
 			m.generation++
 			generation := m.generation

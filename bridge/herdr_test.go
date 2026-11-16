@@ -92,6 +92,7 @@ func TestOfficialHerdrReportRecordsTheCodexSessionID(t *testing.T) {
 	b := newTestBridge(t)
 	herdr := filepath.Join(b.root, "bin", "herdr")
 	stubHerdr := `#!/bin/sh
+if test "$1 $2" = "integration status"; then echo "codex: current (v10)"; exit 0; fi
 if test -f "$HOME/switch"; then
   printf '{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"01912345-6789-7abc-8def-0123456789ac"}}}}\n'
 elif test -f "$CAPTURE"; then
@@ -150,6 +151,7 @@ func TestExistingPaneIdentityIsNotAttributedToANewSession(t *testing.T) {
 	b := newTestBridge(t)
 	herdr := filepath.Join(b.root, "bin", "herdr")
 	stub := `#!/bin/sh
+if test "$1 $2" = "integration status"; then echo "codex: current (v10)"; exit 0; fi
 printf '{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"01912345-6789-7abc-8def-0123456789ab"}}}}\n'
 `
 	if err := os.WriteFile(herdr, []byte(stub), 0700); err != nil {

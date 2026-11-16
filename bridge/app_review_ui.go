@@ -19,9 +19,6 @@ func (m harborModel) reviewActions() []uiAction {
 	if m.action == "review-reference" && !m.referenceAccepted {
 		out = append(out, uiAction{ID: "review:a", Key: "a", Label: "Use saved conversation"})
 	}
-	if m.action == "query-resume" && !m.queryAccepted {
-		out = append(out, uiAction{ID: "review:a", Key: "a", Label: "Use recorded conversation"})
-	}
 	if (m.action == "query-resume" || m.action == "resume") && errors.Is(m.selectionReviewErr, errCodexProfileMissing) && m.reviewedSelection == nil {
 		out = append(out, uiAction{ID: "review:b", Key: "b", Label: "Use recorded model"})
 	}
@@ -30,13 +27,13 @@ func (m harborModel) reviewActions() []uiAction {
 	if m.action == "review-reference" && !m.referenceAccepted {
 		disabled = "Choose the saved conversation first"
 	}
-	if m.action == "query-resume" && !m.queryAccepted {
-		disabled = "Choose the recorded conversation first"
-	}
 	if (m.action == "query-resume" || m.action == "resume") && m.reviewed.Mode == "magpie" && m.reviewed.CLI == "codex" && !joinedCodex(m.reviewed) && m.reviewedSelection == nil {
 		disabled = "Resolve the session model before recovery"
 	}
-	return append(out, uiAction{ID: "review:enter", Key: "enter", Label: label, Primary: true, Disabled: disabled}, uiAction{ID: "evidence", Key: "i", Label: "Inspect evidence"}, uiAction{ID: "review:esc", Key: "esc", Label: "Cancel"})
+	if (m.action == "query-resume" || m.action == "resume") && m.reviewed.Conversation == nil {
+		disabled = missingConversationRecovery
+	}
+	return append(out, uiAction{ID: "review:enter", Key: "enter", Label: label, Primary: true, Disabled: disabled}, uiAction{ID: "evidence", Key: "i", Label: "Details"}, uiAction{ID: "review:esc", Key: "esc", Label: "Cancel"})
 }
 func (m harborModel) reviewEvidence() []string {
 	lines := []string{}
@@ -79,7 +76,7 @@ func (m harborModel) reviewLayout() uiPage {
 	if m.action != "start" {
 		p.field("", "💬", "Conversation", orUnknown(conversation), false, false)
 	}
-	impact := map[string]string{"start": "Start this client with the recorded connection.", "stop": "The conversation stays resumable.", "remove": "Codex history is kept. Remove only the Harbor record.", "review-reference": "Save this review only. This does not resume the conversation.", "query-resume": "Query proves syntax only. Login, conversation existence and other writers are not verified.", "resume": "Resume this conversation with its recorded connection.", "close-previous": "Close only the inspected idle shell; keep conversation and record."}[m.action]
+	impact := map[string]string{"start": "Start this client with the recorded connection.", "stop": "The conversation stays resumable.", "remove": "Codex history is kept. Remove only the Harbor record.", "review-reference": "Save this review only. This does not resume the conversation.", "query-resume": "Resume this saved conversation with its recorded Profile and connection.", "resume": "Resume this conversation with its recorded connection.", "close-previous": "Close only the inspected idle shell; keep conversation and record."}[m.action]
 	for _, line := range strings.Split(ansi.Wrap(impact, max(1, m.width-2), ""), "\n") {
 		p.line(line)
 	}
@@ -92,11 +89,7 @@ func (m harborModel) reviewLayout() uiPage {
 	if m.notice != "" {
 		p.line(paint(fg("warn"), ansi.Truncate(cleanUI(m.notice), max(1, m.width-2), "…")))
 	}
-	if m.reviewed.Mode == "local" && (m.action == "resume" || m.action == "query-resume" || m.action == "review-reference") {
-		for _, line := range strings.Split(ansi.Wrap("Native route or login may have changed; verify both. A provider name does not verify its destination. "+cleanUI(m.nativeReview), max(1, m.width-2), ""), "\n") {
-			p.line(line)
-		}
-	}
+
 	actions := m.reviewActions()
 	// Reserve actions first; short popups fold the object summary above them.
 	actionRows := len(actions)
@@ -121,6 +114,7 @@ func (m harborModel) activateReview(id string) (tea.Model, tea.Cmd) {
 	}
 	if id == "review-back" {
 		m.screen = "confirm"
+		m.uiFocus = "evidence"
 		m.scroll = 0
 		return m, nil
 	}
@@ -156,7 +150,7 @@ func (m harborModel) updateReviewUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, false
 	}
 	k := key.String()
-	if k == "tab" || k == "shift+tab" {
+	if m.screen == "confirm" && (k == "tab" || k == "shift+tab" || k == "down" || k == "j" || k == "up" || k == "k") {
 		hits := m.reviewLayout().Hits
 		ids := []string{}
 		for _, r := range hits {
@@ -164,13 +158,14 @@ func (m harborModel) updateReviewUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				ids = append(ids, r.ID)
 			}
 		}
-		m.uiFocus = uiCycle(m.uiFocus, ids, k == "shift+tab")
+		m.uiFocus = uiCycle(m.uiFocus, ids, k == "shift+tab" || k == "up" || k == "k")
 		return m, nil, true
 	}
 	if m.screen == "confirm-evidence" {
 		switch k {
 		case "esc", "enter", "i":
 			m.screen = "confirm"
+			m.uiFocus = "evidence"
 			m.scroll = 0
 		case "down", "j":
 			m.scroll = min(max(0, len(m.reviewEvidence())-max(1, m.height-3)), m.scroll+1)
@@ -179,7 +174,7 @@ func (m harborModel) updateReviewUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	}
-	if k == "i" || k == "down" || k == "j" || k == "up" || k == "k" {
+	if k == "i" {
 		next, cmd := m.activateReview("evidence")
 		return next, cmd, true
 	}

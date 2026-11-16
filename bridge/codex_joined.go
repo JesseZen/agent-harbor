@@ -38,15 +38,19 @@ func joinedCodexArgs(s session, kind launchKind) []string {
 // Codex keeps its last official catalog in its own home. Use the visible
 // bare model IDs for initial choices; Codex still checks the current account.
 func cachedCodexModels() []catalogModel {
-	models := []catalogModel{{ID: codexDefaultModel, DisplayName: "Codex default (choose a model in Codex)"}}
 	env, err := userEnvironment()
 	if err != nil {
-		return models
+		return nil
 	}
 	home := environmentValue(env, "CODEX_HOME")
 	if home == "" {
 		home = filepath.Join(environmentValue(env, "HOME"), ".codex")
 	}
+	return cachedCodexModelsIn(home)
+}
+
+func cachedCodexModelsIn(home string) []catalogModel {
+	models := []catalogModel{{ID: codexDefaultModel, DisplayName: "Codex default (choose a model in Codex)"}}
 	file, err := os.Open(filepath.Join(home, "models_cache.json"))
 	if err != nil {
 		return models

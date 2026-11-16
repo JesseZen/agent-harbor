@@ -25,6 +25,7 @@ type sessionView struct {
 type sessionDraft struct {
 	Directory, Name, Connection, Instance, Model, Client string
 	Profile                                              *profileBinding
+	CodexConnection                                      string
 }
 type sessionApproval struct {
 	Observation              *runtimeObservation
@@ -188,7 +189,14 @@ func (h harborService) get(ctx context.Context, id string, cached bool) (session
 }
 func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
 	if d.Profile != nil {
-		return d, ErrProfileNotReady
+		if d.Connection != "magpie" {
+			return d, ErrProfileNotReady
+		}
+		form, err := h.ProfileCodexConnection(context.Background(), profileClientRequest{Binding: *d.Profile})
+		if err != nil {
+			return d, err
+		}
+		d.CodexConnection = form
 	}
 	if d.Client == "" {
 		d.Client = "codex"
@@ -216,7 +224,13 @@ func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
 		return d, errors.New("choose local or magpie")
 	}
 	if d.Connection == "magpie" {
-		models, err := h.Catalog(d.Instance)
+		var models []catalogModel
+		var err error
+		if d.Profile != nil {
+			models, err = h.ProfileMagpieCatalog(context.Background(), profileClientRequest{Binding: *d.Profile}, d.Instance)
+		} else {
+			models, err = h.Catalog(d.Instance)
+		}
 		if err != nil {
 			return d, err
 		}

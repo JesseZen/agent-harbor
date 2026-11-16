@@ -15,7 +15,7 @@ def main():
     root=pathlib.Path(tempfile.mkdtemp(prefix='harbor-gates-',dir='/tmp')).resolve();root.chmod(0o700)
     stage=root/'package';stage.mkdir()
     with tarfile.open(archive) as t:
-        assert all(n in ('agent-harbor','herdr','magpie','README.md','install.sh','licenses') or n.startswith('licenses/') for n in t.getnames())
+        assert all(n in ('agent-harbor','herdr','magpie','codex-auth','README.md','install.sh','licenses') or n.startswith('licenses/') for n in t.getnames())
         t.extractall(stage,filter='data')
     copied=root/'codex-native';shutil.copy2(native,copied);copied.chmod(0o700)
     scripts=pathlib.Path(__file__).resolve().parent

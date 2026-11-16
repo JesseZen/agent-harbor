@@ -13,7 +13,7 @@ func (m harborModel) accountActions() []uiAction {
 	if m.screen == "accounts-result" {
 		return []uiAction{{ID: "account:back", Label: "Back to accounts", Key: "esc"}}
 	}
-	return []uiAction{{ID: "account:s", Label: "Select saved login", Key: "s", Primary: true}, {ID: "account:l", Label: "Add login", Key: "l"}, {ID: "account:back", Label: "Back", Key: "esc"}}
+	return []uiAction{{ID: "account:s", Label: "Select saved login", Key: "s", Primary: true}, {ID: "account:l", Label: "Add login", Key: "l"}, {ID: "account:o", Label: "Not signed in", Key: "o"}, {ID: "account:p", Label: "Choose Profile", Key: "p"}, {ID: "account:r", Label: "Refresh", Key: "r"}, {ID: "account:back", Label: "Back", Key: "esc"}}
 }
 
 func (m harborModel) accountContent() uiPage {
@@ -25,15 +25,32 @@ func (m harborModel) accountContent() uiPage {
 			}
 		}
 	}
-	p.line(paint(fg("brand"), "👤 Harbor · Accounts · experimental"))
+	p.line(paint(fg("brand"), "👤 Harbor · Accounts"))
 	if m.screen == "accounts" {
 		p.tabs("accounts", m.uiHover, m.uiFocus, true)
-		p.field("", "👤", "Current account", "Unknown · not checked", false, false)
-		p.field("", "◷", "Official quota", "Unknown · not checked", false, false)
-		wrap("Select a saved login or add one with codex-auth. Switch between replies, after every active Codex turn finishes.")
-		wrap("Selection changes the shared Codex home and may affect other Codex processes using it. Harbor cannot verify external processes.")
-		wrap("Running owned App Servers use an undocumented refresh side effect. Each session must confirm the selected identity; unavailable or failed checks remain unconfirmed. Plugin state is unverified.")
-		wrap("Magpie caller-only forwards the selected caller identity; this does not enable automatic account rotation.")
+		if m.accountProfile == nil {
+			wrap("Unknown · select a Profile with p. Account actions require its explicit client environment.")
+		} else if m.accountSnapshot != nil {
+			wrap(accountResultText(*m.accountSnapshot))
+			for _, a := range m.accountSnapshot.Accounts {
+				label := a.Alias
+				if label == "" {
+					label = a.Email
+				}
+				if a.Active {
+					label += " · saved selection"
+				}
+				wrap(label)
+			}
+		} else {
+			wrap("Profile: " + m.accountProfile.ProfileID + " · status not checked")
+		}
+		wrap("Select a saved login, add one through official Codex login, or choose Not signed in. Saved accounts are retained.")
+		wrap("Switch between replies. Active or unknown activity blocks changes. Running sessions report any required handoff; basic management does not restart processes.")
+		if experimentalCodexAccounts() {
+			wrap("Experimental running-server refresh uses an undocumented side effect. Each identity must be confirmed.")
+		}
+
 	} else if m.screen == "accounts-busy" {
 		wrap("Waiting for the account action in codex-auth. Complete or cancel there; duplicate Harbor actions are disabled.")
 	} else {
@@ -48,7 +65,7 @@ func (m harborModel) accountContent() uiPage {
 }
 
 func (m harborModel) accountsPage() (uiPage, bool) {
-	if !experimentalCodexAccounts() || (m.screen != "accounts" && m.screen != "accounts-result" && m.screen != "accounts-busy") {
+	if m.screen != "accounts" && m.screen != "accounts-result" && m.screen != "accounts-busy" {
 		return uiPage{}, false
 	}
 	content := m.accountContent()
@@ -81,7 +98,23 @@ func (m harborModel) accountActivate(id string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	if status, ok := msg.(appAccountStatus); ok {
+		if status.generation != m.accountGeneration || m.accountProfile == nil || m.service.ValidateProfileResult(status.profile, *m.accountProfile) != nil {
+			return m, nil, true
+		}
+		m.accountSnapshot = &status.result
+		if status.err != nil {
+			m.accountSnapshot.Detail = status.err.Error()
+		}
+		return m, nil, true
+	}
 	if done, ok := msg.(appAccountDone); ok {
+		if done.profile != nil && (m.accountProfile == nil || m.service.ValidateProfileResult(*done.profile, *m.accountProfile) != nil) {
+			return m, nil, true
+		}
+		if done.snapshot != nil {
+			m.accountSnapshot = done.snapshot
+		}
 		if m.screen != "accounts-busy" {
 			return m, nil, true
 		}

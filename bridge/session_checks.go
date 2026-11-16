@@ -77,7 +77,7 @@ func checkSessionBase(s session, kind launchKind, override string, checkModel bo
 
 	}
 	if s.Mode == "magpie" {
-		if s.CLI == "codex" && s.CodexConnection != "" && !joinedCodex(s) {
+		if s.CLI == "codex" && s.CodexConnection != "" && s.CodexConnection != "api" && !joinedCodex(s) {
 			return errors.New("unsupported Codex connection mode; review this session")
 		}
 		if s.InstanceSnapshot != nil {

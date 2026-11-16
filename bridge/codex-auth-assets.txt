@@ -1,0 +1,7 @@
+# Unmodified GitHub release archives, v0.4.0, commit 4e9803da1d9015f0ff70805322b2780f6fbf5475
+# Source: https://api.github.com/repos/Loongphy/codex-auth/releases/tags/v0.4.0
+# target archive SHA256 (GitHub release asset digest)
+linux-amd64 codex-auth-Linux-X64.tar.gz e74c45a2bc6b97a0696660fcae1c7a49fb5590b81851fbd53e1fc07e549cb5ce
+linux-arm64 codex-auth-Linux-ARM64.tar.gz 77e251eeccf8619bc0e6a0c9ba7535bf05e0c5478f0f070a4e4677ae803db9c1
+darwin-amd64 codex-auth-macOS-X64.tar.gz f9bc2448e6da5e3cac52609ba1dc0e7446f141b9644859bf9d389b973710bb77
+darwin-arm64 codex-auth-macOS-ARM64.tar.gz f7d7d2e0a62048a6eac3d0d95bd5428375b4309b5e4d80a854fe2521f68fb607

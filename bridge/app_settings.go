@@ -260,9 +260,7 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 func (m settingsModel) navIDs() []string {
 	ids := []string{"sessions", "magpie"}
-	if experimentalCodexAccounts() {
-		ids = append(ids, "accounts")
-	}
+	ids = append(ids, "accounts")
 	return append(ids, "settings")
 }
 func (m settingsModel) navigate(nav string) (tea.Model, tea.Cmd) {
@@ -326,7 +324,7 @@ func (m settingsModel) layout() uiPage {
 		return p
 	}
 	if p.Height >= 19 {
-		p.tabs("settings", m.hover, m.focusNav, experimentalCodexAccounts())
+		p.tabs("settings", m.hover, m.focusNav, true)
 	}
 	p.search(m.query, "Search settings", m.searching)
 	if p.Height >= 23 {

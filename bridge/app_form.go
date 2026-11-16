@@ -227,9 +227,14 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *harborModel) formCatalog() tea.Cmd {
 	m.generation++
 	g, id := m.generation, m.draft.Instance
+	draft := m.draft
+	if draft.Profile != nil {
+		b := *draft.Profile
+		draft.Profile = &b
+	}
 	m.screen = "new-catalog-loading"
 	return func() tea.Msg {
-		c, e := m.service.Catalog(id)
+		c, e := catalogForDraft(m.service, draft, id)
 		return appCatalog{generation: g, instance: id, models: c, err: e}
 	}
 }

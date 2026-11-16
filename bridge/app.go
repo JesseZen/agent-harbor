@@ -99,6 +99,9 @@ type harborModel struct {
 	environment         appEnvironment
 	nativeReview        string
 	accountResult       string
+	accountProfile      *profileBinding
+	accountGeneration   uint64
+	accountSnapshot     *profileAccountResult
 	reviewedSelection   *codexSelection
 	selectionReviewErr  error
 	selectionFallback   bool
@@ -870,8 +873,15 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = "magpie"
 			return m, m.loadInstances()
 		case "a":
-			if experimentalCodexAccounts() {
-				m.screen = "accounts"
+			m.screen = "accounts"
+			if m.draft.Profile != nil {
+				b := *m.draft.Profile
+				m.accountProfile = &b
+				m.accountSnapshot = nil
+			}
+			if m.accountProfile != nil {
+				m.accountGeneration++
+				return m, m.inspectAccounts(*m.accountProfile)
 			}
 		case "n":
 			m.generation++

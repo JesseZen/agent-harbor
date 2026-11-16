@@ -51,15 +51,35 @@ In a new joined Magpie-backed Codex session, `/model` combines official models w
 
 New Harbor-managed Magpie instances enable caller-only mode. It forwards official requests with the initiating Codex login, without selecting a Magpie account or switching accounts on errors. Third-party providers use their own configured credentials. A group containing a stored Magpie Codex account cannot currently use that member in caller-only mode. Existing managed or external gateways retain their current settings: a joined session requires a gateway that reports caller-only support. Existing legacy sessions keep their original connection and profile behavior; they are not silently migrated.
 
-### Experimental account switching
+### Codex accounts
 
-Install `codex-auth` separately and start Harbor with
-`AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS=1` to try account management. Set
-`AGENT_HARBOR_CODEX_AUTH_BIN` if the executable is not on `PATH`. In the
-session list press `a`, then `l` to add a login using Codex or `s` to choose an
-account with codex-auth. Wait for every active Codex turn to finish before
-switching. Selection changes the shared Codex home and can affect other Codex
-processes using that home.
+The Accounts page (`a`) is available by default. Select the Profile with `p`;
+its name, Codex home and affected owned sessions appear in the page. `l` adds a
+login through official Codex, `s` selects a saved login, `o` selects Not signed
+in while retaining the saved list, and `r` rereads status. Browsing does not
+select or sign out an account. Unknown/active session activity refuses mutation;
+stop the named session explicitly before retrying when it cannot be inspected.
+Existing environments may also affect external clients sharing that home.
+
+This branch consumes the first-stage Profile contract: account/client execution
+still reports not ready until Profile runtime integration is verified. Do not
+interpret a visible account page as a completed login or A/B isolation test.
+Existing unbound records cannot use the old ambient account-mutation seam.
+
+Packages include the unmodified codex-auth v0.4.0 release. No PATH installation
+or npm download is needed. The explicit `AGENT_HARBOR_CODEX_AUTH_BIN` override
+remains for development. Package builders supply the upstream release archive
+under `codex-auth/` in the dependencies directory; `codex-auth-assets.txt` pins
+the exact filenames and GitHub release-asset digests for all four targets.
+The archive checksum is verified before extraction; MIT notices travel in
+`licenses/codex-auth-MIT.txt`. Uninstall removes the package executable and
+preserves Codex/codex-auth account and conversation data in their client homes.
+
+### Experimental running-session refresh
+
+Set `AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS=1` only to try the dedicated App
+Server topology and in-place refresh. Basic account-page visibility does not
+enable this behavior.
 
 New native and joined Magpie Codex sessions use a dedicated official App
 Server while this option is enabled. Harbor verifies the selected identity in

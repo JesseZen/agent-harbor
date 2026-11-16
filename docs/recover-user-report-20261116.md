@@ -20,6 +20,48 @@
 用户此前确认 #19/#20 的本机人工试用通过并要求关闭 issue，见
 [验收记录](issues-19-20-acceptance.md)。该报告不覆盖、也不推翻本条后来明确报告的 Recover 失败。
 
+## 补充实机报告：Ctrl+B、Q 退出后重进变空
+
+用户在约 23:51–23:53 提供三张截图，并明确描述以下操作顺序：
+
+1. 使用 `Ctrl+B`、`Q` 退出 Agent Harbor。
+2. 重新进入 Agent Harbor，用户观察到“全变空了”。
+3. 在 Sessions 页尝试恢复已有会话，仍然无法恢复，页面出现下面的诊断和拒绝文字。
+
+这次属于**用户实机报告与截图证据**，尚未由 agent 独立复现。
+“全变空”具体指终端内容、窗格布局还是其他显示，尚未区分；Sessions 页仍能显示目标记录和详情，不能据此断言持久化记录或 Codex 历史已删除。
+同样，退出按键是否只断开客户端、是否导致后台退出或布局恢复异常，需要验证，不能直接当作完整工作区重启。
+
+截图一显示原有的身份缺失警告，以及：
+
+> Legacy conversation needs review: unassociated; inspect Herdr identity and use reassociate SESSION_ID REFERENCE_JSON REVIEW_REASON, then explicitly approve query recovery.
+
+截图二的 Session details 可见以下字段（个人路径、名称和运行标识已省略）：
+
+| 字段 | 截图显示 |
+| --- | --- |
+| 总体状态 | `Unknown` |
+| Presence | `not_observed` |
+| Runtime association | `unassociated` |
+| CLI | `codex-cli 0.169.0` |
+| Connection | `magpie` |
+| Initial model | `@codex-default` |
+| Instance | `managed` |
+| Observed route | `not observed` |
+| Conversation | `unknown` |
+| ID source | `unknown` |
+| Recovery | `needs_review` |
+| Previous Herdr pane | 有保存的窗格引用 |
+| Identity observation | `missing` |
+
+截图三的 `Harbor · Review resume` 页面仍展示 `Resume conversation` 按钮，Conversation 为 `unknown`，并显示：
+
+> query recovery requires an upstream-observed reference; legacy records require explicit review and reassociate before query recovery · Inspect evidence, retry or Cancel.
+
+该拒绝文字对应 `queryReferenceCheck` 的缺失身份分支。它说明这次操作被缺失恢复引用挡住，但尚未验证退出前为何没有捕获身份，以及重进后为何变空。界面里的 `Legacy` 是程序标签，不足以证明这一定是旧版本记录或数据迁移问题。
+
+原始截图含个人目录和会话名称，未提交仓库；这里保留必要的操作顺序、状态字段和错误文本。下一轮应优先用相同退出/重进路径建立复现，不只测试主动 stop 后恢复。
+
 ## 已核实的代码事实与排查线索
 
 以下是代码检查结果，不是全部用户失败场景的根因结论：
@@ -54,7 +96,7 @@
 ## 下一位 agent 的优先工作
 
 1. 用真实 Codex、Herdr 和受控 provider 在隔离环境复现：新建 → 完成一轮 → 正常退出 → 立即 Recover。保留准确拒绝点，并区分客户端退出、窗格关闭和界面断开。
-2. 再覆盖工作区重启后的 Recover；比较恢复前后确切的 Conversation、Profile、连接实例和模型选择，避免恢复成新对话或其他对话。
+2. 优先覆盖补充报告中的 `Ctrl+B`、`Q` 退出 → 重新进入 → 变空 → Sessions Recover 路径；先区分客户端断开与服务退出，再单独覆盖完整工作区重启。比较前后确切的 Conversation、Profile、连接实例和模型选择，避免恢复成新对话或其他对话。
 3. 覆盖 hooks 无报告的正常运行；确定上游能可靠提供身份的路径，避免把缺失报告永久转换为无法恢复。
 4. 核对正常退出后的状态是否及时更新、是否存在重复/过期 Herdr 观察，以及恢复按钮的各个前置条件。分别修复实际复现的根因，不预设所有失败同源。
 5. 基本恢复稳定后，再讨论 Codex 内切换 Conversation 后的绑定同步和持续跟名。不要统一用全局“最近会话”代替每个窗格自己的已确认 ID。

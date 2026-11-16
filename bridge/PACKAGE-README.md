@@ -14,6 +14,31 @@ Selected candidate flows have been exercised on native Linux amd64 and macOS arm
 
 ## Using the candidate
 
+### Remote workspaces
+
+This branch also requires the Herdr remote-executable patch on top of the query
+candidate. Each Herdr asset needs a `.remote-patch.sha256` file containing the
+SHA-256 of `docs/herdr-remote-executable.patch`; package creation rejects a missing
+or different attestation. The remote patch is a local candidate, not an upstream
+release.
+
+Install the matching candidate on a server and configure its native client.
+From your laptop, run `agent-harbor remote add Build --ssh workbox --binary
+/srv/harbor/agent-harbor --state /srv/harbor-state --native`, using your actual SSH
+alias and absolute server paths. Then open `agent-harbor` and select Build in
+Herdr's machine sidebar. The Harbor popup, directories, clients and connections
+belong to that server; the local client renders them through native Herdr.
+
+`remote list --json`, `remote status Build --json` and `remote reconnect Build`
+manage connection visibility and SSH authentication. `remote remove PROFILE_ID`
+forgets a connection without stopping its tasks. Closing the local client leaves
+remote work running. Provider access, Git authentication and MCP services must
+remain available without the laptop. Temporary environment recycling ends its
+processes; reopening the host and reviewing conversation recovery are separate
+from reconnecting to a live server. Preserve client histories as well as code.
+
+### Local workspace
+
 Run `./agent-harbor` to open the workspace. First-run checks offer Local Codex, a Harbor-managed Magpie, or a detected running Magpie with verified configuration identity. Harbor keeps its Herdr configuration and state separate from your existing workspaces.
 
 Install into an empty dedicated directory with `sh install.sh install --prefix /absolute/path/agent-harbor`. Run `/absolute/path/agent-harbor/agent-harbor` or add that directory to PATH. The installer refuses a populated prefix and does not change services or configuration. Uninstall with `sh /absolute/path/agent-harbor/install.sh uninstall --prefix /absolute/path/agent-harbor`; licenses and any files you added remain. Session and connection state are retained.

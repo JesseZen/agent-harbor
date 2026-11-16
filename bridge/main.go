@@ -26,6 +26,10 @@ func run(args []string) error {
 		return openHerdr()
 	}
 	switch args[0] {
+	case "remote":
+		return remoteCommand(args[1:])
+	case "_remote-herdr":
+		return remoteHerdr(args[1:])
 	case "version", "--version":
 		fmt.Println("agent-harbor-bridge " + version)
 		return nil
@@ -178,7 +182,7 @@ Recovery:
 }
 
 func usage() error {
-	return errors.New("usage: agent-harbor-bridge {open|stop|settings|settings-recover|create|start|sessions|show|bind|verify|resume|stop-session|rename|remove|focus|route|new|models|magpie}")
+	return errors.New("usage: agent-harbor-bridge {open|stop|settings|settings-recover|create|start|sessions|show|bind|verify|resume|stop-session|rename|remove|focus|route|new|models|magpie|remote}")
 }
 
 func checkDirectory(path string) (string, error) {

@@ -125,7 +125,9 @@ def main():
             env['HERDR_BIN']=str(root/'harbor/herdr/bin/herdr')
             config+='[mcp_servers.herdr]\ncommand = '+json.dumps(node)+'\nargs = ['+json.dumps(str(pathlib.Path(a.mcp).resolve()))+']\n'
         (root/'codex/config.toml').write_text(config)
-        # Caller-only transport requires a caller identity; never use a real login.
+        # Caller-only transport requires a caller identity. Current Codex
+        # requires it before opening its TUI even for a synthetic Magpie group;
+        # this fixture always uses a synthetic key.
         run([root/'bin/codex','login','--with-api-key'],input='sk-harbor-fixture\n')
         launcher=root/'launch.sh'
         launcher.write_text('#!/bin/sh\n'+''.join('export '+k+'='+shlex.quote(v)+'\n' for k,v in env.items())+'cd '+shlex.quote(str(root/'project'))+'\nagent-harbor\nread answer\n')
@@ -495,7 +497,8 @@ def main():
                     match=next(x for x in discovered if x['pane_id']==rec['herdr_pane'])
                     # Pinned Herdr exposes pane/tab identity, not Codex UUID.
                     assert match['tab_id']==rec['herdr_tab'], 'MCP tab mismatch'
-                    assert match.get('tokens',{}).get('harbor')=='Magpie managed / '+rec['magpie_model'], 'MCP connection mismatch'
+                    connection_label='Codex' if rec.get('codex_connection')=='caller' else rec['magpie_model']
+                    assert match.get('tokens',{}).get('harbor')=='Magpie managed / '+connection_label, 'MCP connection mismatch'
                     before=sum(marker in marks for _,marks in relay.observed)
                     request(10+index,'tools/call',{'name':'herdr_relay','arguments':{'target':rec['herdr_agent_name'],'text':marker}})
                     wait(lambda:sum(marker in marks for _,marks in relay.observed)>before,'MCP send '+name)

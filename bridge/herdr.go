@@ -17,6 +17,10 @@ import (
 const herdrSession = "agent-harbor"
 
 func openHerdr() error {
+	return openHerdrMode(true)
+}
+
+func openHerdrMode(attach bool) error {
 	if err := ensureOnboarding(onboardingAppService); err != nil {
 		return err
 	}
@@ -49,6 +53,9 @@ func openHerdr() error {
 	}
 	if unlockErr != nil {
 		return unlockErr
+	}
+	if !attach {
+		return nil
 	}
 	cmd := herdrCommand(env, "--session", herdrSession)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr

@@ -8,6 +8,18 @@ On restart or recovery Harbor must preserve the intended conversation and connec
 
 Use documented upstream integration interfaces. Unsupported operations must be presented clearly. Keep user credentials and conversations out of logs and test fixtures.
 
+Remote workspaces use Herdr's native saved-machine client. The local machine
+renders the workspace; Harbor management, project files, terminals, agent
+clients and optional Magpie run on the selected server. Harbor's session list
+is scoped to that server. Disconnecting the client leaves remote work running.
+Remote setup explicitly selects an installed Harbor package and an owned state
+directory. Each saved connection pins the workspace identity and its isolated
+Herdr executable; a missing or changed workspace must not fall back to another
+installation, Local, or a new conversation. Transport reconnection and recovery
+after server/environment loss are distinct operations. Environment recycling is
+controlled by the host platform; surviving processes and retained client history
+must not be assumed after recreation. See [remote workspaces](remote-workspaces.md).
+
 An opt-in experimental Codex account integration may use `codex-auth` to save
 and manually select logins and dedicated Codex App Servers to keep Harbor
 sessions open during a switch. Refreshing an already-running server currently

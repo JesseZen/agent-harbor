@@ -96,9 +96,10 @@ select or sign out an account. Unknown/active session activity refuses mutation;
 stop the named session explicitly before retrying when it cannot be inspected.
 Existing environments may also affect external clients sharing that home.
 
-Profile runtime and account integration are implemented together. Real-account,
-remote and native macOS acceptance remain open. Unbound records cannot mutate
-an ambient login.
+Profile runtime and account integration are implemented together. The maintainer
+reported macOS manual acceptance on 2026-11-16; the [acceptance record](../docs/issues-19-20-acceptance.md)
+distinguishes that trial from the remaining detailed real-account, remote and
+native-platform validation matrix. Unbound records cannot mutate an ambient login.
 
 Packages include the unmodified codex-auth v0.4.0 release. No PATH installation
 or npm download is needed. The explicit `AGENT_HARBOR_CODEX_AUTH_BIN` override

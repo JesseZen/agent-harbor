@@ -8,6 +8,14 @@ On restart or recovery Harbor must preserve the intended conversation and connec
 
 Use documented upstream integration interfaces. Unsupported operations must be presented clearly. Keep user credentials and conversations out of logs and test fixtures.
 
+An explicit Session name takes precedence over automatic titles. New Codex
+Sessions created with an empty name initially show the project and connection,
+then copy the first available title for the verified Conversation once into
+Harbor and Herdr's tab/pane display labels. Later manual renaming remains
+available and disables pending automatic capture. Older records retain their
+names. Other clients keep the project/connection fallback until their title
+capability is verified. See [Herdr integration](herdr-integration.md).
+
 Remote workspaces use Herdr's native saved-machine client. The local machine
 renders the workspace; Harbor management, project files, terminals, agent
 clients and optional Magpie run on the selected server. Harbor's session list
@@ -34,14 +42,17 @@ codex-auth, saved-login selection and “Not signed in” while retaining saved
 accounts. Account mutations coordinate with launch and refuse active or unknown
 session activity. Each affected session reports its outcome; ordinary account
 management does not restart processes or depend on experimental refresh.
-Profile-bound execution is implemented; real-account and platform acceptance remain open.
+Profile-bound execution is implemented and received maintainer-reported macOS
+manual acceptance on 2026-11-16. The [acceptance record](issues-19-20-acceptance.md)
+retains the separate detailed real-account, remote and platform validation scope.
 
 New Magpie connections record either an independent API provider when signed
 out or a caller-preserving joined connection with a confirmed usable login.
 Recovery retains the saved connection form, instance and Conversation regardless
 of subsequent login changes. An expired or unconfirmed login requires repair or
 explicit sign-out. API-only catalogs do not include cached official choices.
-The complete Profile-bound creation journey still requires integration acceptance.
+The integrated Profile-bound creation candidate is covered by that maintainer
+acceptance report; per-scenario automated evidence remains separately recorded.
 
 Opt-in running App Server refresh still relies on an undocumented side effect
 of `app/list`. It is separate from basic account management and reports each

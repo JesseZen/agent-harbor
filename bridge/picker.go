@@ -145,7 +145,8 @@ func openPaneOptions(s session, action launchKind, override string, selection *c
 		Result struct {
 			PluginPane struct {
 				Pane struct {
-					TabID string `json:"tab_id"`
+					PaneID string `json:"pane_id"`
+					TabID  string `json:"tab_id"`
 				} `json:"pane"`
 			} `json:"plugin_pane"`
 		} `json:"result"`
@@ -156,6 +157,11 @@ func openPaneOptions(s session, action launchKind, override string, selection *c
 	// The returned tab belongs to this just-opened plugin pane.
 	if err := exec.Command(herdr, "tab", "rename", result.Result.PluginPane.Pane.TabID, s.Name).Run(); err != nil {
 		return errors.New("session opened, but its tab name could not be set")
+	}
+	if result.Result.PluginPane.Pane.PaneID != "" {
+		if err := exec.Command(herdr, "pane", "rename", result.Result.PluginPane.Pane.PaneID, s.Name).Run(); err != nil {
+			return errors.New("session opened, but its pane name could not be set")
+		}
 	}
 	bin, err := os.Executable()
 	if err != nil {

@@ -183,6 +183,9 @@ func candidateIdentityCapture(id, token, client string) (func(), func() error) {
 		if err := update(ref, state); err != nil {
 			captureErr = err
 		}
+		if !finishing && !blocked && err == nil {
+			captureAutomaticSessionName(id, token)
+		}
 	}
 	activate := func() {
 		active = true

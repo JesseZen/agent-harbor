@@ -361,9 +361,9 @@ func (m harborModel) newView() string {
 		return strings.Join([]string{"🐦 Magpie auxiliary routing", "", note("Magpie may send parts of your conversation to other models or providers for titles and auxiliary requests."), note("Routing groups may switch members. An unchanged ID does not prove an unchanged destination."), "", keysMark + "enter acknowledge for this instance  esc back"}, "\n")
 	case "new-name":
 		if m.formActive {
-			return "Session name\n\n" + m.input.View() + "\n\nLeave empty for the automatic project and connection name."
+			return "Session name\n\n" + m.input.View() + "\n\nLeave empty to use the first available Codex conversation title. Until then, the project and connection are shown."
 		}
-		return strings.Join([]string{stepHeader(4, "Session name"), "", m.input.View(), "", note("Leave empty to use the project and connection.")}, "\n")
+		return strings.Join([]string{stepHeader(4, "Session name"), "", m.input.View(), "", note("Leave empty to use the first available Codex conversation title; the project and connection are shown until then.")}, "\n")
 	default:
 		lines := []string{stepHeader(5, "Review new session"), "", kv("Name", m.draft.Name), kv("Project", m.draft.Directory), kv("CLI", "Codex "+m.environment.CodexVersion)}
 		if m.draft.Connection == "magpie" {

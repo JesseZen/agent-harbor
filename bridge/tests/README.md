@@ -94,6 +94,21 @@ fixture uses synthetic providers and separate Codex and Magpie homes.
 
 ## Profile gates
 
+The integrated candidate received maintainer-reported macOS manual acceptance on
+2026-11-16. See the [acceptance record](../../docs/issues-19-20-acceptance.md).
+The gates below retain their specific evidence requirements; the report does
+not supply per-scenario results for the entire matrix.
+
+For Session names and the Herdr sidebar, run `app_acceptance.py --replacement
+--session-names` with the same binary arguments as above. It creates an unnamed
+Session through the UI, names the Conversation through real Codex `/rename`,
+checks one-time capture and Unicode pane/tab labels, checks a later Codex title
+does not overwrite the captured name, and exercises explicit Harbor rename.
+The fixture retains an ANSI sidebar capture and checks native style settings.
+For an unpackaged executable, supply `--codex-auth NATIVE_CODEX_AUTH`; packaged
+runs copy the adjacent bundled executable into the fixture. This gate passed
+on Linux amd64 on 2026-11-16 with Codex 0.169.0 and Herdr 0.9.5.
+
 `TestProfileContract*`, `TestProfileDefault*`, `TestProfileUpgrade*`,
 `TestProfilePage*` and `TestProfileMagpie*` cover persisted identity, default
 initialization, explicit legacy review, A/B scope, cancellation/coordination,
@@ -136,7 +151,7 @@ Package installation acceptance includes codex-auth version execution without
 installing it on PATH, archive allowlisting and saved-account-data retention on
 uninstall. Native Linux package checks do not establish macOS/keychain behavior.
 
-Full #20 acceptance remains open: #19 runtime integration, normal UI signed-out
+The remaining detailed #20 validation matrix includes normal UI signed-out
 managed/external Magpie turns and exact recovery, login/select/cancel against
 real codex-auth, A/B real request identities, remote execution and native macOS
 package journeys. Use the maintained application/package runner after integrating

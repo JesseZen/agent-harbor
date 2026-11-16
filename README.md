@@ -6,6 +6,10 @@ Agent Harbor manages AI CLI sessions in Herdr and connects them to either a clie
 
 This repository contains an **experimental development candidate**, not a supported release. Exact conversation recovery relies on a local Herdr query patch which has not been submitted to, accepted by, or released by Herdr. See [Herdr integration](docs/herdr-integration.md). Earlier native macOS arm64 and Linux amd64 candidate acceptance used isolated real clients, real Magpie and simulated providers. The new Profile runtime has Linux amd64 evidence with Codex 0.169.0; its native macOS, remote and real-account gates remain open. Other architectures have build/package evidence only. Future behavior and client compatibility may change.
 
+The integrated #19/#20 candidate passed maintainer-reported manual acceptance on
+macOS on 2026-11-16. See the [acceptance record](docs/issues-19-20-acceptance.md)
+for its scope and the separate validation requirements.
+
 ## Code and testing
 
 The active Go module is in `bridge/`. Go 1.26 is required. Run `GOWORK=off go test ./...` from that directory using isolated HOME, XDG, temporary directories and client homes. Product runtime and packaging require Herdr, Magpie and a supported native client.

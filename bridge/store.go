@@ -57,6 +57,7 @@ type session struct {
 	LastActivityAt       *time.Time          `json:"last_activity_at,omitempty"`
 	Version              int                 `json:"version"`
 	Name                 string              `json:"name"`
+	AutoNamePending      bool                `json:"auto_name_pending,omitempty"`
 	InstanceID           string              `json:"instance_id,omitempty"`
 	InstanceSnapshot     *magpieInstance     `json:"instance_snapshot,omitempty"`
 	ConversationIDSource string              `json:"conversation_id_source,omitempty"`
@@ -276,6 +277,7 @@ func createSessionWithInstance(dir, mode, address, model string, selected *magpi
 }
 
 func createSessionIntent(d sessionDraft, address string, selected *magpieInstance) (session, error) {
+	d.Name = strings.TrimSpace(d.Name)
 	if d.Profile != nil {
 		binding := *d.Profile
 		d.Profile = &binding
@@ -295,6 +297,7 @@ func createSessionIntent(d sessionDraft, address string, selected *magpieInstanc
 		return session{}, err
 	}
 	s := session{Profile: d.Profile, Version: 2, Name: filepath.Base(dir) + " · " + mode, ID: hex.EncodeToString(id[:]), WorkingDirectory: dir, CLI: d.Client, Mode: mode, MagpieURL: address, MagpieModel: model, Recovery: "needs_id", CreatedAt: time.Now().UTC()}
+	s.AutoNamePending = strings.TrimSpace(d.Name) == "" && d.Client == "codex"
 	if mode == "magpie" && d.Client == "codex" {
 		s.CodexConnection = "caller"
 		if d.CodexConnection != "" {

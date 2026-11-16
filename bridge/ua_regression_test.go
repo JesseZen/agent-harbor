@@ -70,7 +70,7 @@ func TestFreshManagedRunIsOneFocusableTargetBeforeConversationReport(t *testing.
 				case "agent.focus":
 					focused.Add(1)
 					result = map[string]any{}
-				case "agent.rename", "tab.rename":
+				case "agent.rename", "pane.rename", "tab.rename":
 					renamed.Add(1)
 					result = map[string]any{}
 				default:
@@ -108,7 +108,7 @@ func TestFreshManagedRunIsOneFocusableTargetBeforeConversationReport(t *testing.
 	if err := validateLaunchState(v.session); err == nil {
 		t.Fatal("an unverified live conversation allowed another launch")
 	}
-	if err := h.RenameObserved(v, "Renamed"); err != nil || renamed.Load() != 2 {
+	if err := h.RenameObserved(v, "Renamed"); err != nil || renamed.Load() != 3 {
 		t.Fatalf("verified foreground run did not rename its Herdr target: %v", err)
 	}
 	s, err = getSession(s.ID)

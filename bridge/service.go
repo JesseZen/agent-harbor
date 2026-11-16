@@ -194,6 +194,7 @@ func (h harborService) get(ctx context.Context, id string, cached bool) (session
 	return sessionView{}, errors.New("session no longer available; refresh")
 }
 func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
+	d.Name = strings.TrimSpace(d.Name)
 	if d.Profile != nil {
 		if d.Client == "" {
 			d.Client = d.Profile.Client
@@ -356,6 +357,9 @@ func (h harborService) RenameObserved(expected sessionView, name string) error {
 	// The public agent target accepts pane IDs; the terminal identity was checked above.
 	var result map[string]any
 	if err := agentRPC(expected.HerdrSocket, "agent.rename", map[string]any{"target": expected.HerdrPane, "name": agentName(name, expected.ID)}, &result); err != nil {
+		return err
+	}
+	if err := agentRPC(expected.HerdrSocket, "pane.rename", map[string]any{"pane_id": expected.HerdrPane, "label": strings.TrimSpace(name)}, &result); err != nil {
 		return err
 	}
 	return agentRPC(expected.HerdrSocket, "tab.rename", map[string]any{"tab_id": expected.HerdrTab, "label": name}, &result)

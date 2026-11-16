@@ -21,10 +21,12 @@ def main():
     p.add_argument('--state-probe',action='store_true',help='stop after real runtime state comparison')
     p.add_argument('--renamed-codex',action='store_true',help='exercise native Codex symlink with a nonstandard target basename')
     p.add_argument('--profiles',action='store_true',help='run the Profile A/B UI, runtime and recovery journey with isolated native clients')
+    p.add_argument('--session-names',action='store_true',help='exercise one-time Codex title capture and manual Herdr display names')
     p.add_argument('--model-picker',action='store_true',help='exercise Magpie models, Codex effort and profile recovery')
     p.add_argument('--experimental-codex-accounts',action='store_true',help='start eligible Codex sessions through the experimental owned App Server')
     p.add_argument('--experimental-account-recovery',choices=['native','magpie'],help='exercise same-conversation recovery with the experimental App Server')
     for name in ('binary','herdr','magpie','codex'): p.add_argument('--'+name,required=True)
+    p.add_argument('--codex-auth',help='native codex-auth when testing an unpackaged Harbor executable')
     p.add_argument('--onboarding',choices=['local','managed','external'],default='local')
     p.add_argument('--mcp', help='built herdr-mcp dist/index.js; enables exact-target MCP acceptance')
     a=p.parse_args()
@@ -32,6 +34,8 @@ def main():
     root.chmod(0o700)
     print('diagnostics',root,flush=True)
     env={'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','TERM':'xterm-256color','SHELL':'/bin/sh','LANG':'C.UTF-8','NO_COLOR':'1','MAGPIE_NO_ACCOUNTS':'1'}
+    if a.session_names:
+        env.pop('NO_COLOR');env['COLORTERM']='truecolor'
     for key,leaf in [('HOME','home'),('XDG_CONFIG_HOME','config'),('XDG_DATA_HOME','data'),('XDG_STATE_HOME','state'),('XDG_CACHE_HOME','cache'),('XDG_RUNTIME_DIR','runtime'),('TMPDIR','tmp'),('CODEX_HOME','codex'),('CODEX_SQLITE_HOME','sqlite')]:
         (root/leaf).mkdir(mode=0o700);env[key]=str(root/leaf)
     for leaf in ('bin','project'): (root/leaf).mkdir(mode=0o700)
@@ -44,6 +48,9 @@ def main():
         else:
             shutil.copy2(source,root/'bin'/name);(root/'bin'/name).chmod(0o700)
     env.update(PATH=str(root/'bin')+':'+env['PATH'],AGENT_HARBOR_BRIDGE_HOME=str(root/'harbor'),AGENT_HARBOR_HERDR_BIN=str(root/'bin/herdr'),AGENT_HARBOR_MAGPIE_BIN=str(root/'bin/magpie'))
+    auth=pathlib.Path(a.codex_auth) if a.codex_auth else pathlib.Path(a.binary).resolve().with_name('codex-auth')
+    if auth.is_file():
+        shutil.copy2(auth,root/'bin/codex-auth');(root/'bin/codex-auth').chmod(0o700)
     if a.replacement:env['AGENT_HARBOR_REPLACEMENT_CANDIDATE']='1'
     if a.experimental_codex_accounts:
         env['AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS']='1'
@@ -172,6 +179,7 @@ def main():
         if a.model_picker:run([managed,'group','set','ui-group','levels=low,medium,high'])
         wait(lambda:'relay-b/test-model' in run([binary,'models','--instance','managed','--json']).stdout,'catalog readiness')
         def create(name,model=None):
+            expected_name=name or ('project · magpie' if model else 'project · local')
             popup();key('n');screen('New session')
             if model:
                 click('Connection');screen('Choose instance and model');click('Choose instance and model');click('Select');screen('Choose instance')
@@ -188,8 +196,8 @@ def main():
             if 'Hooks need review' in capture():
                 key('Down','Enter')
             screen('Ask Codex');time.sleep(1)
-            wait(lambda:any(r['name']==name and r.get('process_group',0)>0 for r in records()),'running '+name)
-            rec=next(r for r in records() if r['name']==name)
+            wait(lambda:any(r['name']==expected_name and r.get('process_group',0)>0 for r in records()),'running '+expected_name)
+            rec=next(r for r in records() if r['name']==expected_name)
             assert rec.get('herdr_tab') and rec.get('herdr_pane'),rec
             def listed():
                 result=json.loads(run([root/'harbor/herdr/bin/herdr','agent','list']).stdout)['result']
@@ -322,6 +330,31 @@ def main():
             assert next(r for r in records() if r['id']==a1['id'])['instance_id']==a1['instance_id']
             (root/'profile-acceptance.json').write_text(json.dumps({'passed':True,'profiles':{k:v['id'] for k,v in profiles.items()},'sessions':{r['name']:{'id':r['id'],'profile':r['profile'],'conversation':r['codex_session_id']} for r in records()},'b_process_preserved':True,'b_auth_preserved':True,'restart_recovery':True},indent=2))
             print('PASS Profile A/B creation, concurrent real clients, separate history/SQLite, same-Profile Conversations and exact A/B recovery across workspace/gateway restart while the other Profile is selected',root,flush=True)
+            return 0
+        if a.session_names:
+            rec=create('')
+            turn('AH_LOCAL_FIRST',native)
+            text('/rename 修复登录页面');key('Enter');time.sleep(1)
+            def current():return next(r for r in records() if r['id']==rec['id'])
+            wait(lambda:current()['name']=='修复登录页面' and not current().get('auto_name_pending'),'one-time native Codex title capture')
+            wrapper=root/'harbor/herdr/bin/herdr'
+            def labels(name):
+                pane=json.loads(run([wrapper,'pane','get',rec['herdr_pane']]).stdout)['result']['pane']
+                tab=json.loads(run([wrapper,'tab','get',rec['herdr_tab']]).stdout)['result']['tab']
+                return pane.get('label')==name and tab.get('label')==name
+            assert labels('修复登录页面'),'automatic title not displayed in Herdr'
+            text('/rename Later Codex title');key('Enter');time.sleep(2)
+            assert current()['name']=='修复登录页面' and labels('修复登录页面'),'later title overwrote first capture'
+            run([binary,'rename',rec['id'],'用户手动名称'])
+            assert labels('用户手动名称'),'manual rename not displayed in Herdr'
+            wait(lambda:'用户手动名称' in capture(),'renamed title rendered by Herdr client')
+            agent=next(x for x in json.loads(run([wrapper,'agent','list']).stdout)['result']['agents'] if x['pane_id']==rec['herdr_pane'])
+            assert agent.get('display_agent')=='codex','CLI handle replaced the visible client type'
+            (root/'session-name-screen.ansi').write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
+            config=tomllib.loads((root/'harbor/herdr/config/herdr.toml').read_text())
+            rows=config['ui']['sidebar']['agents']['rows']
+            assert rows[0][1]['bold'] and rows[0][1]['dim'] is False and rows[2][0]['fg']=='#9399b2','missing visual hierarchy'
+            print('PASS real Codex title index → same-conversation one-time Harbor/Herdr display name, Unicode manual rename and native sidebar styles',root,flush=True)
             return 0
         one=create('UI-A','ui-group');notify_before=notify_count();turn('AH_LOCAL_FIRST',relay_a)
         if a.model_picker:

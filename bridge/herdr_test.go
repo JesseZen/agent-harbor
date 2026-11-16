@@ -252,7 +252,7 @@ esac
 		t.Fatal(out, err)
 	}
 	out, err := os.ReadFile(metadata)
-	if err != nil || !strings.Contains(string(out), "pane report-metadata w1:p1 --source agent-harbor --token harbor=Local Codex") {
+	if err != nil || !strings.Contains(string(out), "pane report-metadata w1:p1 --source agent-harbor --display-agent codex --token harbor=Local Codex") {
 		t.Fatal("missing connection metadata", string(out), err)
 	}
 }

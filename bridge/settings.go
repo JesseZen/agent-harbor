@@ -73,6 +73,11 @@ func readShortcuts(root string) (shortcutPreferences, error) {
 }
 func configWithShortcuts(bin string, p shortcutPreferences) string {
 	config := legacyHerdrConfig(bin)
+	config = strings.Replace(config, `rows = [["state_icon", "machine", "workspace", "tab"], ["agent"], ["$harbor"]]`, `rows = [
+  ["state_icon", { token = "pane", fg = "#cdd6f4", bold = true, dim = false }],
+  [{ token = "machine", fg = "#9399b2", dim = false }, { token = "workspace", fg = "#9399b2", bold = false, dim = false }, { token = "agent", fg = "#89b4fa", bold = false, rules = [{ equals = "claude", fg = "#fab387" }, { equals = "pi", fg = "#94e2d5" }] }],
+  [{ token = "$harbor", fg = "#9399b2", dim = false }],
+]`, 1)
 	config = strings.Replace(config, `key = "prefix+a"`, `key = "HARBOR_KEY"`, 1)
 	config = strings.Replace(config, `key = "prefix+m"`, `key = "`+p.Magpie+`"`, 1)
 	config = strings.Replace(config, `key = "HARBOR_KEY"`, `key = "`+p.Harbor+`"`, 1)

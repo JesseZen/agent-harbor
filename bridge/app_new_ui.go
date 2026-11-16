@@ -120,6 +120,11 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 	case "new-name":
 		p.line("🏷 Session name")
 		p.line(m.input.View())
+		if m.selectedClient() == "codex" {
+			p.line("Leave empty to copy the first Codex conversation title once.")
+		} else {
+			p.line("Leave empty to use the project and connection.")
+		}
 		p.buttons([]uiAction{{ID: "new-name-save", Label: "Apply", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
 	case "new-connection":
 		p.line("🔌 Connection")

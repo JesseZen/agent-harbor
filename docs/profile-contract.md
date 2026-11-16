@@ -173,6 +173,10 @@ Profile-aware catalog reads only the bound client's official model cache.
 
 ## Evidence and integration
 
+The integrated #19/#20 candidate received maintainer-reported manual acceptance
+on macOS on 2026-11-16; see the [acceptance record](issues-19-20-acceptance.md).
+The detailed automated evidence and remaining validation scope follow below.
+
 The targeted native tests use Codex 0.169.0, local synthetic upstreams and
 independently authored synthetic credentials. They check A/B request identity,
 separate histories/SQLite, A credential change with B untouched, exact A

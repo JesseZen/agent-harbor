@@ -1,5 +1,9 @@
 # Runtime state contract
 
+Current user validation: [Recover failures reported on 2026-11-16](recover-user-report-20261116.md)
+remain open. The contract and earlier fixture passes below do not establish that
+the user's close/reopen and workspace-restart recovery journeys currently pass.
+
 Harbor reads the supported Herdr public `agent.list` response once per list or
 show query. The supported source baseline is `ee5bfb5041bb3e4a49d591c72308aae3c81ecdde`.
 The public `AgentInfo` contract supplies `agent_status`, workspace, terminal,

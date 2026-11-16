@@ -277,7 +277,6 @@ func createSessionWithInstance(dir, mode, address, model string, selected *magpi
 }
 
 func createSessionIntent(d sessionDraft, address string, selected *magpieInstance) (session, error) {
-	d.Name = strings.TrimSpace(d.Name)
 	if d.Profile != nil {
 		binding := *d.Profile
 		d.Profile = &binding

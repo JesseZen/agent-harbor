@@ -101,9 +101,12 @@ not supply per-scenario results for the entire matrix.
 
 For Session names and the Herdr sidebar, run `app_acceptance.py --replacement
 --session-names` with the same binary arguments as above. It creates an unnamed
-Session through the UI, names the Conversation through real Codex `/rename`,
+Session through the UI with hooks disabled, supplies a structured synthetic
+response to real Codex's automatic title-generation request,
 checks one-time capture and Unicode pane/tab labels, checks a later Codex title
 does not overwrite the captured name, and exercises explicit Harbor rename.
+It asserts display naming did not create a Conversation reference. The original
+`/rename`-first fixture missed the no-hook failure found during user testing.
 The fixture retains an ANSI sidebar capture and checks native style settings.
 For an unpackaged executable, supply `--codex-auth NATIVE_CODEX_AUTH`; packaged
 runs copy the adjacent bundled executable into the fixture. This gate passed

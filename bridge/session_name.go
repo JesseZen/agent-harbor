@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,32 +12,30 @@ import (
 )
 
 // Codex 0.169.0 writes names to this append-only metadata index. Read only
-// the bound home and exact observed ID, never conversation messages or a screen.
-func codexConversationName(s session) string {
-	if s.CLI != "codex" || s.Conversation == nil || s.Conversation.Status != "observed" ||
-		s.Conversation.Reference.Kind != "id" || s.Conversation.Reference.Agent != "codex" ||
-		!validCodexID(s.Conversation.Reference.Value) {
-		return ""
+// the bound home, never conversation messages or a screen.
+func codexNameIndex(s session) map[string]string {
+	if s.CLI != "codex" {
+		return nil
 	}
 	e, err := sessionClientEnvironment(s)
 	if err != nil {
-		return ""
+		return nil
 	}
 	home := environmentValue(e.Environment, "CODEX_HOME")
 	if home == "" {
 		home = filepath.Join(environmentValue(e.Environment, "HOME"), ".codex")
 	}
 	if !filepath.IsAbs(home) || s.CodexHome == "" || filepath.Clean(home) != filepath.Clean(s.CodexHome) {
-		return ""
+		return nil
 	}
 	f, err := os.Open(filepath.Join(home, "session_index.jsonl"))
 	if err != nil {
-		return ""
+		return nil
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() {
-		return ""
+		return nil
 	}
 	// Bound the work on each observation; older names outside the tail can wait
 	// for a later Codex update or an explicit manual rename.
@@ -45,7 +45,7 @@ func codexConversationName(s session) string {
 	if start > 0 {
 		_, _ = r.ReadString('\n')
 	}
-	name := ""
+	names := map[string]string{}
 	for {
 		line, err := r.ReadString('\n')
 		if err != nil { // An unfinished append is not a published title.
@@ -55,29 +55,48 @@ func codexConversationName(s session) string {
 			ID   string `json:"id"`
 			Name string `json:"thread_name"`
 		}
-		if json.Unmarshal([]byte(line), &entry) == nil && entry.ID == s.Conversation.Reference.Value {
-			name = strings.TrimSpace(entry.Name)
+		if json.Unmarshal([]byte(line), &entry) == nil && validCodexID(entry.ID) {
+			name := strings.TrimSpace(entry.Name)
+			if validateSessionName(name) == nil {
+				names[entry.ID] = name
+			} else {
+				delete(names, entry.ID)
+			}
 		}
 	}
-	if validateSessionName(name) != nil {
-		return ""
+	return names
+}
+
+// Herdr strips Codex's activity glyph from the OSC title. Match a complete
+// index name, optionally followed by Codex's " | project" suffix. Never select
+// the newest index row: several Conversations may share this Profile.
+func codexTerminalName(names map[string]string, title string) string {
+	matched := ""
+	for _, name := range names {
+		if title == name || strings.HasPrefix(title, name+" | ") {
+			if matched != "" && matched != name {
+				return ""
+			}
+			matched = name
+		}
 	}
-	return name
+	return matched
 }
 
 // Runs from the existing identity observer. Persisting the one-shot policy
 // makes restart/resume preserve both automatic and later manual choices.
 func captureAutomaticSessionName(id, token string) {
 	s, err := getSession(id)
-	if err != nil || !s.AutoNamePending || s.RunToken != token || s.Conversation == nil ||
-		s.Conversation.RunToken != token || s.Conversation.Pane != s.HerdrPane ||
-		s.Conversation.SocketIdentity != s.HerdrSocketIdentity {
+	if err != nil || !s.AutoNamePending || s.RunToken != token {
 		return
 	}
-	name := codexConversationName(s)
-	if name == "" {
+	names := codexNameIndex(s)
+	if len(names) == 0 {
 		return
 	}
+	observed := s.Conversation != nil && s.Conversation.Status == "observed" &&
+		s.Conversation.RunToken == token && s.Conversation.Pane == s.HerdrPane &&
+		s.Conversation.SocketIdentity == s.HerdrSocketIdentity && s.Conversation.Reference.Agent == s.CLI && s.Conversation.Reference.Kind == "id"
 	_ = withSessions(func(all []session) ([]session, error) {
 		for i := range all {
 			if all[i].ID != id {
@@ -92,10 +111,34 @@ func captureAutomaticSessionName(id, token string) {
 					Tab       string         `json:"tab_id"`
 					Label     string         `json:"label"`
 					Reference *herdrIdentity `json:"agent_session"`
+					Client    string         `json:"agent"`
+					Terminal  string         `json:"terminal_id"`
+					Workspace string         `json:"workspace_id"`
+					Title     string         `json:"terminal_title_stripped"`
 				} `json:"pane"`
 			}
 			if agentRPC(s.HerdrSocket, "pane.get", map[string]any{"pane_id": s.HerdrPane}, &pane) != nil ||
-				pane.Pane.ID != s.HerdrPane || pane.Pane.Tab != s.HerdrTab || pane.Pane.Reference == nil || *pane.Pane.Reference != s.Conversation.Reference {
+				pane.Pane.ID != s.HerdrPane || pane.Pane.Tab != s.HerdrTab {
+				return nil, nil
+			}
+			name := ""
+			if observed {
+				if pane.Pane.Reference == nil || *pane.Pane.Reference != s.Conversation.Reference {
+					return nil, nil
+				}
+				name = names[s.Conversation.Reference.Value]
+			} else {
+				views := make([]sessionView, len(all))
+				for j := range all {
+					views[j].session = all[j]
+				}
+				agent := herdrAgent{Pane: pane.Pane.ID, Tab: pane.Pane.Tab, Client: pane.Pane.Client, Terminal: pane.Pane.Terminal, Workspace: pane.Pane.Workspace, Reference: pane.Pane.Reference}
+				if verifiedForegroundRun(context.Background(), s.HerdrSocket, s.HerdrSocketIdentity, agent, views) != i {
+					return nil, nil
+				}
+				name = codexTerminalName(names, pane.Pane.Title)
+			}
+			if name == "" {
 				return nil, nil
 			}
 			var tab struct {
@@ -127,4 +170,25 @@ func captureAutomaticSessionName(id, token string) {
 		}
 		return nil, nil
 	})
+}
+
+// An upgrade cannot change observers already loaded by running clients. This
+// maintenance entry point applies the same checks without restarting a client.
+func refreshAutomaticSessionNames() error {
+	var records []session
+	if err := withSessions(func(all []session) ([]session, error) { records = append(records, all...); return nil, nil }); err != nil {
+		return err
+	}
+	updated := 0
+	for _, s := range records {
+		if !s.AutoNamePending {
+			continue
+		}
+		captureAutomaticSessionName(s.ID, s.RunToken)
+		if next, err := getSession(s.ID); err == nil && next.Name != s.Name && !next.AutoNamePending {
+			updated++
+		}
+	}
+	fmt.Printf("Updated %d automatic session names.\n", updated)
+	return nil
 }

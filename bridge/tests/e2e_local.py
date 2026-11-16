@@ -35,14 +35,19 @@ class MockResponses(http.server.BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
         content = json.dumps(body)
         self.server.observed.append((self.path, [marker for marker in (FIRST, SECOND) if marker in content]))
-        message = {"id": "msg_test", "type": "message", "status": "completed", "role": "assistant", "content": [{"type": "output_text", "text": ANSWER, "annotations": []}]}
+        answer = ANSWER
+        schema = ((body.get('text') or {}).get('format') or {}).get('schema') or {}
+        if getattr(self.server, 'automatic_title', None) and 'title' in schema.get('properties', {}):
+            answer = json.dumps({'title': self.server.automatic_title})
+            self.server.title_calls = getattr(self.server, 'title_calls', 0) + 1
+        message = {"id": "msg_test", "type": "message", "status": "completed", "role": "assistant", "content": [{"type": "output_text", "text": answer, "annotations": []}]}
         response = {"id": "resp_test", "object": "response", "status": "completed", "model": "test-model", "output": [message], "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}}
         events = [
             {"type": "response.created", "response": {"id": "resp_test", "object": "response", "status": "in_progress", "model": "test-model", "output": []}},
             {"type": "response.output_item.added", "output_index": 0, "item": dict(message, status="in_progress", content=[])},
             {"type": "response.content_part.added", "item_id": "msg_test", "output_index": 0, "content_index": 0, "part": {"type": "output_text", "text": "", "annotations": []}},
-            {"type": "response.output_text.delta", "item_id": "msg_test", "output_index": 0, "content_index": 0, "delta": ANSWER},
-            {"type": "response.output_text.done", "item_id": "msg_test", "output_index": 0, "content_index": 0, "text": ANSWER},
+            {"type": "response.output_text.delta", "item_id": "msg_test", "output_index": 0, "content_index": 0, "delta": answer},
+            {"type": "response.output_text.done", "item_id": "msg_test", "output_index": 0, "content_index": 0, "text": answer},
             {"type": "response.content_part.done", "item_id": "msg_test", "output_index": 0, "content_index": 0, "part": message["content"][0]},
             {"type": "response.output_item.done", "output_index": 0, "item": message},
             {"type": "response.completed", "response": response},

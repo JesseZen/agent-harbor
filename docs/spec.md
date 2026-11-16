@@ -10,8 +10,12 @@ Use documented upstream integration interfaces. Unsupported operations must be p
 
 An explicit Session name takes precedence over automatic titles. New Codex
 Sessions created with an empty name initially show the project and connection,
-then copy the first available title for the verified Conversation once into
-Harbor and Herdr's tab/pane display labels. Later manual renaming remains
+then copy the first available title once into Harbor and Herdr's tab/pane
+display labels. A verified Conversation selects its exact title-index entry.
+Without a hook report, a verified owned running client may supply a display
+title through Herdr's normalized terminal title, matched against that Profile's
+Codex title index. Display naming never supplies Conversation/recovery identity.
+Later manual renaming remains
 available and disables pending automatic capture. Older records retain their
 names. Other clients keep the project/connection fallback until their title
 capability is verified. See [Herdr integration](herdr-integration.md).

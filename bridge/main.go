@@ -81,6 +81,11 @@ func run(args []string) error {
 			return errors.New("usage: stop")
 		}
 		return stopHerdr()
+	case "_refresh-session-names":
+		if len(args) != 1 {
+			return errors.New("usage: _refresh-session-names")
+		}
+		return refreshAutomaticSessionNames()
 	case "magpie":
 		return magpieCommand(args[1:])
 	case "models":

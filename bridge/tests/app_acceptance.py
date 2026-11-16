@@ -115,6 +115,7 @@ def main():
         threading.Thread(target=discovery.serve_forever,daemon=True).start()
         relay_a,relay_b,native=server(ChatRelay),server(ChatRelay),server(MCPProbe if a.mcp else NativeRelay)
         native.tool_output,native.tool_error='',''
+        if a.session_names:native.automatic_title='修复登录页面'
         original_notify=root/'bin/original-notify'
         original_notify.write_text('#!/bin/sh\nprintf notified >> "$HOME/original-notify-called"\n')
         original_notify.chmod(0o700)
@@ -125,7 +126,7 @@ def main():
                 'notify = ['+json.dumps(str(original_notify))+']\n'
                 '[model_providers.fixture]\nname = "Fixture native"\nbase_url = "http://127.0.0.1:'+str(native.server_port)+'/v1"\nrequires_openai_auth = false\nwire_api = "responses"\n'
                 '[projects.'+json.dumps(str(root/'project'))+']\ntrust_level = "trusted"\n')
-        if a.replacement:
+        if a.replacement and not a.session_names:
             config+='[features]\nhooks = true\n'
             run([root/'bin/herdr','integration','install','codex'])
         if a.mcp:
@@ -230,7 +231,8 @@ def main():
                 if 't trust all' in capture():
                     key('t');time.sleep(.5);key('Escape');time.sleep(.5);text(marker);key('Enter')
             wait(lambda:any(marker in marks for _,marks in relay.observed),'provider marker '+marker)
-            wait(lambda:any(r.get('codex_session_id') for r in records()),'conversation capture')
+            if not a.session_names:
+                wait(lambda:any(r.get('codex_session_id') for r in records()),'conversation capture')
             screen('HELLO_FROM_ISOLATED_MOCK');time.sleep(1)
             assert any(e['kind']=='main' and marker in e['current'] for e in relay.journal), 'main request evidence absent'
             for other in servers:
@@ -334,9 +336,10 @@ def main():
         if a.session_names:
             rec=create('')
             turn('AH_LOCAL_FIRST',native)
-            text('/rename 修复登录页面');key('Enter');time.sleep(1)
             def current():return next(r for r in records() if r['id']==rec['id'])
             wait(lambda:current()['name']=='修复登录页面' and not current().get('auto_name_pending'),'one-time native Codex title capture')
+            assert getattr(native,'title_calls',0)>0,'Codex automatic title generation was not exercised'
+            assert not current().get('conversation') and not current().get('codex_session_id'),'display title manufactured Conversation identity'
             wrapper=root/'harbor/herdr/bin/herdr'
             def labels(name):
                 pane=json.loads(run([wrapper,'pane','get',rec['herdr_pane']]).stdout)['result']['pane']
@@ -354,7 +357,7 @@ def main():
             config=tomllib.loads((root/'harbor/herdr/config/herdr.toml').read_text())
             rows=config['ui']['sidebar']['agents']['rows']
             assert rows[0][1]['bold'] and rows[0][1]['dim'] is False and rows[2][0]['fg']=='#9399b2','missing visual hierarchy'
-            print('PASS real Codex title index → same-conversation one-time Harbor/Herdr display name, Unicode manual rename and native sidebar styles',root,flush=True)
+            print('PASS real Codex automatic title → one-time Harbor/Herdr display name without hooks or inferred Conversation identity, Unicode manual rename and native sidebar styles',root,flush=True)
             return 0
         one=create('UI-A','ui-group');notify_before=notify_count();turn('AH_LOCAL_FIRST',relay_a)
         if a.model_picker:

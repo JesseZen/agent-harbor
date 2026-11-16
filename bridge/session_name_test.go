@@ -4,13 +4,16 @@ import (
 	"encoding/json"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
+	"syscall"
 	"testing"
 )
 
 func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
-	for _, scenario := range []string{"automatic", "manual-harbor", "manual-herdr", "wrong-conversation", "unobserved", "wrong-run", "wrong-home", "unfinished-index"} {
+	for _, scenario := range []string{"automatic", "manual-harbor", "manual-herdr", "wrong-conversation", "unobserved", "wrong-run", "wrong-home", "unfinished-index", "no-identity", "no-identity-wrong-process", "no-identity-unindexed-title", "no-identity-manual"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := visibilityTestRoot(t)
 			t.Setenv(originalEnvKey, "")
@@ -25,13 +28,24 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 			defer listener.Close()
 			s := session{Version: 3, ID: "0123456789abcdef0123456789abcdef", CLI: "codex", Name: "project · local", AutoNamePending: true, RunToken: "run", CodexHome: os.Getenv("CODEX_HOME"), HerdrPane: "w1:p1", HerdrTab: "w1:t1", HerdrSocket: socket, HerdrSocketIdentity: socketIdentity(socket)}
 			s.Conversation = &conversationEvidence{Reference: ref, Status: "observed", RunToken: s.RunToken, Pane: s.HerdrPane, SocketIdentity: s.HerdrSocketIdentity}
+			if strings.HasPrefix(scenario, "no-identity") {
+				s.Conversation = nil
+				child := exec.Command("sleep", "30")
+				child.Env = append(os.Environ(), "AH_SESSION_RUN_TOKEN="+s.RunToken)
+				child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+				if err := child.Start(); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+				s.ProcessGroup = child.Process.Pid
+			}
 			if scenario == "unobserved" {
 				s.Conversation.Status = "initial_unverified"
 			}
 			var mu sync.Mutex
 			paneLabel, tabLabel := s.Name, s.Name
 			renamed := 0
-			if scenario == "manual-herdr" {
+			if scenario == "manual-herdr" || scenario == "no-identity-manual" {
 				paneLabel = "用户自己的名字"
 			}
 			if scenario == "wrong-run" {
@@ -60,11 +74,25 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 						var result any
 						switch req.Method {
 						case "pane.get":
-							observed := ref
+							var observed *herdrIdentity
+							if s.Conversation != nil {
+								copy := ref
+								observed = &copy
+							}
 							if scenario == "wrong-conversation" {
 								observed.Value = "other"
 							}
-							result = map[string]any{"pane": map[string]any{"pane_id": s.HerdrPane, "tab_id": s.HerdrTab, "label": paneLabel, "agent_session": observed}}
+							title := "修复登录页面 | project"
+							if scenario == "no-identity-unindexed-title" {
+								title = "Unrelated terminal | project"
+							}
+							result = map[string]any{"pane": map[string]any{"pane_id": s.HerdrPane, "tab_id": s.HerdrTab, "label": paneLabel, "agent_session": observed, "terminal_title_stripped": title, "agent": "codex", "terminal_id": "terminal", "workspace_id": "w1"}}
+						case "pane.process_info":
+							group := s.ProcessGroup
+							if scenario == "no-identity-wrong-process" {
+								group++
+							}
+							result = map[string]any{"process_info": map[string]any{"pane_id": s.HerdrPane, "foreground_process_group_id": group}}
 						case "tab.get":
 							result = map[string]any{"tab": map[string]any{"tab_id": s.HerdrTab, "label": tabLabel}}
 						case "pane.rename":
@@ -89,18 +117,24 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 				}
 			}
 			path := filepath.Join(os.Getenv("CODEX_HOME"), "session_index.jsonl")
-			data := `{"id":"another-thread","thread_name":"Wrong title"}` + "\n" + `{"id":"` + conversation + `","thread_name":"修复登录页面"}`
+			data := `{"id":"01912345-6789-7abc-8def-0123456789ac","thread_name":"Wrong title"}` + "\n" + `{"id":"` + conversation + `","thread_name":"修复登录页面"}`
 			if scenario != "unfinished-index" {
 				data += "\n"
 			}
 			if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 				t.Fatal(err)
 			}
-			captureAutomaticSessionName(s.ID, s.RunToken)
+			if scenario == "no-identity" {
+				if err := refreshAutomaticSessionNames(); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				captureAutomaticSessionName(s.ID, s.RunToken)
+			}
 			// Later Codex changes must not replace the first title, including after
 			// persistence/reload. Manual naming still works at any time.
 			os.WriteFile(path, []byte(`{"id":"`+conversation+`","thread_name":"Later title"}`+"\n"), 0600)
-			if scenario == "automatic" {
+			if scenario == "automatic" || scenario == "no-identity" {
 				captureAutomaticSessionName(s.ID, s.RunToken)
 			}
 			got, err := getSession(s.ID)
@@ -109,8 +143,8 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			if scenario == "automatic" {
-				if got.Name != "修复登录页面" || got.AutoNamePending || paneLabel != got.Name || tabLabel != got.Name || renamed != 2 || got.Conversation.Reference != ref {
+			if scenario == "automatic" || scenario == "no-identity" {
+				if got.Name != "修复登录页面" || got.AutoNamePending || paneLabel != got.Name || tabLabel != got.Name || renamed != 2 || (scenario == "automatic" && got.Conversation.Reference != ref) || (scenario == "no-identity" && got.Conversation != nil) {
 					t.Fatalf("title not applied once to the same conversation: %+v labels %q %q writes %d", got, paneLabel, tabLabel, renamed)
 				}
 			} else if renamed != 0 {
@@ -160,13 +194,13 @@ func TestConversationNameUsesBoundProfile(t *testing.T) {
 	}
 	t.Setenv("CODEX_HOME", be.Home)
 	s := session{CLI: "codex", Profile: &ab, CodexHome: ae.Home, Conversation: &conversationEvidence{Reference: herdrIdentity{Agent: "codex", Kind: "id", Value: id}, Status: "observed"}}
-	if name := codexConversationName(s); name != "Profile A" {
+	if name := codexNameIndex(s)[id]; name != "Profile A" {
 		t.Fatalf("read another Profile's name: %q", name)
 	}
 	if err := os.Rename(ae.Home, ae.Home+"-unavailable"); err != nil {
 		t.Fatal(err)
 	}
-	if name := codexConversationName(s); name != "" {
+	if name := codexNameIndex(s)[id]; name != "" {
 		t.Fatalf("fell back from unavailable Profile: %q", name)
 	}
 }

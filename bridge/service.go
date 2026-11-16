@@ -194,7 +194,6 @@ func (h harborService) get(ctx context.Context, id string, cached bool) (session
 	return sessionView{}, errors.New("session no longer available; refresh")
 }
 func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
-	d.Name = strings.TrimSpace(d.Name)
 	if d.Profile != nil {
 		if d.Client == "" {
 			d.Client = d.Profile.Client

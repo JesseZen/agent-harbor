@@ -28,6 +28,25 @@ report each session whose selected identity cannot be verified. Switch only
 between turns. The selection applies to the displayed Profile’s Codex home, and Magpie must
 continue forwarding the selected caller's identity without automatic rotation.
 
+The account page is available by default and operates on an explicitly selected
+Profile/client environment. It offers official Codex login through bundled
+codex-auth, saved-login selection and “Not signed in” while retaining saved
+accounts. Account mutations coordinate with launch and refuse active or unknown
+session activity. Each affected session reports its outcome; ordinary account
+management does not restart processes or depend on experimental refresh.
+Profile-bound execution is implemented; real-account and platform acceptance remain open.
+
+New Magpie connections record either an independent API provider when signed
+out or a caller-preserving joined connection with a confirmed usable login.
+Recovery retains the saved connection form, instance and Conversation regardless
+of subsequent login changes. An expired or unconfirmed login requires repair or
+explicit sign-out. API-only catalogs do not include cached official choices.
+The complete Profile-bound creation journey still requires integration acceptance.
+
+Opt-in running App Server refresh still relies on an undocumented side effect
+of `app/list`. It is separate from basic account management and reports each
+session whose identity cannot be verified.
+
 The proposed [Codex and Magpie architecture](magpie-codex-architecture.md) and
 [coordination spec](magpie-codex-coordination-spec.md) describe a
 login-preserving connection and client-owned model selection. They are target

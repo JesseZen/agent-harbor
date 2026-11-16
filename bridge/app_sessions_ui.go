@@ -60,7 +60,7 @@ func (m harborModel) sessionActions(more bool) []uiAction {
 func (m harborModel) sessionsHeader() uiPage {
 	p := newUIPage(m.width, m.height)
 	p.line(paint(fg("brand"), "⚓ HARBOR · Profile: "+m.activeProfileLabel()))
-	p.tabs("sessions", m.uiHover, m.uiFocus, experimentalCodexAccounts())
+	p.tabs("sessions", m.uiHover, m.uiFocus, true)
 	p.buttons([]uiAction{{ID: "action:n", Label: "New session", Key: "n", Primary: true}, {ID: "action:r", Label: "Refresh", Key: "r"}}, m.uiFocus)
 	p.search(m.searchQuery(), "Search sessions, projects or connections", m.searchFocus == "sessions")
 	return p
@@ -86,7 +86,7 @@ func (m harborModel) sessionsCount() int { return max(1, m.sessionsBodyHeight()/
 func (m harborModel) sessionsLayout() uiPage {
 	p := newUIPage(m.width, m.height)
 	p.line(paint(fg("brand"), "⚓ HARBOR · Profile: "+m.activeProfileLabel()))
-	p.tabs("sessions", m.uiHover, m.uiFocus, experimentalCodexAccounts())
+	p.tabs("sessions", m.uiHover, m.uiFocus, true)
 	if m.screen == "sessions-more" {
 		if s, ok := m.selected(); ok {
 			p.line("Actions for " + cleanUI(s.Name))
@@ -402,9 +402,7 @@ func (m harborModel) sessionsHelp() string {
 	seen := map[string]bool{}
 	actions := append(m.sessionActions(false), m.sessionActions(true)...)
 	actions = append(actions, uiAction{ID: "settings", Key: ",", Label: "Settings"}, uiAction{ID: "connections", Key: "m", Label: "Connections"})
-	if experimentalCodexAccounts() {
-		actions = append(actions, uiAction{ID: "accounts", Key: "a", Label: "Accounts · experimental"})
-	}
+	actions = append(actions, uiAction{ID: "accounts", Key: "a", Label: "Accounts"})
 	for _, a := range actions {
 		if seen[a.ID] {
 			continue

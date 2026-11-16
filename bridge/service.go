@@ -25,6 +25,7 @@ type sessionView struct {
 type sessionDraft struct {
 	Directory, Name, Connection, Instance, Model, Client string
 	Profile                                              *profileBinding
+	CodexConnection                                      string
 }
 type sessionApproval struct {
 	Observation              *runtimeObservation
@@ -203,6 +204,13 @@ func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
 		if _, err := h.ResolveProfileClient(profileClientRequest{Binding: *d.Profile}); err != nil {
 			return d, err
 		}
+		if d.Connection == "magpie" {
+			form, err := h.ProfileCodexConnection(context.Background(), profileClientRequest{Binding: *d.Profile})
+			if err != nil {
+				return d, err
+			}
+			d.CodexConnection = form
+		}
 	}
 	if d.Client == "" {
 		d.Client = "codex"
@@ -247,7 +255,7 @@ func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
 		var models []catalogModel
 		var err error
 		if d.Profile != nil {
-			models, err = h.ProfileCatalog(*d.Profile, d.Instance)
+			models, err = h.ProfileMagpieCatalog(context.Background(), profileClientRequest{Binding: *d.Profile}, d.Instance)
 		} else {
 			models, err = h.Catalog(d.Instance)
 		}
@@ -267,6 +275,9 @@ func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
 	return d, nil
 }
 func (h harborService) Create(d sessionDraft) (session, error) {
+	if d.Client != "" && d.Client != "codex" && d.Connection == "magpie" {
+		return session{}, errors.New("additional client Magpie isolation unproven; choose native configuration")
+	}
 	if d.Profile == nil {
 		p, err := h.EnsureProfiles()
 		if err != nil {

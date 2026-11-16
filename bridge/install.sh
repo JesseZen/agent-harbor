@@ -22,13 +22,13 @@ install)
   if [ -e "$prefix" ]; then
     [ -d "$prefix" ] && [ -z "$(ls -A "$prefix")" ] || { echo 'Choose an empty dedicated prefix' >&2; exit 1; }
   fi
-  for file in agent-harbor herdr magpie README.md; do [ -f "$source_dir/$file" ] || exit 1; done
+  for file in agent-harbor herdr magpie codex-auth README.md; do [ -f "$source_dir/$file" ] || exit 1; done
   link=$HOME/.local/bin/agent-harbor
   if "$link_requested"; then
     [ ! -e "$link" ] && [ ! -L "$link" ] || { echo "PATH link already exists" >&2; exit 1; }
   fi
   mkdir -p "$prefix"
-  for file in agent-harbor herdr magpie README.md; do cp "$source_dir/$file" "$prefix/$file"; done
+  for file in agent-harbor herdr magpie codex-auth README.md; do cp "$source_dir/$file" "$prefix/$file"; done
   cp -R "$source_dir/licenses" "$prefix/licenses"
   cp "$source_dir/install.sh" "$prefix/install.sh"
   printf '%s\n' 'agent-harbor-package-v1' > "$marker"
@@ -41,14 +41,16 @@ install)
 uninstall)
   [ ! -L "$prefix" ] && [ -f "$marker" ] && [ "$(cat "$marker")" = agent-harbor-package-v1 ] || { echo 'Prefix is not an owned installation' >&2; exit 1; }
   # Remove only known package files, preserving any added files and all state.
-  for file in agent-harbor herdr magpie README.md install.sh .agent-harbor-package; do
+  for file in agent-harbor herdr magpie codex-auth README.md install.sh .agent-harbor-package; do
     [ ! -d "$prefix/$file" ] || { echo 'Package file was replaced by a directory' >&2; exit 1; }
   done
   link=$HOME/.local/bin/agent-harbor
   if [ -L "$link" ] && [ "$(readlink "$link")" = "$prefix/agent-harbor" ]; then
     unlink "$link"
   fi
-  for file in agent-harbor herdr magpie README.md install.sh .agent-harbor-package; do unlink "$prefix/$file"; done
+  for file in agent-harbor herdr magpie codex-auth README.md install.sh .agent-harbor-package; do
+    if [ -e "$prefix/$file" ] || [ -L "$prefix/$file" ]; then unlink "$prefix/$file"; fi
+  done
   echo 'Removed executables; licenses and any added files remain in the prefix.'
   ;;
 *) usage ;;

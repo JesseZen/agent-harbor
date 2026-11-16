@@ -85,6 +85,8 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 	args := []string{}
 	if joinedCodex(s) {
 		args = append(args, joinedCodexArgs(s, kind)...)
+	} else if s.Mode == "magpie" && s.CodexConnection == "api" {
+		args = append(args, apiOnlyCodexArgs(s, kind)...)
 	} else if s.Mode == "magpie" {
 		model := s.MagpieModel
 		if kind == resumeConversation && selection != nil {

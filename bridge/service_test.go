@@ -200,6 +200,11 @@ func TestResumeRefusesAnotherHarborSessionStillStarting(t *testing.T) {
 
 func TestNewSessionPreservesSelectedMagpieIdentity(t *testing.T) {
 	b := newTestBridge(t)
+	selector := filepath.Join(b.root, "account-selector")
+	os.WriteFile(selector, []byte("#!/bin/sh\nprintf '%s\\n' '{\"schema_version\":1,\"accounts\":[]}'\n"), 0700)
+	b.env = append(b.env, "AGENT_HARBOR_CODEX_AUTH_BIN="+selector)
+	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\necho 'Not logged in'\nexit 1\n"), 0700)
+
 	rootA, rootB := tempRoot(t), tempRoot(t)
 	a := startFactsHelperProcess(t, rootA, map[string]string{"HOME": rootA, "XDG_CONFIG_HOME": filepath.Join(rootA, "config")})
 	replacement := startFactsHelperProcess(t, rootB, map[string]string{"HOME": rootB, "XDG_CONFIG_HOME": filepath.Join(rootB, "config")})

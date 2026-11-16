@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -17,35 +15,7 @@ func experimentalCodexAccounts() bool {
 }
 
 func codexAuthProgram() (string, error) {
-	program := os.Getenv("AGENT_HARBOR_CODEX_AUTH_BIN")
-	if program == "" {
-		program = "codex-auth"
-	}
-	path, err := exec.LookPath(program)
-	if err != nil {
-		return "", errors.New("codex-auth is not installed; install it or set AGENT_HARBOR_CODEX_AUTH_BIN")
-	}
-	return path, nil
-}
-
-// The switcher remains responsible for saving/selecting credentials. Harbor
-// reads only the selected account key to verify each official App Server.
-func activeCodexAccount(program string, env []string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, program, "list", "--skip-api", "--json")
-	cmd.Env = env
-	data, err := cmd.Output()
-	if err != nil {
-		return "", errors.New("could not read the selected codex-auth account")
-	}
-	var list struct {
-		Active string `json:"active_account_key"`
-	}
-	if json.Unmarshal(data, &list) != nil || list.Active == "" {
-		return "", errors.New("codex-auth did not report a selected account")
-	}
-	return list.Active, nil
+	return findCodexAuth(os.Getenv("AGENT_HARBOR_CODEX_AUTH_BIN"))
 }
 
 type accountQuota struct {

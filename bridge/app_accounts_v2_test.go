@@ -69,8 +69,8 @@ func TestAccountsV2HiddenAndStale(t *testing.T) {
 	t.Setenv("AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS", "")
 	m := newHarborModel(&fakeApplicationService{})
 	m.screen = "sessions"
-	if strings.Contains(m.View(), "Accounts") {
-		t.Fatal("experimental entry visible")
+	if !strings.Contains(m.View(), "Accounts") {
+		t.Fatal("default account entry missing")
 	}
 	if _, ok := m.accountsPage(); ok {
 		t.Fatal("account page visible")

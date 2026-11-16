@@ -86,22 +86,34 @@ sessions require the Profile discovery/write isolation candidate; an old or
 unverified gateway is refused. Explicitly update your dedicated candidate rather
 than replacing or stopping a user-managed service.
 
-Profile account actions are supplied by the companion account integration. The
-legacy ambient account action is disabled; it cannot change the system login on
-behalf of an unresolved Profile. See the [Profile contract](../docs/profile-contract.md)
-for current Linux UI evidence and pending real-account, remote and platform gates.
+### Codex accounts
 
-### Experimental account switching
+The Accounts page (`a`) is available by default. Select the Profile with `p`;
+its name, Codex home and affected owned sessions appear in the page. `l` adds a
+login through official Codex, `s` selects a saved login, `o` selects Not signed
+in while retaining the saved list, and `r` rereads status. Browsing does not
+select or sign out an account. Unknown/active session activity refuses mutation;
+stop the named session explicitly before retrying when it cannot be inspected.
+Existing environments may also affect external clients sharing that home.
 
-The companion account integration supplies the Profile-scoped account UI and
-`codex-auth` packaging. This Profile branch alone disables the old ambient
-account actions. It cannot list or change a system login through that legacy
-path. Account UI delivery and joint acceptance are tracked separately.
+Profile runtime and account integration are implemented together. Real-account,
+remote and native macOS acceptance remain open. Unbound records cannot mutate
+an ambient login.
 
-`AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS=1` enables the experimental owned App
-Server topology described below. It does not enable the disabled ambient
-actions. Account changes must use the explicit Profile/client scope and its
-mutation lock. Selection can affect other Codex processes using that same home.
+Packages include the unmodified codex-auth v0.4.0 release. No PATH installation
+or npm download is needed. The explicit `AGENT_HARBOR_CODEX_AUTH_BIN` override
+remains for development. Package builders supply the upstream release archive
+under `codex-auth/` in the dependencies directory; `codex-auth-assets.txt` pins
+the exact filenames and GitHub release-asset digests for all four targets.
+The archive checksum is verified before extraction; MIT notices travel in
+`licenses/codex-auth-MIT.txt`. Uninstall removes the package executable and
+preserves Codex/codex-auth account and conversation data in their client homes.
+
+### Experimental running-session refresh
+
+Set `AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS=1` only to try the dedicated App
+Server topology and in-place refresh. Basic account-page visibility does not
+enable this behavior.
 
 New native and joined Magpie Codex sessions use a dedicated official App
 Server while this option is enabled. Harbor verifies the selected identity in

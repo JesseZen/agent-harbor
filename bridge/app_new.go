@@ -153,13 +153,7 @@ func (m harborModel) updateNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			generation := m.generation
 			m.screen = "new-catalog-loading"
 			return m, func() tea.Msg {
-				var c []catalogModel
-				var e error
-				if m.draft.Profile != nil {
-					c, e = m.service.ProfileCatalog(*m.draft.Profile, id)
-				} else {
-					c, e = m.service.Catalog(id)
-				}
+				c, e := catalogForDraft(m.service, m.draft, id)
 				return appCatalog{models: c, err: e, instance: id, generation: generation}
 			}
 		}

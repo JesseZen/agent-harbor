@@ -53,13 +53,10 @@ func showModels(args []string) error {
 }
 
 func fetchCatalog(address string) ([]catalogModel, error) {
-	env, err := userEnvironment()
-	if err != nil {
-		return nil, err
-	}
-	return fetchCatalogEnvironment(address, env)
+	return fetchCatalogWithOfficial(address, cachedCodexModels)
 }
-func fetchCatalogEnvironment(address string, env []string) ([]catalogModel, error) {
+
+func fetchCatalogWithOfficial(address string, official func() []catalogModel) ([]catalogModel, error) {
 	endpoint, err := url.Parse(address)
 	if err != nil || endpoint.Scheme != "http" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || (endpoint.Path != "" && endpoint.Path != "/" && endpoint.Path != "/v1" && endpoint.Path != "/v1/") {
 		return nil, errors.New("use a local Magpie HTTP address without credentials or query parameters")
@@ -104,8 +101,12 @@ func fetchCatalogEnvironment(address string, env []string) ([]catalogModel, erro
 			return nil, errors.New("Magpie returned a model without an ID")
 		}
 	}
-	if identity.CallerOnly {
-		data.Models = append(cachedCodexModelsEnvironment(env), data.Models...)
+	if identity.CallerOnly && official != nil {
+		data.Models = append(official(), data.Models...)
 	}
 	return data.Models, nil
+}
+
+func fetchCatalogEnvironment(address string, env []string) ([]catalogModel, error) {
+	return fetchCatalogWithOfficial(address, func() []catalogModel { return cachedCodexModelsEnvironment(env) })
 }

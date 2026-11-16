@@ -131,3 +131,31 @@ func TestProfileLegacyBindingRequiresReviewAndExplicitChoice(t *testing.T) {
 		t.Fatal("explicit review did not bind original environment")
 	}
 }
+
+func TestAccountPageUsesGlobalProfileSelection(t *testing.T) {
+	f := &fakeApplicationService{}
+	a, _ := f.CreateProfile(profileCreateRequest{Name: "A", Kind: profileIsolated})
+	b, _ := f.CreateProfile(profileCreateRequest{Name: "B", Kind: profileIsolated})
+	ab, bb := bindingFor(a), bindingFor(b)
+	m := newHarborModel(f)
+	m.activeProfile = &ab
+	m.draft.Profile = &bb
+	n, _ := m.Update(uiKey("a"))
+	m = n.(harborModel)
+	if m.accountProfile == nil || *m.accountProfile != ab {
+		t.Fatal("inactive draft redirected account page")
+	}
+	n, _ = m.Update(uiKey("p"))
+	m = n.(harborModel)
+	if m.screen != "profile-list" {
+		t.Fatal("account page did not use global selector")
+	}
+	m.profiles = f.ProfileRecords
+	m.profileCursor = 1
+	m.uiFocus = ""
+	n, _ = m.Update(uiKey("enter"))
+	m = n.(harborModel)
+	if m.activeProfile == nil || *m.activeProfile != bb || m.accountProfile == nil || *m.accountProfile != bb {
+		t.Fatal("Profile/account selections diverged")
+	}
+}

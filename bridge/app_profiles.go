@@ -55,7 +55,7 @@ func (m harborModel) profilePage() (uiPage, bool) {
 	}
 	p := newUIPage(m.width, m.height)
 	p.line(paint(fg("brand"), "Harbor · Profiles"))
-	p.tabs("profiles", m.uiHover, m.uiFocus, experimentalCodexAccounts())
+	p.tabs("profiles", m.uiHover, m.uiFocus, true)
 	p.line("Current: " + cleanUI(m.activeProfileLabel()))
 	p.line("Profiles share project files. Use separate worktrees for separate code changes.")
 	start := m.listStart(m.profileCursor, max(1, m.height-11))
@@ -103,6 +103,9 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			b, err := bindingOf(result.selected, "codex")
 			if err == nil {
 				m.activeProfile = &b
+				m.accountProfile = &b
+				m.accountSnapshot = nil
+				m.accountGeneration++
 			}
 		}
 		return m, nil, true
@@ -276,6 +279,9 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				m.notice = err.Error()
 			} else {
 				m.activeProfile = &b
+				m.accountProfile = &b
+				m.accountSnapshot = nil
+				m.accountGeneration++
 				m.generation++
 				m.screen = "sessions"
 				m.notice = "Profile selected: " + m.activeProfileLabel()

@@ -107,6 +107,9 @@ type harborModel struct {
 	environment         appEnvironment
 	nativeReview        string
 	accountResult       string
+	accountProfile      *profileBinding
+	accountGeneration   uint64
+	accountSnapshot     *profileAccountResult
 	reviewedSelection   *codexSelection
 	selectionReviewErr  error
 	selectionFallback   bool
@@ -903,8 +906,20 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = ""
 			return m, m.loadProfiles()
 		case "a":
-			if experimentalCodexAccounts() {
-				m.screen = "accounts"
+			m.screen = "accounts"
+			if m.activeProfile != nil {
+				b := *m.activeProfile
+				m.accountProfile = &b
+				m.accountSnapshot = nil
+			}
+			if m.formActive && m.draft.Profile != nil {
+				b := *m.draft.Profile
+				m.accountProfile = &b
+				m.accountSnapshot = nil
+			}
+			if m.accountProfile != nil {
+				m.accountGeneration++
+				return m, m.inspectAccounts(*m.accountProfile)
 			}
 		case "n":
 			m.generation++

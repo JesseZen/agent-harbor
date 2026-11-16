@@ -297,6 +297,9 @@ func createSessionIntent(d sessionDraft, address string, selected *magpieInstanc
 	s := session{Profile: d.Profile, Version: 2, Name: filepath.Base(dir) + " · " + mode, ID: hex.EncodeToString(id[:]), WorkingDirectory: dir, CLI: d.Client, Mode: mode, MagpieURL: address, MagpieModel: model, Recovery: "needs_id", CreatedAt: time.Now().UTC()}
 	if mode == "magpie" && d.Client == "codex" {
 		s.CodexConnection = "caller"
+		if d.CodexConnection != "" {
+			s.CodexConnection = d.CodexConnection
+		}
 	}
 	if d.Name != "" {
 		s.Name = d.Name

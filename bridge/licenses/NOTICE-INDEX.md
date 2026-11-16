@@ -15,3 +15,10 @@ Magpie source: https://github.com/yetone/magpie/tree/v0.1.3528
 The conservative Rust dependency list does not assert that every listed package is linked on every platform. Codex and herdr-mcp are separately installed test/user tools and are not included in these archives.
 
 Inline list search uses github.com/sahilm/fuzzy v0.1.1 (MIT, copyright Sahil Muthoo); see `github.com-sahilm-fuzzy-v0.1.1-LICENSE`. This matcher does not implement fzf's query language or promise identical ranking.
+
+Bundled codex-auth v0.4.0 is unmodified upstream software from
+https://github.com/Loongphy/codex-auth/releases/tag/v0.4.0 (source commit
+4e9803da1d9015f0ff70805322b2780f6fbf5475), under the MIT license in
+`codex-auth-MIT.txt`. Release archive SHA-256 pins are in
+`../codex-auth-assets.txt`; GitHub release asset digests identify the downloads,
+not a reproducible-build or independently verified signature claim.

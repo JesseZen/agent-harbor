@@ -121,3 +121,24 @@ product import behavior. Run the existing full-state/model-picker gates separate
 and repeat the combined #19/#20 account journeys on integration. Real official
 login, independently authorized saved grants and native macOS evidence remain
 separate mandatory acceptance records.
+
+## Profile account integration candidate
+
+`TestProfileAccountsScopeAndSignedOut` uses the real Profile resolver and lock
+with controlled native tool subprocesses. It checks scoped selection, explicit
+sign-out retaining the list, failed login rereading, A/B separation, uncertain
+live activity and the production not-ready gate. This does not enable or prove
+the missing Profile runtime. Stale Profile UI results and default account-page
+keyboard/mouse controls have separate tests. Experimental refresh RPC tests
+remain separate.
+
+Package installation acceptance includes codex-auth version execution without
+installing it on PATH, archive allowlisting and saved-account-data retention on
+uninstall. Native Linux package checks do not establish macOS/keychain behavior.
+
+Full #20 acceptance remains open: #19 runtime integration, normal UI signed-out
+managed/external Magpie turns and exact recovery, login/select/cancel against
+real codex-auth, A/B real request identities, remote execution and native macOS
+package journeys. Use the maintained application/package runner after integrating
+#19; controlled-tool tests are not substitutes for these gates. Real disposable
+account authorization and later model requests must be tested separately.

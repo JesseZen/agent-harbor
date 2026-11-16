@@ -25,9 +25,11 @@ type appContextReady struct {
 }
 
 type appLoaded struct {
-	generation uint64
-	sessions   []sessionView
-	err        error
+	profiles       []profile
+	initialProfile *profileBinding
+	generation     uint64
+	sessions       []sessionView
+	err            error
 }
 type appNewReady struct {
 	generation  uint64
@@ -52,9 +54,15 @@ type appRoute struct {
 
 // harborModel owns interaction only. All product effects cross the service seam.
 type harborModel struct {
-	secondaryHelpScroll int
-	secondaryHelpFocus  string
-	reviewOpenedAt      time.Time
+	profileReview        *profileReviewState
+	activeProfile        *profileBinding
+	profiles             []profile
+	profileCursor        int
+	profileDefaultCursor int
+	profileInstances     []magpieInstance
+	secondaryHelpScroll  int
+	secondaryHelpFocus   string
+	reviewOpenedAt       time.Time
 
 	refreshContext   context.Context
 	cancelRefresh    context.CancelFunc
@@ -161,7 +169,15 @@ func (m harborModel) load() tea.Cmd {
 		} else {
 			s, e = m.service.List()
 		}
-		return appLoaded{sessions: s, err: e, generation: m.listGeneration}
+		var profiles []profile
+		var initial *profileBinding
+		if p, err := m.service.EnsureProfiles(); err == nil {
+			profiles, _ = m.service.Profiles()
+			if b, err := bindingOf(p, "codex"); err == nil {
+				initial = &b
+			}
+		}
+		return appLoaded{profiles: profiles, initialProfile: initial, sessions: s, err: e, generation: m.listGeneration}
 	}
 }
 func (m harborModel) requestRefresh() (tea.Model, tea.Cmd) {
@@ -203,6 +219,10 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.settings = nil
 			if settings.nav != "" {
 				m.screen = settings.nav
+				if m.screen == "profiles" {
+					m.screen = "profile-list"
+					return m, m.loadProfiles()
+				}
 				if m.screen == "magpie" {
 					return m, m.loadInstances()
 				}
@@ -285,6 +305,12 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		n.pollScheduled = true
 		return n, tea.Batch(cmd, n.refreshTimer())
 	case appLoaded:
+		if msg.profiles != nil {
+			m.profiles = msg.profiles
+		}
+		if m.activeProfile == nil && msg.initialProfile != nil {
+			m.activeProfile = msg.initialProfile
+		}
 		if msg.generation != m.listGeneration {
 			return m, nil
 		}
@@ -519,7 +545,10 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.environment = msg.environment
-		m.draft = sessionDraft{Connection: "local", Directory: msg.environment.Directory}
+		if m.activeProfile == nil {
+			m.activeProfile = msg.environment.Profile
+		}
+		m.draft = sessionDraft{Profile: msg.environment.Profile, Connection: "local", Directory: msg.environment.Directory}
 		m.formActive = true
 		m.formFocus = 5
 		m.creating = false
@@ -869,6 +898,10 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.instanceCursor = 0
 			m.screen = "magpie"
 			return m, m.loadInstances()
+		case "p":
+			m.screen = "profile-list"
+			m.notice = ""
+			return m, m.loadProfiles()
 		case "a":
 			if experimentalCodexAccounts() {
 				m.screen = "accounts"
@@ -878,7 +911,13 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			generation := m.generation
 			m.screen = "new-project-loading"
 			return m, func() tea.Msg {
-				env, e := m.service.Environment()
+				var env appEnvironment
+				var e error
+				if m.activeProfile != nil {
+					env, e = m.service.ProfileEnvironment(*m.activeProfile)
+				} else {
+					env, e = m.service.Environment()
+				}
 				return appNewReady{environment: env, err: e, generation: generation}
 			}
 		case "r":
@@ -915,7 +954,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.reviewedObservation = &observation
 				m.nativeReview = ""
 				if s.Mode == "local" && s.CLI == "codex" {
-					m.nativeReview = m.service.NativeCodexConfig()
+					m.nativeReview = m.sessionNativeSummary(s.session)
 				}
 				m.action, m.screen = "review-reference", "confirm"
 				m.referenceAccepted, m.scroll, m.notice = false, 0, ""
@@ -964,7 +1003,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					var selection *codexSelection
 					var selectionErr error
 					if e == nil && v.Mode == "local" && v.CLI == "codex" && v.Runtime.Presence != "observed" {
-						summary = m.service.NativeCodexConfig()
+						summary = m.sessionNativeSummary(s.session)
 					}
 					if e == nil && v.Mode == "magpie" && v.CLI == "codex" && !joinedCodex(v.session) && v.Started && v.Runtime.Presence != "observed" {
 						value, selectionError := m.service.CodexSelection(m.refreshContext, v.session)

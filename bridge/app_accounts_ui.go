@@ -28,6 +28,7 @@ func (m harborModel) accountContent() uiPage {
 	p.line(paint(fg("brand"), "👤 Harbor · Accounts · experimental"))
 	if m.screen == "accounts" {
 		p.tabs("accounts", m.uiHover, m.uiFocus, true)
+		p.line("Profile: " + m.activeProfileLabel())
 		p.field("", "👤", "Current account", "Unknown · not checked", false, false)
 		p.field("", "◷", "Official quota", "Unknown · not checked", false, false)
 		wrap("Select a saved login or add one with codex-auth. Switch between replies, after every active Codex turn finishes.")

@@ -177,7 +177,17 @@ func TestMouseShortPopupVisibleCells(t *testing.T) {
 	m.width, m.height = 45, 12
 	m.sessions = []sessionView{{session: session{ID: "a", Name: "Visible"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}
 	at := time.Now()
-	m = mouseAt(m, 3, 6, at)
+	rowY := -1
+	for i, line := range strings.Split(m.View(), "\n") {
+		if strings.Contains(line, "Visible") {
+			rowY = i
+			break
+		}
+	}
+	if rowY < 0 {
+		t.Fatal("visible row was clipped")
+	}
+	m = mouseAt(m, 3, rowY, at)
 	if m.mouse.id != "a" {
 		t.Fatal("visible name inert")
 	}

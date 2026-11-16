@@ -10,9 +10,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
-	"time"
 )
 
 var (
@@ -57,6 +57,7 @@ type profile struct {
 	Name              string              `json:"name"`
 	Kind              profileKind         `json:"kind"`
 	Clients           []profileClientHome `json:"clients"`
+	OriginalPaths     map[string]*string  `json:"original_paths,omitempty"`
 	DefaultInstanceID string              `json:"default_instance_id,omitempty"`
 }
 
@@ -79,7 +80,7 @@ type profileClientEnvironment struct {
 	Home, SQLite, Runtime string
 	Environment           []string // ephemeral; never persist or log (may contain secrets)
 	Arguments             []string // required upstream policy overrides, not a full command
-	Executable            bool     // false until the end-to-end runtime boundary is integrated
+	Executable            bool     // supported environment; launch still revalidates runtime/connection evidence
 	Limitation            string
 }
 
@@ -100,6 +101,7 @@ type profileRegistry struct {
 	Version     int       `json:"version"`
 	WorkspaceID string    `json:"workspace_id"`
 	Profiles    []profile `json:"profiles"`
+	SelectedID  string    `json:"selected_id,omitempty"`
 }
 
 func opaqueProfileID() (string, error) {
@@ -285,6 +287,24 @@ func (harborService) CreateProfile(req profileCreateRequest) (profile, error) {
 			}
 		}
 		result = profile{ID: id, WorkspaceID: r.WorkspaceID, Name: name, Kind: req.Kind, Clients: []profileClientHome{h}}
+		if req.Kind == profileExisting {
+			env, err := userEnvironment()
+			if err != nil {
+				return false, err
+			}
+			result.OriginalPaths = map[string]*string{}
+			for _, key := range userPathKeys {
+				result.OriginalPaths[key] = nil
+				for _, pair := range env {
+					k, v, ok := strings.Cut(pair, "=")
+					if ok && k == key {
+						copy := v
+						result.OriginalPaths[key] = &copy
+					}
+				}
+			}
+		}
+
 		r.Profiles = append(r.Profiles, result)
 		return true, nil
 	})
@@ -314,7 +334,7 @@ func resolveProfileRecord(binding profileBinding) (profile, profileClientHome, e
 	var p profile
 	var h profileClientHome
 	err := withProfiles(false, func(r *profileRegistry) (bool, error) {
-		if !validID(binding.ProfileID) || !validID(binding.EnvironmentID) || binding.WorkspaceID != r.WorkspaceID {
+		if !selectionTextValid(binding.Client, 100) || !validID(binding.ProfileID) || !validID(binding.EnvironmentID) || binding.WorkspaceID != r.WorkspaceID {
 			return false, ErrProfileIdentity
 		}
 		for _, candidate := range r.Profiles {
@@ -324,8 +344,9 @@ func resolveProfileRecord(binding profileBinding) (profile, profileClientHome, e
 				}
 				p = candidate
 				for _, home := range p.Clients {
-					if home.Client == binding.Client && home.ID == binding.EnvironmentID {
+					if home.ID == binding.EnvironmentID && (home.Client == binding.Client || p.Kind == profileExisting) {
 						h = home
+						h.Client = binding.Client
 						return false, nil
 					}
 				}
@@ -349,8 +370,13 @@ func (harborService) ResolveProfileClient(req profileClientRequest) (profileClie
 		return profileClientEnvironment{}, ErrProfileIdentity
 	}
 
-	if h.Client != "codex" {
+	if h.Client != "codex" && p.Kind != profileExisting {
 		return profileClientEnvironment{}, ErrProfileUnsupported
+	}
+	if p.Kind == profileIsolated {
+		if err := validateProfilePolicy(h); err != nil {
+			return profileClientEnvironment{}, err
+		}
 	}
 	// Recheck aliases against every registered environment on every resolution.
 	profiles, err := (harborService{}).Profiles()
@@ -397,7 +423,13 @@ func (harborService) ResolveProfileClient(req profileClientRequest) (profileClie
 	if err != nil {
 		return profileClientEnvironment{}, err
 	}
-	updates := map[string]*string{"CODEX_HOME": &h.Home, "CODEX_SQLITE_HOME": &h.SQLite}
+	updates := map[string]*string{}
+	if p.Kind == profileExisting {
+		for k, v := range p.OriginalPaths {
+			updates[k] = v
+		}
+	}
+	updates["CODEX_HOME"], updates["CODEX_SQLITE_HOME"] = &h.Home, &h.SQLite
 	args := []string{}
 	if p.Kind == profileIsolated {
 		// Preserve HOME, PATH, SSH/Git/tooling. No inherited Codex/auth selector.
@@ -409,9 +441,9 @@ func (harborService) ResolveProfileClient(req profileClientRequest) (profileClie
 		}
 		updates["CODEX_HOME"], updates["CODEX_SQLITE_HOME"] = &h.Home, &h.SQLite
 		updates["TMPDIR"], updates["XDG_RUNTIME_DIR"] = &h.Runtime, &h.Runtime
-		args = []string{"--no-daemon", "-c", "cli_auth_credentials_store=\"file\"", "-c", "mcp_oauth_credentials_store=\"file\""}
+		args = []string{"--no-daemon", "-c", "cli_auth_credentials_store=\"file\"", "-c", "mcp_oauth_credentials_store=\"file\"", "-c", "sqlite_home=" + strconv.Quote(h.SQLite), "-c", "log_dir=" + strconv.Quote(filepath.Join(h.Home, "log"))}
 	}
-	return profileClientEnvironment{Binding: req.Binding, ProfileName: p.Name, Kind: p.Kind, Home: h.Home, SQLite: h.SQLite, Runtime: h.Runtime, Environment: replaceEnvironment(env, updates), Arguments: args, Executable: false, Limitation: ErrProfileNotReady.Error()}, nil
+	return profileClientEnvironment{Binding: req.Binding, ProfileName: p.Name, Kind: p.Kind, Home: h.Home, SQLite: h.SQLite, Runtime: h.Runtime, Environment: replaceEnvironment(env, updates), Arguments: args, Executable: true}, nil
 }
 
 func (h harborService) ProfileSessions(req profileClientRequest) ([]session, error) {
@@ -433,36 +465,11 @@ func (h harborService) ProfileSessions(req profileClientRequest) ([]session, err
 // One cross-process lock per workspace/profile/client environment. Future launch
 // integration must hold it through child start and persisted ownership evidence.
 func withProfileClientLock(ctx context.Context, b profileBinding, fn func() error) error {
-	if !validID(b.ProfileID) || !validID(b.EnvironmentID) {
-		return ErrProfileIdentity
-	}
-	root, err := bridgeHome()
+	release, err := acquireProfileClient(ctx, b)
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(root, "profile-client-"+b.ProfileID+"-"+b.EnvironmentID+".lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	defer release()
 	return fn()
 }
 

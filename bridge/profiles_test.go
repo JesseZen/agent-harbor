@@ -65,8 +65,8 @@ func TestProfileContractABAndReadOnly(t *testing.T) {
 		if environmentValue(e.Environment, "HOME") != os.Getenv("HOME") || environmentValue(e.Environment, "PROFILE_TOOLING_TEST") != "preserved" {
 			t.Fatal("tooling lost")
 		}
-		if e.Executable {
-			t.Fatal("unverified runtime advertised")
+		if !e.Executable {
+			t.Fatal("supported environment unavailable")
 		}
 	}
 	after, _ := os.ReadFile(filepath.Join(root, "profiles.json"))
@@ -173,32 +173,42 @@ func TestProfileContractMissingReplacedUnreadableAndAlias(t *testing.T) {
 	}
 }
 
-func TestProfileContractExecutionFailsClosed(t *testing.T) {
+func TestProfileContractExecutionScopeAndStaleBinding(t *testing.T) {
 	h, _ := profileFixture(t)
 	p := mustProfile(t, h, "A")
 	req := profileClientRequest{bindingFor(p)}
-	for _, op := range []profileClientOperation{profileAccountMutation, profileLaunch} {
+	for _, op := range []profileClientOperation{profileAccountMutation, profileLaunch, profileInspect} {
 		called := false
-		err := h.WithProfileClient(context.Background(), req, op, func(profileClientScope) error { called = true; return nil })
-		if called || !errors.Is(err, ErrProfileNotReady) {
+		err := h.WithProfileClient(context.Background(), req, op, func(scope profileClientScope) error {
+			called = true
+			if scope.Environment.Binding != req.Binding {
+				t.Fatal("scope changed")
+			}
+			return nil
+		})
+		if !called || err != nil {
 			t.Fatalf("%s: callback=%v err=%v", op, called, err)
 		}
 	}
-	if _, err := h.Create(sessionDraft{Profile: &req.Binding}); !errors.Is(err, ErrProfileNotReady) {
+	project := t.TempDir()
+	record, err := h.Create(sessionDraft{Client: "codex", Connection: "local", Directory: project, Profile: &req.Binding})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkSessionBase(session{Profile: &req.Binding}, newConversation, "", false); !errors.Is(err, ErrProfileNotReady) {
-		t.Fatal(err)
+	if record.Profile == nil || *record.Profile != req.Binding {
+		t.Fatal("binding not persisted")
 	}
+	broken := req
+	broken.Binding.EnvironmentID = p.ID
 	called := false
-	err := h.WithProfileClient(context.Background(), req, profileInspect, func(scope profileClientScope) error {
-		called = true
-		if scope.Environment.Binding != req.Binding {
-			t.Fatal("scope changed")
-		}
-		return nil
-	})
-	if !called || err != nil {
+	if err := h.WithProfileClient(context.Background(), broken, profileLaunch, func(profileClientScope) error { called = true; return nil }); !errors.Is(err, ErrProfileIdentity) || called {
+		t.Fatal("stale scope admitted", err)
+	}
+	os.Rename(p.Clients[0].Home, p.Clients[0].Home+"-saved")
+	if _, err := h.Create(sessionDraft{Client: "codex", Connection: "local", Directory: project, Profile: &req.Binding}); !errors.Is(err, ErrProfileHome) {
+		t.Fatal(err)
+	}
+	if err := checkSessionBase(record, newConversation, "", false); !errors.Is(err, ErrProfileHome) {
 		t.Fatal(err)
 	}
 }

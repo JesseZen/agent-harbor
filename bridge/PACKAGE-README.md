@@ -51,15 +51,57 @@ In a new joined Magpie-backed Codex session, `/model` combines official models w
 
 New Harbor-managed Magpie instances enable caller-only mode. It forwards official requests with the initiating Codex login, without selecting a Magpie account or switching accounts on errors. Third-party providers use their own configured credentials. A group containing a stored Magpie Codex account cannot currently use that member in caller-only mode. Existing managed or external gateways retain their current settings: a joined session requires a gateway that reports caller-only support. Existing legacy sessions keep their original connection and profile behavior; they are not silently migrated.
 
+### Profiles
+
+Press `p` in the session list or open Profiles to create, rename or select a
+Profile. New Sessions capture the displayed Profile. Selecting another one does
+not move existing Sessions, change their login or restart them. Codex Profiles
+keep separate personal settings, credentials, histories, SQLite and runtime roots;
+project files remain shared. Use separate worktrees for separate code changes.
+
+A fresh install gets isolated Default. An upgrade preserves the existing client
+environment, labeled as shared with clients outside Harbor. An older Session
+without a binding must be explicitly reviewed against its original environment
+before another launch. In Profiles, select the existing environment and choose
+“Bind reviewed original environment” for the selected stopped Session. Do not
+choose an isolated Profile to move an old Conversation.
+
+CLI equivalents:
+
+```
+agent-harbor profiles list
+agent-harbor profiles new Work
+agent-harbor profiles rename PROFILE_ID NAME
+agent-harbor profiles select PROFILE_ID
+agent-harbor new --profile PROFILE_ID --dir /path/to/project --connection local
+agent-harbor profiles existing --home /original/codex --sqlite /original/sqlite NAME
+agent-harbor profiles review SESSION_ID PROFILE_ID --confirm
+agent-harbor profiles default PROFILE_ID INSTANCE_ID
+```
+
+Use `shared` as the default instance ID to retain the workspace's shared default.
+This never rewrites an existing Session's instance. Provider settings and request
+logs of a shared Magpie instance remain shared across its Profiles. Isolated
+sessions require the Profile discovery/write isolation candidate; an old or
+unverified gateway is refused. Explicitly update your dedicated candidate rather
+than replacing or stopping a user-managed service.
+
+Profile account actions are supplied by the companion account integration. The
+legacy ambient account action is disabled; it cannot change the system login on
+behalf of an unresolved Profile. See the [Profile contract](../docs/profile-contract.md)
+for current Linux UI evidence and pending real-account, remote and platform gates.
+
 ### Experimental account switching
 
-Install `codex-auth` separately and start Harbor with
-`AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS=1` to try account management. Set
-`AGENT_HARBOR_CODEX_AUTH_BIN` if the executable is not on `PATH`. In the
-session list press `a`, then `l` to add a login using Codex or `s` to choose an
-account with codex-auth. Wait for every active Codex turn to finish before
-switching. Selection changes the shared Codex home and can affect other Codex
-processes using that home.
+The companion account integration supplies the Profile-scoped account UI and
+`codex-auth` packaging. This Profile branch alone disables the old ambient
+account actions. It cannot list or change a system login through that legacy
+path. Account UI delivery and joint acceptance are tracked separately.
+
+`AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS=1` enables the experimental owned App
+Server topology described below. It does not enable the disabled ambient
+actions. Account changes must use the explicit Profile/client scope and its
+mutation lock. Selection can affect other Codex processes using that same home.
 
 New native and joined Magpie Codex sessions use a dedicated official App
 Server while this option is enabled. Harbor verifies the selected identity in

@@ -59,7 +59,7 @@ func (m harborModel) sessionActions(more bool) []uiAction {
 }
 func (m harborModel) sessionsHeader() uiPage {
 	p := newUIPage(m.width, m.height)
-	p.line(paint(fg("brand"), "⚓ HARBOR"))
+	p.line(paint(fg("brand"), "⚓ HARBOR · Profile: "+m.activeProfileLabel()))
 	p.tabs("sessions", m.uiHover, m.uiFocus, experimentalCodexAccounts())
 	p.buttons([]uiAction{{ID: "action:n", Label: "New session", Key: "n", Primary: true}, {ID: "action:r", Label: "Refresh", Key: "r"}}, m.uiFocus)
 	p.search(m.searchQuery(), "Search sessions, projects or connections", m.searchFocus == "sessions")
@@ -85,7 +85,7 @@ func (m harborModel) sessionsBodyHeight() int {
 func (m harborModel) sessionsCount() int { return max(1, m.sessionsBodyHeight()/3) }
 func (m harborModel) sessionsLayout() uiPage {
 	p := newUIPage(m.width, m.height)
-	p.line(paint(fg("brand"), "⚓ HARBOR"))
+	p.line(paint(fg("brand"), "⚓ HARBOR · Profile: "+m.activeProfileLabel()))
 	p.tabs("sessions", m.uiHover, m.uiFocus, experimentalCodexAccounts())
 	if m.screen == "sessions-more" {
 		if s, ok := m.selected(); ok {
@@ -136,7 +136,7 @@ func (m harborModel) sessionsLayout() uiPage {
 		if s.External {
 			connection = "External · connection unknown"
 		}
-		left.line(paint(fg("value"), "  "+cleanUI(s.CLI)+" · "+connection))
+		left.line(paint(fg("value"), "  "+cleanUI(s.CLI)+" · "+connection+" · "+m.profileDisplayLabel(s.Profile)))
 		reason := s.Reason
 		if reason == "" {
 			reason = s.IdentityWarning
@@ -211,7 +211,7 @@ func (m harborModel) sessionsLayout() uiPage {
 		notice = m.discoveryNotice
 	}
 	if notice == "" {
-		notice = "n new  , settings  m Connections  ? help"
+		notice = "n new  p Profiles  , settings  m Connections  ? help"
 	}
 	p.line(paint(fg("value"), ansi.Truncate(cleanUI(notice), max(1, p.Width-2), "…")))
 	hint := "↑↓ select  Enter open  / search  Tab focus  ? help"
@@ -246,6 +246,8 @@ func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 		}
 		m.screen = "sessions"
 		switch nav {
+		case "profiles":
+			return m.Update(uiKey("p"))
 		case "settings":
 			return m.Update(uiKey(","))
 		case "magpie":

@@ -8,6 +8,8 @@ import (
 // UI tests can seed results and inspect calls without starting any process.
 // This fake is intentionally independent of disk, HTTP and the production store.
 type fakeApplicationService struct {
+	ProfileRecords   []profile
+	SelectedProfile  *profileBinding
 	ContextInstance  string
 	DirectoryMatches []string
 	Acknowledged     map[string]bool
@@ -43,18 +45,22 @@ func (f *fakeApplicationService) Get(id string) (sessionView, error) {
 }
 func (f *fakeApplicationService) Draft(d sessionDraft) (sessionDraft, error) {
 	if d.Profile != nil {
-		return d, ErrProfileNotReady
+		if _, err := f.ResolveProfileClient(profileClientRequest{*d.Profile}); err != nil {
+			return d, err
+		}
 	}
 	return d, f.call("draft")
 }
 func (f *fakeApplicationService) Create(d sessionDraft) (session, error) {
 	if d.Profile != nil {
-		return session{}, ErrProfileNotReady
+		if _, err := f.ResolveProfileClient(profileClientRequest{*d.Profile}); err != nil {
+			return session{}, err
+		}
 	}
 	if err := f.call("create"); err != nil {
 		return session{}, err
 	}
-	s := session{ID: "0123456789abcdef0123456789abcdef", Name: d.Name, WorkingDirectory: d.Directory, Mode: d.Connection, MagpieModel: d.Model, InstanceID: d.Instance}
+	s := session{Profile: d.Profile, CLI: d.Client, ID: "0123456789abcdef0123456789abcdef", Name: d.Name, WorkingDirectory: d.Directory, Mode: d.Connection, MagpieModel: d.Model, InstanceID: d.Instance}
 	f.Sessions = append(f.Sessions, sessionView{session: s, Status: "Not started", Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}})
 	return s, nil
 }
@@ -186,23 +192,144 @@ func (f *fakeApplicationService) GetContext(ctx context.Context, id string) (ses
 	return f.Get(id)
 }
 
-// Profile behavior is opt-in in this UI fake; unseeded operations fail closed.
-func (f *fakeApplicationService) Profiles() ([]profile, error) { return nil, ErrProfileNotReady }
-func (f *fakeApplicationService) CreateProfile(profileCreateRequest) (profile, error) {
-	return profile{}, ErrProfileNotReady
+// Profile metadata for UI tests is in memory; no disk/process lookup is used.
+func (f *fakeApplicationService) Profiles() ([]profile, error) {
+	return append([]profile{}, f.ProfileRecords...), f.call("profiles")
 }
-func (f *fakeApplicationService) RenameProfile(profileBinding, string) error {
-	return ErrProfileNotReady
+func (f *fakeApplicationService) CreateProfile(req profileCreateRequest) (profile, error) {
+	if err := f.call("profile-create"); err != nil {
+		return profile{}, err
+	}
+	id, _ := opaqueProfileID()
+	envID, _ := opaqueProfileID()
+	p := profile{ID: id, WorkspaceID: "11111111111111111111111111111111", Name: req.Name, Kind: req.Kind, Clients: []profileClientHome{{ID: envID, Client: "codex", Home: "/profiles/" + id}}}
+	f.ProfileRecords = append(f.ProfileRecords, p)
+	return p, nil
 }
-func (f *fakeApplicationService) ResolveProfileClient(profileClientRequest) (profileClientEnvironment, error) {
-	return profileClientEnvironment{}, ErrProfileNotReady
+func (f *fakeApplicationService) EnsureProfiles() (profile, error) {
+	if len(f.ProfileRecords) == 0 {
+		return profile{}, ErrProfileNotReady
+	}
+	for _, p := range f.ProfileRecords {
+		if f.SelectedProfile != nil && p.ID == f.SelectedProfile.ProfileID {
+			return p, nil
+		}
+	}
+	return f.ProfileRecords[0], nil
 }
-func (f *fakeApplicationService) ProfileSessions(profileClientRequest) ([]session, error) {
-	return nil, ErrProfileNotReady
+func (f *fakeApplicationService) RenameProfile(b profileBinding, name string) error {
+	if err := f.call("profile-rename"); err != nil {
+		return err
+	}
+	for i, p := range f.ProfileRecords {
+		if p.ID == b.ProfileID && p.WorkspaceID == b.WorkspaceID {
+			f.ProfileRecords[i].Name = name
+			return nil
+		}
+	}
+	return ErrProfileNotFound
 }
-func (f *fakeApplicationService) WithProfileClient(context.Context, profileClientRequest, profileClientOperation, func(profileClientScope) error) error {
-	return ErrProfileNotReady
+func (f *fakeApplicationService) SelectProfile(b profileBinding) error {
+	if _, err := f.ResolveProfileClient(profileClientRequest{b}); err != nil {
+		return err
+	}
+	if err := f.call("profile-select"); err != nil {
+		return err
+	}
+	copy := b
+	f.SelectedProfile = &copy
+	return nil
 }
-func (f *fakeApplicationService) ValidateProfileResult(profileBinding, profileBinding) error {
-	return ErrProfileNotReady
+func (f *fakeApplicationService) ResolveProfileClient(req profileClientRequest) (profileClientEnvironment, error) {
+	if f.Err != nil {
+		return profileClientEnvironment{}, f.Err
+	}
+	for _, p := range f.ProfileRecords {
+		if p.ID == req.Binding.ProfileID && p.WorkspaceID == req.Binding.WorkspaceID {
+			for _, c := range p.Clients {
+				if c.ID == req.Binding.EnvironmentID && (c.Client == req.Binding.Client || p.Kind == profileExisting) {
+					return profileClientEnvironment{Binding: req.Binding, ProfileName: p.Name, Kind: p.Kind, Home: c.Home, Executable: true}, nil
+				}
+			}
+		}
+	}
+	return profileClientEnvironment{}, ErrProfileIdentity
+}
+func (f *fakeApplicationService) ProfileSessions(req profileClientRequest) ([]session, error) {
+	if _, err := f.ResolveProfileClient(req); err != nil {
+		return nil, err
+	}
+	result := []session{}
+	for _, v := range f.Sessions {
+		if v.Profile != nil && *v.Profile == req.Binding {
+			result = append(result, v.session)
+		}
+	}
+	return result, nil
+}
+func (f *fakeApplicationService) WithProfileClient(_ context.Context, req profileClientRequest, _ profileClientOperation, fn func(profileClientScope) error) error {
+	e, err := f.ResolveProfileClient(req)
+	if err != nil {
+		return err
+	}
+	sessions, err := f.ProfileSessions(req)
+	if err != nil {
+		return err
+	}
+	return fn(profileClientScope{Environment: e, Sessions: sessions})
+}
+func (f *fakeApplicationService) ValidateProfileResult(captured, visible profileBinding) error {
+	if captured != visible {
+		return ErrProfileIdentity
+	}
+	_, err := f.ResolveProfileClient(profileClientRequest{captured})
+	return err
+}
+func (f *fakeApplicationService) ProfileEnvironment(b profileBinding) (appEnvironment, error) {
+	e, err := f.ResolveProfileClient(profileClientRequest{b})
+	if err != nil {
+		return appEnvironment{}, err
+	}
+	base, err := f.Environment()
+	base.Profile = &b
+	base.LocalHome = e.Home
+	return base, err
+}
+func (f *fakeApplicationService) SetProfileDefaultInstance(b profileBinding, id string) error {
+	if err := f.call("profile-default"); err != nil {
+		return err
+	}
+	for i, p := range f.ProfileRecords {
+		if p.ID == b.ProfileID && p.WorkspaceID == b.WorkspaceID {
+			f.ProfileRecords[i].DefaultInstanceID = id
+			return nil
+		}
+	}
+	return ErrProfileIdentity
+}
+func (f *fakeApplicationService) ReviewSessionProfile(a sessionApproval, b profileBinding) error {
+	if !a.Confirmed {
+		return errors.New("review cancelled")
+	}
+	e, err := f.ResolveProfileClient(profileClientRequest{b})
+	if err != nil {
+		return err
+	}
+	if e.Kind != profileExisting {
+		return ErrProfileIdentity
+	}
+	for i, v := range f.Sessions {
+		if v.ID == a.Session.ID && sameSession(v.session, a.Session) {
+			copy := b
+			f.Sessions[i].Profile = &copy
+			return f.call("profile-review")
+		}
+	}
+	return ErrProfileIdentity
+}
+func (f *fakeApplicationService) ProfileCatalog(b profileBinding, id string) ([]catalogModel, error) {
+	if _, err := f.ResolveProfileClient(profileClientRequest{b}); err != nil {
+		return nil, err
+	}
+	return f.Catalog(id)
 }

@@ -10,6 +10,7 @@ import (
 )
 
 type appEnvironment struct {
+	Profile                            *profileBinding
 	DefaultInstance                    string
 	CodexVersion, LocalHome, Directory string
 	NativeConfig                       string
@@ -18,7 +19,19 @@ type appEnvironment struct {
 	ClientDiscovery                    string
 }
 
-func (harborService) Environment() (appEnvironment, error) {
+func (h harborService) Environment() (appEnvironment, error) {
+	selected, err := h.EnsureProfiles()
+	if err != nil {
+		return appEnvironment{}, err
+	}
+	binding, err := bindingOf(selected, "codex")
+	if err != nil {
+		return appEnvironment{}, err
+	}
+	return h.ProfileEnvironment(binding)
+}
+
+func (h harborService) ProfileEnvironment(binding profileBinding) (appEnvironment, error) {
 	cwd, _ := os.Getwd()
 	if launch := os.Getenv("AGENT_HARBOR_BRIDGE_LAUNCH_CWD"); launch != "" {
 		cwd = launch
@@ -26,18 +39,25 @@ func (harborService) Environment() (appEnvironment, error) {
 	if active := os.Getenv("HERDR_ACTIVE_PANE_CWD"); active != "" && filepath.Clean(active) != filepath.Clean(os.Getenv("HOME")) {
 		cwd = active
 	}
-	home := os.Getenv("CODEX_HOME")
-	if home == "" {
-		home = filepath.Join(os.Getenv("HOME"), ".codex")
+	selected, _, err := resolveProfileRecord(binding)
+	if err != nil {
+		return appEnvironment{}, err
 	}
-	result := appEnvironment{CodexVersion: codexVersion(os.Environ()), LocalHome: home, Directory: cwd}
-	result.NativeConfig = (harborService{}).NativeCodexConfig()
+	clientEnv, err := h.ResolveProfileClient(profileClientRequest{Binding: binding})
+	if err != nil {
+		return appEnvironment{}, err
+	}
+	result := appEnvironment{Profile: &binding, CodexVersion: codexVersion(clientEnv.Environment), LocalHome: clientEnv.Home, Directory: cwd}
+	result.NativeConfig = nativeCodexConfigSummary(clientEnv.Environment)
 	result.Clients, result.ClientDiscovery = discoverClientSubset()
 	registry, err := loadMagpieRegistry()
 	if err != nil {
 		return result, err
 	}
 	result.DefaultInstance = registry.Default
+	if selected.DefaultInstanceID != "" {
+		result.DefaultInstance = selected.DefaultInstanceID
+	}
 	var sessions []session
 	err = withSessions(func(all []session) ([]session, error) { sessions = append([]session{}, all...); return nil, nil })
 	if err != nil {
@@ -79,11 +99,15 @@ func (harborService) ValidateDirectory(path string) error {
 	return nil
 }
 func (harborService) Open(a sessionApproval) error {
+
 	if !a.Confirmed {
 		return errors.New("launch cancelled")
 	}
 	if a.DevelopmentQuery && !a.QueryUncertaintyAccepted {
 		return errors.New("query proves syntax only; explicitly accept conversation, login and external writer uncertainty")
+	}
+	if a.Session.Profile == nil {
+		return errors.New("legacy session requires explicit review of its original Profile environment before launch")
 	}
 	if err := validateApprovalRuntime(a); err != nil {
 		return err

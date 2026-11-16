@@ -18,7 +18,7 @@ func cleanUI(s string) string {
 	}, s)
 }
 func (m harborModel) details(s sessionView) string {
-	lines := []string{"🚢 " + cleanUI(s.Name), statusDot(orUnknown(s.Status))}
+	lines := []string{"🚢 " + cleanUI(s.Name), "Profile: " + m.profileDisplayLabel(s.Profile), statusDot(orUnknown(s.Status))}
 	lines = append(lines, kv("Presence", s.Runtime.Presence), kv("Runtime association", map[bool]string{true: "associated", false: "unassociated"}[s.Runtime.Associated]))
 	if s.External {
 		lines = append(lines, "Unmanaged")

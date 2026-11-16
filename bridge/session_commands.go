@@ -20,19 +20,36 @@ func newSessionCommand(alias string, args []string) error {
 	instance := flags.String("instance", "", "Magpie instance ID")
 	client := flags.String("client", "codex", "upstream client target")
 	name := flags.String("name", "", "session name")
+	profileID := flags.String("profile", "", "explicit Profile ID")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		return errors.New("usage: new --dir PATH --connection local|magpie [--instance ID --model ID] [--name NAME]")
+		return errors.New("usage: new --dir PATH --connection local|magpie [--instance ID --model ID] [--name NAME] [--profile ID]")
 	}
 	if *client == "codex" && alias == "create" && *connection == "magpie" && *instance == "" {
 		return errors.New("choose Magpie and its model in the managed Herdr session menu, or use new --instance ID --model ID")
 	}
-	s, err := appService.Create(sessionDraft{Client: *client, Directory: *dir, Name: *name, Connection: *connection, Instance: *instance, Model: *model})
+	draft := sessionDraft{Client: *client, Directory: *dir, Name: *name, Connection: *connection, Instance: *instance, Model: *model}
+	if *profileID != "" {
+		b, err := findProfileBinding(*profileID, *client)
+		if err != nil {
+			return err
+		}
+		draft.Profile = &b
+	}
+	s, err := appService.Create(draft)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("Session: %s\nDirectory: %q\nConnection: %s\n", s.ID, s.WorkingDirectory, s.Mode)
 	if s.Mode == "local" && s.CLI == "codex" {
-		fmt.Println((harborService{}).NativeCodexConfig())
+		if s.Profile != nil {
+			e, err := appService.ResolveProfileClient(profileClientRequest{*s.Profile})
+			if err != nil {
+				return err
+			}
+			fmt.Println(nativeCodexConfigSummary(e.Environment))
+		} else {
+			fmt.Println(appService.NativeCodexConfig())
+		}
 	}
 	if s.Mode == "magpie" {
 		fmt.Println("Magpie may send auxiliary requests containing parts of this conversation to other models or providers. Review the instance and selected model.")

@@ -1,0 +1,99 @@
+--- a/internal/appdir/codex.go
++++ b/internal/appdir/codex.go
+@@ -51,6 +51,12 @@
+ 
+ // CodexHomesIn is CodexHomes with home as the user's home folder.
+ func CodexHomesIn(home string) []string {
++	// Harbor Profiles own their credentials and histories. Caller-only gateway
++	// and management processes must not enumerate any Codex data directories.
++	if os.Getenv("MAGPIE_CODEX_CALLER_ONLY") == "1" {
++		return nil
++	}
++
+ 	main := CodexHomeIn(home)
+ 	out := []string{main}
+ 	seen := map[string]bool{sameDir(main): true}
+--- a/internal/provider/codex_store.go
++++ b/internal/provider/codex_store.go
+@@ -600,6 +600,9 @@
+ // left beside a keychain item is left to Codex, which removes it at its
+ // next save; the item goes first when it reads.
+ func saveCodexLogin(home string, b []byte) error {
++	if settings.CodexCallerOnly() {
++		return errors.New("Codex login writes are disabled in caller-only mode")
++	}
+ 	if discoveryOff() {
+ 		return errAccountDiscoveryOff
+ 	}
+@@ -643,6 +646,9 @@
+ // for this home and auth.json both go (auto would fall back to the file).
+ // The item not removed, the file is left too.
+ func deleteCodexLogin(home string) error {
++	if settings.CodexCallerOnly() {
++		return errors.New("Codex login writes are disabled in caller-only mode")
++	}
+ 	if discoveryOff() {
+ 		return errAccountDiscoveryOff
+ 	}
+--- a/internal/gateway/gateway.go
++++ b/internal/gateway/gateway.go
+@@ -1000,7 +1000,7 @@
+ 	// Claude Desktop's third-party gateway looks for one here before it
+ 	// takes the address
+ 	mux.HandleFunc("GET /api/hello", func(w http.ResponseWriter, r *http.Request) {
+-		writeJSON(w, 200, map[string]any{"name": "magpie", "version": Version, "codex_caller_only": settings.CodexCallerOnly()})
++		writeJSON(w, 200, map[string]any{"name": "magpie", "version": Version, "codex_caller_only": settings.CodexCallerOnly(), "codex_profile_isolation": settings.CodexCallerOnly()})
+ 	})
+ 	// the Ollama API's model routes, for a client that takes a custom
+ 	// endpoint only as an Ollama server (ollama.go)
+--- /dev/null
++++ b/internal/appdir/codex_profile_test.go
+@@ -0,0 +1,18 @@
++package appdir
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func TestCallerOnlyDoesNotEnumerateCodexHomes(t *testing.T) {
++	home := t.TempDir()
++	dir := filepath.Join(home, ".codex-private")
++	os.Mkdir(dir, 0700)
++	os.WriteFile(filepath.Join(dir, "auth.json"), []byte("synthetic"), 0600)
++	t.Setenv("MAGPIE_CODEX_CALLER_ONLY", "1")
++	if got := CodexHomesIn(home); len(got) != 0 {
++		t.Fatalf("discovered caller homes: %v", got)
++	}
++}
+--- /dev/null
++++ b/internal/provider/codex_profile_guard_test.go
+@@ -0,0 +1,27 @@
++package provider
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func TestCallerOnlyNeverWritesOrDeletesProfileLogin(t *testing.T) {
++	home := t.TempDir()
++	path := filepath.Join(home, "auth.json")
++	os.WriteFile(path, []byte("synthetic-profile-login"), 0600)
++	t.Setenv("MAGPIE_CODEX_CALLER_ONLY", "1")
++	if err := saveCodexLogin(home, []byte("replacement")); err == nil {
++		t.Fatal("write allowed")
++	}
++	if err := deleteCodexLogin(home); err == nil {
++		t.Fatal("delete allowed")
++	}
++	if _, _, err := readCodexLogin(home, true); err == nil {
++		t.Fatal("read allowed")
++	}
++	data, err := os.ReadFile(path)
++	if err != nil || string(data) != "synthetic-profile-login" {
++		t.Fatalf("login changed: %v", err)
++	}
++}

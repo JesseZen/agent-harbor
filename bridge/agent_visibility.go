@@ -180,7 +180,7 @@ func verifiedForegroundRun(ctx context.Context, socket, identity string, agent h
 			continue
 		}
 		facts, err := readProcessFacts(s.ProcessGroup)
-		if err != nil || facts.Variables["AH_SESSION_RUN_TOKEN"] != s.RunToken {
+		if err != nil || facts.Variables["AH_SESSION_RUN_TOKEN"] != s.RunToken || !profileProcessMatches(s, facts) {
 			continue
 		}
 		if match != -1 {

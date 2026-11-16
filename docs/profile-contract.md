@@ -1,47 +1,47 @@
-# Profile foundation contract (#19 → #20)
+# Profile service contract
 
-This is the first-stage development contract, not completion of Profile isolation.
-It extends `applicationService`; it introduces neither a launcher nor an auth
-framework. #20 may implement against these signatures. Profile-bound client
-execution deliberately returns `ErrProfileNotReady` until #19 integrates and
-verifies the runtime boundary. Do not remove this gate merely to make an account
-page work. Existing unbound behavior remains the pre-Profile candidate.
+The initial contract is commit `5fcd13ad650566fc42d9f3ba3a4a4f90b21015c9`.
+Its signatures remain source compatible. The runtime implementation now resolves
+bound environments and coordinates launch with account mutations. This document
+separates implemented behavior from acceptance that still needs a real environment.
 
-## Identity and storage
+## Stable identity and persistence
 
-`profile`, `profileKind`, `profileClientHome`, `profileBinding` and all Profile
-service methods are in `bridge/profiles.go`. `profiles.json` lives in the owned
-bridge state directory, alongside `sessions.json`. Registry writes use the
-existing atomic state-file writer and a cross-process workspace directory lock.
-The registry has version 1. Unknown versions fail closed.
+`bridge/profiles.go` defines `profile`, `profileKind`, `profileClientHome`,
+`profileBinding`, `profileCreateRequest`, `profileClientRequest`,
+`profileClientEnvironment`, `profileClientOperation` and `profileClientScope`.
+`profiles.json` has version 1 and is stored beside `sessions.json`, using the
+existing atomic writer and a cross-process workspace-directory lock.
 
-`profileBinding` contains `WorkspaceID`, `ProfileID`, `Client`, `EnvironmentID`.
-All IDs except Client are opaque, stable random IDs. WorkspaceID identifies the
-owning server workspace, not its hostname or a UI label. Remote workspaces reuse
-and validate `remote-context.json`'s ID; local registries allocate their own ID.
-State copied to another server is not a supported identity migration. Operations
-must execute on the owning server. Never resolve remote bindings on a laptop.
+A binding contains `WorkspaceID`, `ProfileID`, `Client` and `EnvironmentID`.
+IDs are opaque and stable; display names never select an environment. Remote
+workspaces reuse and validate their `remote-context.json` identity. Resolve and
+execute on the owning server, never on a laptop with a similarly named Profile.
+Copying state to another server is not a supported identity migration.
 
-Profiles have a display name, a kind, client-home references and an optional
-`DefaultInstanceID`. Rename changes only the display name. Names are not unique
-identifiers. Each client home records its directory paths and device/inode
-identities, independently of its environment ID. This detects replacement at the
-same path; normal repair requires an explicit future review operation.
+Each client reference records absolute canonical roots and device/inode identities.
+Missing, unreadable, symlinked, replaced or overlapping roots require repair;
+recovery does not recreate them. Rename does not move data. Profile creation
+creates empty private Codex, SQLite and runtime roots; it imports no settings,
+credentials or history. An IO failure may leave empty unregistered directories;
+reads never adopt them automatically.
 
-`session.Profile` and `sessionDraft.Profile` are optional pointers to a binding;
-`sessionApproval.Session.Profile` captures the reviewed binding as part of the
-existing complete-record comparison. `runPlan.Profile` is reserved for persisted
-run ownership evidence. Populating/checking it and process evidence is #19's next
-stage. New Profile-bound creation currently fails before writing a Session.
+`session.Profile`, `sessionDraft.Profile`, `sessionApproval.Session.Profile` and
+`runPlan.Profile` carry the binding. Session creation copies it; the existing
+complete-record comparisons invalidate stale approvals. Run plans must match the
+record before reservation. Process evidence additionally checks workspace,
+Profile, environment and run-token variables, plus the bound Codex home.
 
-Missing legacy fields stay nil. `CodexHome` alone is not a binding. Neither the
-resolver nor session-scope query assigns old records to the visible Profile, even
-when their home paths match. Explicit legacy review/migration and the labeled
-existing-environment UI are still pending. No credential, setting or Conversation
-is copied. New-install Default creation/selection is also pending; registry reads
-do not silently initialize it.
+Missing old fields stay nil. `CodexHome` alone does not establish a Profile.
+Unbound sessions cannot launch or open another pane, including before registry
+initialization. Explicit `ReviewSessionProfile` can bind a stopped, unchanged
+record to a reviewed existing environment; it cannot move it into an isolated
+Profile or change its Conversation/connection. Legacy inspection retains the
+previous read-only compatibility behavior until the environment is reviewed.
 
-## Service calls and execution status
+## Application service
+
+The original methods remain:
 
 ```go
 Profiles() ([]profile, error)
@@ -54,163 +54,145 @@ WithProfileClient(context.Context, profileClientRequest,
 ValidateProfileResult(captured, visible profileBinding) error
 ```
 
-Construct a binding from a returned Profile and the explicitly selected client
-entry: `WorkspaceID: p.WorkspaceID`, `ProfileID: p.ID`, `Client: c.Client`,
-`EnvironmentID: c.ID`. Keep this value with every asynchronous request/result.
-`profileClientRequest` contains that binding; there is no implicit current Profile.
+Compatible additions are:
 
-| Call | Implemented behavior |
-| --- | --- |
-| Profiles | Reads persisted metadata; absent registry returns an empty list; no initialization |
-| CreateProfile | Persists isolated Codex layout or explicit existing-environment roots; validates ownership, permissions and root aliases; does not invoke a client |
-| RenameProfile | Checks workspace/profile and changes display name without moving data |
-| ResolveProfileClient | Read-only directory validation and environment planning; `Executable` is currently false |
-| ProfileSessions | All owned persisted Sessions with the exact binding and client; no path-based inference, external discovery, activity assumption or credential access |
-| WithProfileClient inspect | Resolves/revalidates and returns environment plus scoped records under the environment's cross-process lock |
-| WithProfileClient account-mutation / launch | Revalidates but returns `ErrProfileNotReady`; callback is never called |
-| ValidateProfileResult | Rejects changed visible identity and revalidates captured environment before displaying async results |
-| Draft/Create/launch with Profile | `ErrProfileNotReady`; old launcher cannot use ambient environment for a bound record |
+```go
+EnsureProfiles() (profile, error)
+SelectProfile(profileBinding) error
+SetProfileDefaultInstance(profileBinding, string) error
+ReviewSessionProfile(sessionApproval, profileBinding) error
+ProfileEnvironment(profileBinding) (appEnvironment, error)
+ProfileCatalog(profileBinding, string) ([]catalogModel, error)
+```
 
-`CreateProfile` requires Name and Kind. For `isolated`, existing paths must be
-absent; it creates private empty `profiles/ID/{codex,sqlite,runtime}` roots. It may
-leave empty unregistered directories after an IO failure; reads/recovery never
-adopt them. It does not copy credentials. For `existing-environment`, supply
-absolute canonical `ExistingHome` and `ExistingSQLite` from explicit original
-environment evidence. Both must already exist; they may be the same directory.
-Their contents are preserved. Existing is compatibility, not an isolation claim.
-The current stage supports Codex metadata/layout only, not every discovered client.
+`EnsureProfiles` is an explicit application initialization effect, serialized
+across processes. A fresh installation receives isolated Default. An existing
+client home containing data, or existing session records, preserves an explicitly
+labeled existing environment. If the original roots are unavailable, creation
+stops; the user can explicitly create a fresh isolated Profile alongside the
+unresolved old records. `Profiles` and `ResolveProfileClient` do not initialize.
 
-For #20: account listing/status use the resolved binding and environment. Login,
-selection, explicit sign-out and new launch must eventually run inside
-`WithProfileClient` with the corresponding operation. Do not use the old
-`CodexAccountAction(string, ...)` or call `userEnvironment()` midway through a
-Profile action. #20 owns its account request/result payloads and account UI; add
-the captured `profileBinding` to them and use this service scope. Until runtime
-integration lands, show the returned not-ready error instead of executing against
-ambient homes. Extend/inject the existing UI fake for account tests; the base
-fake's new Profile methods deliberately return not-ready, never fake success.
+Selection persists a default for future actions. An open UI retains its captured
+selection; another popup changing the default does not move its drafts or running
+sessions. `appEnvironment.Profile` reports the captured environment.
 
-## Environment policy
+For existing environments, creation requires explicit `ExistingHome` and
+`ExistingSQLite` roots. It records the original path-variable snapshot separately
+from client credentials. Codex uses those explicit roots. Other discovered native
+clients can use the existing environment's anchor and original paths; this is
+compatibility, not a claim that they share Codex's storage layout or have isolated
+support. New isolated support is Codex-only.
 
-Resolution calls `userEnvironment()` once to recover ordinary development tools,
-then overrides the explicit homes. The result's `Environment` is ephemeral and
-may contain inherited secrets; never persist or log it.
+## Environment policy and account integration
 
-For isolated Codex the plan sets `CODEX_HOME`, `CODEX_SQLITE_HOME`, `TMPDIR` and
-`XDG_RUNTIME_DIR` to the Profile roots. It removes inherited `CODEX_*`, `OPENAI_*`,
-`CHATGPT_*` and `AGENT_HARBOR_MAGPIE_KEY` before adding the bound homes. HOME,
-PATH, Git/SSH settings, ordinary development tools, network proxies and project
-access remain inherited. This is client-data separation, not a process sandbox.
-Project configuration/instructions remain deliberately shared.
+Resolution restores ordinary user tooling once, then applies the bound roots.
+The returned `Environment` can contain inherited secrets: never log or persist it.
+Isolated environments remove inherited `CODEX_*`, `OPENAI_*`, `CHATGPT_*` and
+`AGENT_HARBOR_MAGPIE_KEY`. They set CODEX_HOME, CODEX_SQLITE_HOME, TMPDIR and
+XDG_RUNTIME_DIR to their own roots, preserving HOME, PATH, Git/SSH and normal
+project/tool access. Project files, instructions and deliberately shared tools
+remain shared. Profiles are not OS-user/container security sandboxes.
 
-The required Codex `Arguments` policy is `--no-daemon`,
-`-c cli_auth_credentials_store="file"`, and
-`-c mcp_oauth_credentials_store="file"`. These are planned upstream CLI overrides;
-an environment array alone does not enforce credential-backend policy. #19 must
-verify all launch/App Server/login paths apply them, including project override
-precedence, saved-account storage, subprocess login and per-session endpoints.
-#20 must verify pinned codex-auth honors the same home and invokes Codex with the
-required backend policy. Do not pass these Codex arguments blindly to codex-auth.
-The existing environment preserves inherited auth/config behavior and has no
-isolation claim; it still requires explicit paths and runtime integration.
+`Arguments` includes the supported Codex policy: disable shared daemon use,
+force `cli_auth_credentials_store="file"`, force
+`mcp_oauth_credentials_store="file"`, and pin `sqlite_home` and `log_dir`.
+SQLite configuration can override CODEX_SQLITE_HOME, so both controls are needed.
+The resolver also rejects Profile home config that redirects those roots or
+selects another credential backend. The launcher applies the policy to TUI and
+owned App Server starts; `--no-daemon` is a TUI flag and is omitted from the App
+Server subcommand. Login adapters must apply the same policy to their Codex child.
+Do not blindly pass Codex flags to codex-auth itself.
 
-SQLite roots include database sidecars. Locks, socket paths, notification/status
-resources, daemon/App Server ownership and client temporary files must resolve
-from the same binding. Disabling shared daemon use and dedicated roots are a plan,
-not proof of every resource's isolation. End-to-end verification is outstanding;
-therefore no planned environment is currently executable through this contract.
+`Executable` is now true for successfully resolved supported environments.
+Consequential operations still revalidate the binding, client/connection,
+Conversation, instance, directory and runtime evidence. An environment plan is
+not authorization to ignore those checks. The old ambient `CodexAccountAction`
+remains source compatible but always refuses mutations; #20's scoped account
+adapter is the consumer of `WithProfileClient`.
 
-Errors are comparable with `errors.Is`:
+`ProfileSessions` returns all owned matching records, including stopped/pending
+ones. It does not prove activity, idleness or safe adoption. #20 owns activity
+checks, explicit signed-out selection, actual codex-auth operations, per-session
+results and optional experimental refresh. Unknown activity must remain unknown.
+External clients may share an existing environment and cannot be counted as
+verified owned sessions.
 
-| Error | Meaning / response |
-| --- | --- |
-| ErrProfileNotFound | Registry/Profile absent; refresh or explicitly create/review |
-| ErrProfileIdentity | Wrong workspace/client/environment, stale result, replaced directory or incompatible registry; review original identity |
-| ErrProfileHome | Missing, unreadable, noncanonical, symlinked or incorrectly owned/private root; repair explicitly; no recreation/fallback |
-| ErrProfileAlias | Equal, nested or aliased mutable roots across registered environments; choose independent roots |
-| ErrProfileUnsupported | Unsupported client/kind/operation; no isolation promise |
-| ErrProfileNotReady | Runtime integration/verification pending; no tool invoked |
-| context cancellation | Lock acquisition canceled; no callback invoked |
+Capture the value binding at dispatch and carry it in every async result.
+`ValidateProfileResult(captured, visible)` rejects stale cross-Profile UI results.
+Account execution revalidates the captured binding under `WithProfileClient`;
+navigation never redirects a pending login into the newly visible Profile.
 
-IO and existing environment-snapshot errors can also propagate. No error permits
-fallback to system HOME, another Profile, a different server or a fresh history.
-Root checks do not claim to protect against hostile same-user processes replacing
-nested files; this feature is not a security sandbox.
+`WithProfileClient` uses a cancelable cross-process lock keyed by
+workspace/Profile/environment/client. A and B do not serialize each other.
+Account mutations hold it through mutation, reread and adoption. Launch uses the
+same primitive from validation through child start and persisted ownership, then
+releases it before the Conversation lifetime. Do not recursively acquire the
+same lock or wait for user confirmation while holding it. #20 must not add an
+independent switching lock that fails to coordinate with launch.
 
-## Account scope, async operations and launch coordination
+Dedicated App Server sockets live under the bound runtime root. Codex 0.169.0 can
+publish long requested socket paths through its supported short-path rendezvous
+symlink; Go RPC resolves the physical socket path before dialing. Ownership still
+checks the requested socket identity, PID, run token and binding. Shared upstream
+socket infrastructure is not treated as permission to reuse another server.
 
-`ProfileSessions` returns stopped, running and pending owned records so #20 can
-show the actual scope. It does not establish between-turn safety. #20 must query
-activity using the existing application/runtime seams, retain unknown as unknown,
-and report per-session adoption/required action; a failed query is not idle.
-Unbound legacy records require explicit environment review before account changes
-can claim their affected-session scope. External clients may share Existing and
-cannot be controlled or counted as verified owned sessions.
+Errors remain comparable using `errors.Is`: `ErrProfileNotFound`,
+`ErrProfileIdentity`, `ErrProfileHome`, `ErrProfileAlias`,
+`ErrProfileUnsupported`, `ErrProfileNotReady`, and context cancellation.
+Policy/configuration and IO errors can also propagate. None permits fallback to
+system home, a different server/Profile, a new Conversation or another gateway.
 
-Capture the binding when dispatching. `ValidateProfileResult` prevents A's delayed
-result from being displayed/applied to B after navigation. Navigation need not
-cancel a login already launched in A, but completion and actual resulting state
-belong to A. Before consequential work, revalidate the captured binding under
-`WithProfileClient`, not merely when the request was queued.
+## Magpie boundary
 
-The real lock primitive is `withProfileClientLock`: per Profile/environment,
-cross-process `flock`, cancellation-aware, and independent for A/B. The public
-service holds it around inspection now. Account mutation and new startup will
-share this lock after #19 enables execution. Hold it through credentials mutation,
-reread and session adoption; launch holds it through process start and persisted
-ownership evidence, then releases it (not the entire Conversation lifetime).
-Callbacks must not recursively acquire the same lock. Do not block while asking
-a user for confirmation under this lock. Revalidate activity and scope once the
-explicit choice is ready to apply. Launch and account code must use the same
-public entry point; a private #20 lock would not coordinate with #19's launcher.
+Profile `DefaultInstanceID` affects future selections only. Existing sessions
+retain `InstanceID` and `InstanceSnapshot`; recovery never substitutes the new
+default. Providers, routing rules, keys, logs and lifecycle remain instance-owned.
+The UI explains that an instance shared by Profiles has shared configuration/logs.
 
-## Magpie reference and unresolved boundary
+Isolated sessions require both `codex_caller_only` and `codex_profile_isolation`
+in `/api/hello`. The latter comes from the supplemental local
+[`magpie-profile-isolation.patch`](magpie-profile-isolation.patch), applied after
+the caller-only patch to base `5426c43cca9b90be809d51edebc5c926929e9f6c`.
+It disables Codex-home enumeration (including history scans), direct credential
+writes/deletion, and retains the caller-only read/refresh/request guards.
+This is a local development candidate, not an upstream release.
 
-`profile.DefaultInstanceID` is a reference for future session defaults only;
-setting/selecting/verifying this default through the service/UI is pending in
-#19. `session.InstanceID` and `InstanceSnapshot` remain the fixed connection target.
-Never substitute the Profile default during recovery. Instance lifecycle,
-provider keys, models/groups and logs stay in the existing instance registry.
-Profile selection does not re-home/restart a shared Magpie process.
+Startup/helper/management environments discard caller auth/home selectors and the
+original-environment snapshot. A management process must preserve the verified
+caller-only flag and must not use a Profile's mutable roots. Unsafe/unknown
+management is blocked when isolated Profiles exist, including unbound TUI
+fallback. An older gateway is not silently reconfigured or stopped. Package
+creation verifies the supplemental patch attestation as well as executable hashes.
 
-Inspected Magpie base: `5426c43cca9b90be809d51edebc5c926929e9f6c`
-(0.1.3528), with this repository's local caller-only patch. Its
-`internal/appdir/codex.go:CodexHomesIn` scans HOME and siblings of CODEX_HOME,
-including one level below Codex-named directories. A separate HOME alone is not
-proof. The candidate guards `readCodexLogin`, `rememberLogins`, `renewLogins`,
-`renewSaved` and official forwarding. Explicit sign-in/write/menu paths still
-need exhaustive verification. This patch is not an upstream release.
+#19 owns this resolver/discovery/management boundary. #20 owns API-only versus
+joined choice, catalogs for that connection form, persisted provider provenance,
+account UI/actions and codex-auth packaging. It should extend ProfileCatalog or
+consume ResolveProfileClient rather than restore ambient homes. The existing
+unscoped catalog remains for instance inspection and legacy compatibility;
+Profile-aware catalog reads only the bound client's official model cache.
 
-#19 owns the discovery boundary, including `magpie_record.go` startup environment,
-`magpie_manage.go` management environment/menus, gateway capability verification
-and any needed upstream candidate changes/tests. Do not expose Profile homes to
-Magpie or create another discovery/isolation mechanism in #20. Before allowing
-shared-instance isolated execution, #19 must verify startup, background refresh,
-management writes and official paths, or block unsafe management/capabilities
-explicitly. Caller-only `/api/hello` is necessary for joined requests but does
-not independently prove all management/discovery paths safe. #20 owns API-only
-versus joined selection, persistence and launch differences; preserve instance
-snapshots and caller identity without changing Profile defaults or discovery.
+## Evidence and integration
 
-Current upstream checks: Codex latest release API reports `rust-v0.169.0`;
-codex-auth reports `v0.4.0`. No real-client account isolation or native-platform
-runtime acceptance was run in this stage. Source/document pointers for the next
-stage: [Codex environment variables](https://learn.chatgpt.com/docs/config-file/environment-variables),
-[Codex auth backend](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/login/src/auth/storage.rs),
-[codex-auth v0.4.0](https://github.com/Loongphy/codex-auth/tree/v0.4.0).
-Recheck exact versions/source and behavior before enabling execution.
+The targeted native tests use Codex 0.169.0, local synthetic upstreams and
+independently authored synthetic credentials. They check A/B request identity,
+separate histories/SQLite, A credential change with B untouched, exact A
+Conversation recovery, and separately owned App Servers. They do not establish
+real ChatGPT authorization, codex-auth rotation or cloud account eligibility.
+The supplemental Magpie guard tests run on the actual patched source, alongside
+its caller-only native-client/identity tests.
 
-## File ownership and integration
+The maintained `app_acceptance.py --replacement --profiles` exercises UI-created
+Profiles, concurrent real clients and same-Profile Conversations, recovery of
+A while B is selected, and exact A/B recovery across workspace/gateway restart.
+This journey passed on Linux amd64 with Codex 0.169.0, Herdr 0.9.5 and the
+Magpie 0.1.3528 Profile candidate using synthetic providers and credentials. It requires an exclusive discovery port, as documented in
+the acceptance guide. Exit 77 is a blocked gate, never a pass. Runtime evidence,
+exact SHAs and outstanding native-platform/real-account gates must accompany a
+candidate handoff.
 
-| Owner | Next work / entry points |
-| --- | --- |
-| #19 | profiles.go registry/resolver/coordination; Profile UI; legacy review; session_checks.go; environment.go; identity_candidate.go/run_plan.go; launch.go/session_safety.go; process evidence; query recovery; Magpie discovery/start/management; product/usage/isolation acceptance |
-| #20 | app_accounts.go/accountExec request/result binding; codex_accounts.go upstream account operations and per-session results; codex-auth packaging; account page visibility; API-only/joined choice and persisted connection form; catalog and connection-specific launch arguments |
-| Shared | service.go, service_fake.go, store.go, app_service.go, launch.go, session creation/UI, tests and public docs |
-
-Keep new logic in focused files; edit shared files at the specific seam without
-reformatting unrelated code. #20 extends existing application-service/account
-seams and uses these frozen Profile types. Additional compatible methods are
-allowed; do not silently change/remove signatures. Neither agent enables the
-other's incomplete gate. Integration order remains #19 then #20, followed by
-joint A/B acceptance. Development against this contract is not feature acceptance.
+Shared files include service.go, service_fake.go, store.go, app_service.go,
+launch.go, session creation/UI and public docs. Keep compatible signatures and
+focused edits. #20's API/account branches must be retained when integrating;
+#19's environment policy, lock, run ownership and recovery checks must also be
+retained. Integration order remains #19 then #20, with joint A/B acceptance before
+claiming the complete account feature. Do not merge to main or release implicitly.

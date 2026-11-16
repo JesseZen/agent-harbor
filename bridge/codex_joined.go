@@ -43,6 +43,11 @@ func cachedCodexModels() []catalogModel {
 	if err != nil {
 		return models
 	}
+	return cachedCodexModelsEnvironment(env)
+}
+
+func cachedCodexModelsEnvironment(env []string) []catalogModel {
+	models := []catalogModel{{ID: codexDefaultModel, DisplayName: "Codex default (choose a model in Codex)"}}
 	home := environmentValue(env, "CODEX_HOME")
 	if home == "" {
 		home = filepath.Join(environmentValue(env, "HOME"), ".codex")

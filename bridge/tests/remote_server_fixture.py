@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Synthetic server half of remote_workspace.py. Uses only its owned root."""
+"""Synthetic server half of remote_workspace.py. Uses only its owned root.
+
+Pass `setup --color` for manual visual acceptance. Automated setup defaults to
+NO_COLOR so its text assertions do not depend on the terminal color profile.
+"""
 import http.server
 import json
 import os
@@ -45,6 +49,8 @@ def main():
     elif mode == 'setup':
         env = {'PATH': str(root / 'bin') + ':/usr/local/bin:/usr/bin:/bin',
                'TERM': 'xterm-256color', 'SHELL': '/bin/sh', 'LANG': 'C.UTF-8', 'NO_COLOR': '1'}
+        if '--color' in sys.argv[2:]:
+            env.pop('NO_COLOR')
         for key, leaf in [('HOME', 'home'), ('XDG_CONFIG_HOME', 'config'),
                           ('XDG_STATE_HOME', 'state'), ('XDG_DATA_HOME', 'data'),
                           ('XDG_CACHE_HOME', 'cache'), ('XDG_RUNTIME_DIR', 'runtime'),

@@ -9,6 +9,12 @@ gates from upstream acceptance or release.
 
 ## Terminal visual evidence
 
+Remote workspace fixtures default to `NO_COLOR` on both hosts for text-based
+assertions. Use `remote_workspace.py --color` for visual acceptance; its server
+helper accepts `setup --color` when preparing a manual environment. Unsetting
+`NO_COLOR` only in a later SSH shell does not change an already running Herdr
+server's environment. Prepare visual fixtures with colors before starting it.
+
 Use `render_terminal.cjs` for synthetic ANSI previews. It enables xterm's Unicode
 15 grapheme provider before writing any text. The default xterm Unicode 6 provider
 counts several Harbor emoji as one cell and makes correctly padded dividers look

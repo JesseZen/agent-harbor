@@ -18,6 +18,7 @@ import unicodedata
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--color', action='store_true', help='keep theme colors on both hosts for visual acceptance')
     for key in ('host', 'binary', 'herdr', 'codex', 'known-hosts'):
         parser.add_argument('--' + key, required=True)
     for key in ('binary', 'herdr', 'codex'):
@@ -68,13 +69,16 @@ def main():
 
     def server(mode):
         try:
-            result = ssh('python3', remote / 'remote_server_fixture.py', mode, text=True)
+            color = ['--color'] if args.color and mode == 'setup' else []
+            result = ssh('python3', remote / 'remote_server_fixture.py', mode, *color, text=True)
         except subprocess.CalledProcessError as error:
             raise RuntimeError('server ' + mode + ': ' + error.stderr) from error
         return json.loads(result.stdout) if mode in ('setup', 'snapshot') else result.stdout
 
     env = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'TERM': 'xterm-256color',
            'SHELL': '/bin/sh', 'LANG': 'en_US.UTF-8', 'NO_COLOR': '1'}
+    if args.color:
+        env.pop('NO_COLOR')
     for key, leaf in [('HOME', 'home'), ('XDG_CONFIG_HOME', 'config'), ('XDG_STATE_HOME', 'state'),
                       ('XDG_DATA_HOME', 'data'), ('XDG_CACHE_HOME', 'cache'),
                       ('XDG_RUNTIME_DIR', 'runtime'), ('TMPDIR', 'tmp'),
@@ -163,6 +167,7 @@ def main():
         key('C-b', 'a')
         contains('HARBOR')
         (root / 'remote-popup.txt').write_text(screen())
+        (root / 'remote-popup-160.ansi').write_text(tm('capture-pane', '-e', '-p', '-t', 'native:0.0'))
         key('n')
         contains('New session')
         key('Enter')

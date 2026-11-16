@@ -25,7 +25,7 @@ func candidateRunPlan(s session, env []string) (runPlan, error) {
 	if s.CLI != "codex" {
 		home = ""
 	}
-	return runPlan{SessionID: s.ID, Token: hex.EncodeToString(token), Home: home}, err
+	return runPlan{Profile: s.Profile, SessionID: s.ID, Token: hex.EncodeToString(token), Home: home}, err
 }
 
 // Installation status is diagnostic only: it cannot prove feature enablement,

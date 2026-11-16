@@ -51,6 +51,9 @@ func sameSession(a, b session) bool {
 }
 
 func beginRun(expected session, kind launchKind, plan runPlan) error {
+	if !sameProfileBinding(expected.Profile, plan.Profile) {
+		return ErrProfileIdentity
+	}
 	return withSessions(func(all []session) ([]session, error) {
 		for i := range all {
 			if all[i].ID != expected.ID {
@@ -114,7 +117,8 @@ func verifySession(expected session, codexID, dir string) error {
 	if !validCodexID(codexID) {
 		return errors.New("Codex session ID must be a UUID")
 	}
-	env, err := userEnvironment()
+	environment, err := sessionClientEnvironment(expected)
+	env := environment.Environment
 	if err != nil {
 		return err
 	}

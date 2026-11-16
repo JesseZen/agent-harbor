@@ -23,6 +23,21 @@ func launchWithPlan(s session, kind launchKind, overrideReason string, query *re
 	return launchWithSelection(s, kind, overrideReason, query, nil)
 }
 func launchWithSelection(s session, kind launchKind, overrideReason string, query *resumeCommandPlan, selection *codexSelection) error {
+	var releaseProfile func()
+	if s.Profile != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var err error
+		releaseProfile, err = acquireProfileClient(ctx, *s.Profile)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if releaseProfile != nil {
+				releaseProfile()
+			}
+		}()
+	}
 	if kind == resumeConversation && query == nil {
 		return errors.New("replacement recovery requires explicit upstream query; use resume --development-query")
 	}
@@ -33,6 +48,9 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 	}
 	if err := checkSessionSelection(s, kind, overrideReason, selection); err != nil {
 		return err
+	}
+	if s.Profile == nil {
+		return errors.New("legacy session requires explicit review of its original Profile environment before launch")
 	}
 	neutral := candidateNeutral(s)
 	if (s.CLI != "codex" && !neutral) || (neutral && s.Mode != "local") || (s.Mode != "local" && s.Mode != "magpie") {
@@ -114,9 +132,16 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 	cmd := exec.Command(binary, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Dir, cmd.Stdin, cmd.Stdout, cmd.Stderr = s.WorkingDirectory, os.Stdin, os.Stdout, os.Stderr
-	cmd.Env, err = userEnvironment()
+	environment, err := sessionClientEnvironment(s)
+	cmd.Env = environment.Environment
 	if err != nil {
 		return err
+	}
+	cmd.Env = profileProcessEnvironment(cmd.Env, s.Profile)
+	if s.Profile != nil {
+		policy := profilePolicyArguments(environment)
+		cmd.Args = append(append([]string{cmd.Path}, policy...), cmd.Args[1:]...)
+		serverSettings = append(serverSettings, policy...)
 	}
 	cmd.Env = append(cmd.Env, "PWD="+s.WorkingDirectory)
 	if os.Getenv("HERDR_PLUGIN_ID") == "agent-harbor.bridge" {
@@ -261,6 +286,10 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 		_ = cmd.Wait()
 		return err
+	}
+	if releaseProfile != nil {
+		releaseProfile()
+		releaseProfile = nil
 	}
 	restore, terminalErr := foregroundSession(cmd.Process.Pid)
 	if terminalErr != nil {

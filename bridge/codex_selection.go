@@ -50,7 +50,8 @@ func readCodexSelection(_ context.Context, s session) (codexSelection, error) {
 	if err != nil {
 		return codexSelection{}, err
 	}
-	env, err := userEnvironment()
+	environment, err := sessionClientEnvironment(s)
+	env := environment.Environment
 	if err != nil {
 		return codexSelection{}, errors.New("Codex environment is unavailable for model review")
 	}

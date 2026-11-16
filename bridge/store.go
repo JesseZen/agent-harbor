@@ -35,8 +35,9 @@ type endedEvidence struct {
 }
 
 type session struct {
-	RunnerPID int            `json:"runner_pid,omitempty"`
-	Ended     *endedEvidence `json:"ended_evidence,omitempty"`
+	Profile   *profileBinding `json:"profile,omitempty"`
+	RunnerPID int             `json:"runner_pid,omitempty"`
+	Ended     *endedEvidence  `json:"ended_evidence,omitempty"`
 
 	Reassociations []reassociationDecision `json:"reassociations,omitempty"`
 	Conversation   *conversationEvidence   `json:"conversation,omitempty"`
@@ -275,12 +276,25 @@ func createSessionWithInstance(dir, mode, address, model string, selected *magpi
 }
 
 func createSessionIntent(d sessionDraft, address string, selected *magpieInstance) (session, error) {
+	if d.Profile != nil {
+		binding := *d.Profile
+		d.Profile = &binding
+	}
+
+	if d.Profile != nil {
+		if d.Client != d.Profile.Client {
+			return session{}, ErrProfileIdentity
+		}
+		if _, err := (harborService{}).ResolveProfileClient(profileClientRequest{Binding: *d.Profile}); err != nil {
+			return session{}, err
+		}
+	}
 	dir, mode, model := d.Directory, d.Connection, d.Model
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {
 		return session{}, err
 	}
-	s := session{Version: 2, Name: filepath.Base(dir) + " · " + mode, ID: hex.EncodeToString(id[:]), WorkingDirectory: dir, CLI: d.Client, Mode: mode, MagpieURL: address, MagpieModel: model, Recovery: "needs_id", CreatedAt: time.Now().UTC()}
+	s := session{Profile: d.Profile, Version: 2, Name: filepath.Base(dir) + " · " + mode, ID: hex.EncodeToString(id[:]), WorkingDirectory: dir, CLI: d.Client, Mode: mode, MagpieURL: address, MagpieModel: model, Recovery: "needs_id", CreatedAt: time.Now().UTC()}
 	if mode == "magpie" && d.Client == "codex" {
 		s.CodexConnection = "caller"
 	}

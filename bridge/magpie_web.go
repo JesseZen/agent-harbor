@@ -36,6 +36,7 @@ func managedWebURL(layout managedLayout, record *managedRecord) (string, error) 
 // browser opener's argument.
 
 func openManagedWebPage() error {
+
 	layout, err := managedInstanceState()
 	if err != nil {
 		return err
@@ -43,6 +44,11 @@ func openManagedWebPage() error {
 	record, err := readManagedRecord(layout)
 	if err != nil {
 		return err
+	}
+	if record != nil {
+		if err := profileManagementSafety(record.Address); err != nil {
+			return err
+		}
 	}
 	url, err := managedWebURL(layout, record)
 	if err != nil {

@@ -41,7 +41,7 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 	case "new-directory":
 		return m.directoryPage(), true
 	case "new-form":
-		p.line(paint(fg("brand"), "New session"))
+		p.line(paint(fg("brand"), "New session · Profile: "+m.profileDisplayLabel(m.draft.Profile)))
 		model := "Native " + m.selectedClient() + " configuration (read-only)"
 		connection := "Native · " + m.selectedClient() + " settings and login"
 		if m.selectedClient() == "codex" && m.environment.NativeConfig != "" {
@@ -187,6 +187,20 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			if c.Target != "codex" && m.draft.Connection == "magpie" {
 				m.notice = "Choose Native before selecting this client; Magpie isolation is unverified."
 				return m, nil, true
+			}
+			if m.draft.Profile != nil {
+				environment, err := m.service.ResolveProfileClient(profileClientRequest{Binding: *m.draft.Profile})
+				if err != nil {
+					m.notice = err.Error()
+					return m, nil, true
+				}
+				if environment.Kind == profileIsolated && c.Target != "codex" {
+					m.notice = "This client requires an explicitly selected existing environment; isolated support is available for Codex."
+					return m, nil, true
+				}
+				binding := *m.draft.Profile
+				binding.Client = c.Target
+				m.draft.Profile = &binding
 			}
 			m.draft.Client = c.Target
 			m.screen = "new-form"

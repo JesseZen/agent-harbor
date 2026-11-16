@@ -268,6 +268,9 @@ func magpieManageCommand(args []string) error {
 	}
 	// The bundled CLI is only needed to open a UI, not to explain a refusal.
 	bundled, _ := bundledMagpiePath()
+	if err := profileManagementSafety(instance.Address); err != nil {
+		return err
+	}
 	decision := planManagement(instance, probe, bundled)
 	chosen := &decision
 	if !decision.Allowed {

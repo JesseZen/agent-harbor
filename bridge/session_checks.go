@@ -13,6 +13,9 @@ func checkSession(s session, kind launchKind, override string) error {
 }
 
 func checkSessionBase(s session, kind launchKind, override string, checkModel bool) error {
+	if err := validateProfileLaunch(s); err != nil {
+		return err
+	}
 	if err := neutralReferenceCheck(s); err != nil {
 		return err
 	}
@@ -56,7 +59,8 @@ func checkSessionBase(s session, kind launchKind, override string, checkModel bo
 	}
 
 	if kind == resumeConversation && s.CodexHome != "" {
-		env, err := userEnvironment()
+		environment, err := sessionClientEnvironment(s)
+		env := environment.Environment
 		if err != nil {
 			return err
 		}

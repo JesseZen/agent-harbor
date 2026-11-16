@@ -190,7 +190,11 @@ func TestManagedSessionRestoresUnsetAndEmptyUserPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "set:\n:\n" + codexHome + "\nuntouched\n"; string(got) != want {
+	records := b.sessions()
+	if len(records) != 1 || records[0].Profile == nil || records[0].CodexHome == codexHome {
+		t.Fatal("new installation must use an isolated Profile")
+	}
+	if want := "set:\n:\n" + records[0].CodexHome + "\nuntouched\n"; string(got) != want {
 		t.Fatalf("user paths: got %q, want %q", got, want)
 	}
 }

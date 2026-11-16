@@ -263,7 +263,7 @@ func (m settingsModel) navIDs() []string {
 	if experimentalCodexAccounts() {
 		ids = append(ids, "accounts")
 	}
-	return append(ids, "settings")
+	return append(ids, "profiles", "settings")
 }
 func (m settingsModel) navigate(nav string) (tea.Model, tea.Cmd) {
 	if nav == "settings" {

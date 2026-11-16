@@ -26,6 +26,8 @@ func run(args []string) error {
 		return openHerdr()
 	}
 	switch args[0] {
+	case "profiles":
+		return profileCommand(args[1:])
 	case "remote":
 		return remoteCommand(args[1:])
 	case "_remote-herdr":
@@ -148,8 +150,9 @@ func run(args []string) error {
 		}
 		return appService.Start(sessionApproval{Session: s, Observation: &view.Runtime, Confirmed: true})
 	case "help", "--help", "-h":
-		fmt.Println("agent-harbor-bridge: open, stop, settings, settings-recover, create, start, sessions, show, bind, verify, reassociate, resume, stop-session, rename, remove, focus, route, new, models, magpie")
+		fmt.Println("agent-harbor-bridge: open, stop, settings, settings-recover, create, start, sessions, show, bind, verify, reassociate, resume, stop-session, rename, remove, focus, route, new, models, magpie, profiles")
 		fmt.Println("  magpie status|bind|start|stop|manage|web|use  verified Magpie instances")
+		fmt.Println("  profiles list|new|existing|select|rename|default|review  client environments")
 		fmt.Println(`
 First use:
   Install Codex on PATH, then run agent-harbor with no arguments.
@@ -159,7 +162,8 @@ First use:
   External processes remain under your control.
 
 Inside the workspace:
-  Ctrl+B a opens Harbor; n creates a named session in a project directory.
+  Ctrl+B a opens Harbor; p manages Profiles; n creates a named session.
+  New sessions capture the selected Profile; existing sessions keep their own.
   Ctrl+B , opens Harbor settings (also agent-harbor settings).
   Ctrl+B s opens Herdr settings. Workspace shortcuts are configurable.
   Ctrl+B m opens Magpie management for the current pane's connection.
@@ -174,7 +178,8 @@ Recovery:
   Reopen agent-harbor after a restart, select a session and review Resume.
   Harbor retains the conversation UUID and connection; uncertainty is refused
   with a recovery message. c reviews an old restored shell before closing it.
-  Existing CLI configuration and login remain shared by Local sessions.`)
+  Native sessions share settings/login only within their bound Profile.
+  Old unbound records require review of their original existing environment.`)
 		return nil
 	default:
 		return usage()
@@ -182,7 +187,7 @@ Recovery:
 }
 
 func usage() error {
-	return errors.New("usage: agent-harbor-bridge {open|stop|settings|settings-recover|create|start|sessions|show|bind|verify|resume|stop-session|rename|remove|focus|route|new|models|magpie|remote}")
+	return errors.New("usage: agent-harbor-bridge {open|stop|settings|settings-recover|create|start|sessions|show|bind|verify|resume|stop-session|rename|remove|focus|route|new|models|magpie|profiles|remote}")
 }
 
 func checkDirectory(path string) (string, error) {
@@ -227,6 +232,7 @@ func listSessions(jsonOutput bool) error {
 	}
 	for _, s := range sessions {
 		fmt.Printf("Session  %q\n  Name       %q\n  Directory  %q\n  CLI        %q\n  Connection %q\n  Status     %q\n", s.ID, s.Name, s.WorkingDirectory, s.CLI, s.Mode, s.Status)
+		fmt.Printf("  Profile    %q\n", profileLabel(s.Profile))
 		if s.DiscoveryWarning != "" {
 			fmt.Println("  Warning    " + s.DiscoveryWarning)
 		}

@@ -447,6 +447,20 @@ func (b *testBridge) prepareQuery(id string) {
 			chosen = s
 		}
 	}
+	if chosen.Profile == nil {
+		// This fixture explicitly reviews its original client roots before recovery.
+		out, err := b.command("profiles", "existing", "--home", filepath.Join(b.root, "codex"), "--sqlite", filepath.Join(b.root, "sqlite"), "Fixture original environment")
+		if err != nil {
+			b.t.Fatal(out, err)
+		}
+		var profile profile
+		if err := json.Unmarshal([]byte(out), &profile); err != nil {
+			b.t.Fatal(err)
+		}
+		if out, err := b.command("profiles", "review", id, profile.ID, "--confirm"); err != nil {
+			b.t.Fatal(out, err)
+		}
+	}
 	ref := herdrIdentity{"herdr:codex", "codex", "id", chosen.CodexSessionID}
 	data, _ := json.Marshal(ref)
 	if out, err := b.command("reassociate", id, string(data), "isolated fixture original conversation reviewed"); err != nil {

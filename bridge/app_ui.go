@@ -186,6 +186,7 @@ func (p *uiPage) tabs(current, hover, focus string, accounts bool) {
 	if accounts {
 		tabs = append(tabs, uiAction{ID: "accounts", Label: "👤 Accounts"})
 	}
+	tabs = append(tabs, uiAction{ID: "profiles", Label: "Profiles"})
 	tabs = append(tabs, uiAction{ID: "settings", Label: "⚙ Settings"})
 	x := 1
 	y := len(p.Lines)

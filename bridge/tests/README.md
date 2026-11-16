@@ -91,3 +91,33 @@ Add `--model-picker` to exercise the real Magpie catalog in Codex, save a model
 and reasoning effort for one Harbor session, make a temporary choice in a second
 session, and check the saved choice and actual request after recovery. The
 fixture uses synthetic providers and separate Codex and Magpie homes.
+
+## Profile gates
+
+`TestProfileContract*`, `TestProfileDefault*`, `TestProfileUpgrade*`,
+`TestProfilePage*` and `TestProfileMagpie*` cover persisted identity, default
+initialization, explicit legacy review, A/B scope, cancellation/coordination,
+stale results, UI selection/editing, invalid roots and Magpie capability/env guards.
+The UI fake uses in-memory Profile metadata; it never resolves live paths.
+
+Set `HARBOR_TEST_CODEX_BIN` to copied native Codex 0.169.0 to run
+`TestProfileNativeCodex*` under the isolated test environment. These tests use
+local synthetic upstreams and synthetic independently authored API keys. They
+check actual A/B requests, history/SQLite, exact recovery, B remaining unchanged
+and separately owned App Servers. They do not pass the real-account gate.
+
+Use the maintained runner for the real UI/runtime Profile journey:
+
+```
+python3 bridge/tests/app_acceptance.py --replacement --profiles --onboarding managed --binary HARBOR --herdr HERDR --magpie MAGPIE_PROFILE_CANDIDATE --codex NATIVE_CODEX
+```
+
+This creates Profiles through the UI, explicitly authors fixture-only settings
+and credentials, runs simultaneous A/B and same-Profile Conversations, and resumes
+A's fixed Conversation/instance while B is selected. It then restarts the workspace and gateway and recovers both A and B while the other Profile is selected. The runner preserves all
+pre-existing services. Discovery port 3425 must be exclusively available; exit 77
+is a blocked gate. The fixture's credentials/settings are synthetic setup, not
+product import behavior. Run the existing full-state/model-picker gates separately
+and repeat the combined #19/#20 account journeys on integration. Real official
+login, independently authorized saved grants and native macOS evidence remain
+separate mandatory acceptance records.

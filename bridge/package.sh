@@ -36,6 +36,12 @@ for target in ${AGENT_HARBOR_CANDIDATE_TARGETS:-linux-amd64}; do
   magpie_asset="magpie-caller-candidate-$target"
   magpie_sha=$(cat "$deps/magpie/$magpie_asset.sha256")
   test "$(cat "$deps/magpie/$magpie_asset.source")" = "5426c43cca9b90be809d51edebc5c926929e9f6c" || { printf '%s\n' 'Wrong Magpie candidate source' >&2; exit 1; }
+  if command -v sha256sum >/dev/null 2>&1; then
+    profiles_patch_sha=$(sha256sum "$bridge_root/../docs/magpie-profile-isolation.patch" | cut -d ' ' -f 1)
+  else
+    profiles_patch_sha=$(shasum -a 256 "$bridge_root/../docs/magpie-profile-isolation.patch" | cut -d ' ' -f 1)
+  fi
+  test "$(cat "$deps/magpie/$magpie_asset.profiles-patch.sha256" 2>/dev/null || true)" = "$profiles_patch_sha" || { printf '%s\n' 'Wrong or missing Magpie Profile isolation patch attestation' >&2; exit 1; }
   case "$magpie_sha" in ''|*[!a-f0-9]*) printf '%s\n' 'Invalid Magpie candidate digest' >&2; exit 1 ;; esac
   test "${#magpie_sha}" = 64 || exit 1
   for entry in "herdr/$herdr_asset:$herdr_sha" "magpie/$magpie_asset:$magpie_sha"; do
@@ -59,6 +65,7 @@ for target in ${AGENT_HARBOR_CANDIDATE_TARGETS:-linux-amd64}; do
   cp "$bridge_root/PACKAGE-README.md" "$stage/README.md"
   printf '%s\n' 'EXPERIMENTAL DEVELOPMENT CANDIDATE: Herdr query and Magpie caller-only patches are not accepted or released. Do not replace a supported installation.' 'Herdr source: 60a5316204b0c538229defb2628e50660a469b85; base ee5bfb5041bb3e4a49d591c72308aae3c81ecdde' "Herdr SHA256: $herdr_sha" 'Magpie base: 5426c43cca9b90be809d51edebc5c926929e9f6c with caller-only patch' "Magpie SHA256: $magpie_sha" >> "$stage/README.md"
   printf '%s\n' "Herdr remote-executable patch SHA256: $remote_patch_sha (local candidate, not upstream)" >> "$stage/README.md"
+  printf '%s\n' "Magpie Profile isolation patch SHA256: $profiles_patch_sha (local candidate, not upstream)" >> "$stage/README.md"
   cp "$bridge_root"/licenses/* "$stage/licenses/"
   COPYFILE_DISABLE=1 tar -C "$stage" -czf "$output/agent-harbor-$version-$target.tar.gz.partial" agent-harbor herdr magpie README.md install.sh licenses
   mv "$output/agent-harbor-$version-$target.tar.gz.partial" "$output/agent-harbor-$version-$target.tar.gz"

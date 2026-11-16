@@ -17,7 +17,7 @@ func (m harborModel) editingText() bool {
 		return true
 	}
 	switch m.screen {
-	case "filter", "rename", "magpie-bind", "magpie-filter", "new-project", "new-name", "new-instance-filter", "new-catalog-filter":
+	case "profile-new", "profile-rename", "filter", "rename", "magpie-bind", "magpie-filter", "new-project", "new-name", "new-instance-filter", "new-catalog-filter":
 		return true
 	}
 	return false

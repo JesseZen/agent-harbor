@@ -4,9 +4,10 @@ import "strings"
 
 // runPlan belongs to the managed launch reservation, independently of identity capture.
 type runPlan struct {
-	SessionID string `json:"session_id"`
-	Token     string `json:"token"`
-	Home      string `json:"home"`
+	Profile   *profileBinding `json:"profile,omitempty"`
+	SessionID string          `json:"session_id"`
+	Token     string          `json:"token"`
+	Home      string          `json:"home"`
 }
 
 func environmentValue(env []string, key string) string {

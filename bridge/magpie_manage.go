@@ -70,6 +70,9 @@ func planManagement(instance magpieInstance, probe gatewayProbe, bundled string)
 			"XDG_CACHE_HOME=" + filepath.Join(layout.Home, "cache"),
 			"MAGPIE_ADDR=" + gatewayAddressOf(probe.Address),
 		}
+		if value := probe.variables["MAGPIE_CODEX_CALLER_ONLY"]; value != "" {
+			decision.Environment = append(decision.Environment, "MAGPIE_CODEX_CALLER_ONLY="+value)
+		}
 		decision.Unset = []string{"CLAUDE_CONFIG_DIR", "GEMINI_CLI_HOME", "PI_CODING_AGENT_DIR", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR"}
 	} else {
 		decision.Warning = "Magpie can change client configuration in this instance's environment; native sessions using those settings may also change."
@@ -98,7 +101,7 @@ func instanceManagementEnvironment(probe gatewayProbe) (overrides, unset []strin
 	// Magpie can edit client settings as well as its own configuration. Its
 	// management UI must not inherit the caller's client homes when the
 	// serving instance uses different ones (or leaves them unset).
-	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "CODEX_HOME", "CODEX_SQLITE_HOME", "CLAUDE_CONFIG_DIR", "GEMINI_CLI_HOME", "PI_CODING_AGENT_DIR", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR"} {
+	for _, key := range []string{"MAGPIE_CODEX_CALLER_ONLY", "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "CODEX_HOME", "CODEX_SQLITE_HOME", "CLAUDE_CONFIG_DIR", "GEMINI_CLI_HOME", "PI_CODING_AGENT_DIR", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR"} {
 		if value := probe.variables[key]; value != "" {
 			overrides = append(overrides, key+"="+value)
 		} else {
@@ -130,8 +133,8 @@ func mergedManagementEnvironment(decision *managementDecision) []string {
 	for _, key := range decision.Unset {
 		removed[key] = true
 	}
-	base := make([]string, 0, len(os.Environ()))
-	for _, pair := range os.Environ() {
+	base := make([]string, 0, len(magpieBaseEnvironment()))
+	for _, pair := range magpieBaseEnvironment() {
 		if key, _, ok := strings.Cut(pair, "="); ok && removed[key] {
 			continue
 		}
@@ -148,6 +151,9 @@ func runManagement(decision *managementDecision) error {
 	}
 	cmd := exec.Command(decision.Executable, decision.Arguments...)
 	cmd.Env = mergedManagementEnvironment(decision)
+	if err := validateProfileManagementEnvironment(decision.Probe.Address, cmd.Env); err != nil {
+		return err
+	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	err := cmd.Run()
 	probe := probeGateway(decision.Probe.Address)

@@ -67,7 +67,11 @@ func confirmRecoveryReview(s session, in *bufio.Reader, override string) (*codex
 	} else {
 		fmt.Printf("  Connection  Native %s configuration and login\n\nCheck that the directory and conversation match. Native route or login may have changed; verify both. A provider name does not verify its destination.\n", s.CLI)
 		if s.CLI == "codex" {
-			fmt.Println((harborService{}).NativeCodexConfig())
+			environment, err := sessionClientEnvironment(s)
+			if err != nil {
+				return nil, err
+			}
+			fmt.Println(nativeCodexConfigSummary(environment.Environment))
 		}
 	}
 	answer, err := readChoice(in, "Type yes to resume: ")

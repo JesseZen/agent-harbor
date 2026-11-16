@@ -20,6 +20,7 @@ def main():
     p.add_argument('--live-state-probe',action='store_true',help='exercise automatic popup refresh and reconnect')
     p.add_argument('--state-probe',action='store_true',help='stop after real runtime state comparison')
     p.add_argument('--renamed-codex',action='store_true',help='exercise native Codex symlink with a nonstandard target basename')
+    p.add_argument('--profiles',action='store_true',help='run the Profile A/B UI, runtime and recovery journey with isolated native clients')
     p.add_argument('--model-picker',action='store_true',help='exercise Magpie models, Codex effort and profile recovery')
     p.add_argument('--experimental-codex-accounts',action='store_true',help='start eligible Codex sessions through the experimental owned App Server')
     p.add_argument('--experimental-account-recovery',choices=['native','magpie'],help='exercise same-conversation recovery with the experimental App Server')
@@ -245,6 +246,83 @@ def main():
             navigate(levels,target)
             key('s' if temporary else 'Enter')
             screen('Model changed to')
+        if a.profiles:
+            assert a.replacement, 'Profile recovery acceptance requires the Herdr query candidate'
+            def profile_rows():return json.loads(run([binary,'profiles','list']).stdout)
+            def profile_select(name):
+                popup();key('p');screen('Harbor · Profiles');click(name);key('Enter');screen('HARBOR');key('q')
+            for name in ('PF Alpha','PF Beta'):
+                popup();key('p');screen('Harbor · Profiles');key('n');screen('Create isolated Profile');text(name);key('Enter');screen('Profile saved');key('Escape');key('q')
+            profiles={p['name']:p for p in profile_rows()}
+            for name,synthetic_key in [('PF Alpha','sk-profile-alpha'),('PF Beta','sk-profile-beta')]:
+                client=profiles[name]['clients'][0]
+                # Explicitly authored synthetic fixture settings. No user data,
+                # grant, history or registry is imported from another Profile.
+                home=pathlib.Path(client['home']);home.joinpath('config.toml').write_text(config)
+                profile_env=dict(env,CODEX_HOME=client['home'],CODEX_SQLITE_HOME=client['sqlite'],TMPDIR=client['runtime'],XDG_RUNTIME_DIR=client['runtime'])
+                subprocess.run([str(root/'bin/codex'),'login','--with-api-key'],env=profile_env,input=synthetic_key+'\n',text=True,capture_output=True,check=True,timeout=30)
+                subprocess.run([str(root/'bin/herdr'),'integration','install','codex'],env=profile_env,text=True,capture_output=True,check=True,timeout=30)
+            profile_select('PF Alpha')
+            first=create('PF-A-one','relay-a/test-model');turn('AH_LOCAL_FIRST',relay_a)
+            profile_select('PF Beta')
+            second=create('PF-B-one','relay-b/test-model');turn('AH_RELAY_B',relay_b)
+            profile_select('PF Alpha')
+            third=create('PF-A-two');turn('AH_LOCAL_C',native)
+            wait(lambda:len(records())==3 and all(r.get('codex_session_id') for r in records()),'three Profile-bound Conversations')
+            snapshot={r['name']:dict(r) for r in records()}
+            a1,a2,b1=snapshot['PF-A-one'],snapshot['PF-A-two'],snapshot['PF-B-one']
+            assert a1['profile']==a2['profile'] and a1['profile']!=b1['profile'],snapshot
+            assert a1['codex_home']==a2['codex_home']!=b1['codex_home']
+            assert len({r['codex_session_id'] for r in records()})==3
+            b_auth=pathlib.Path(profiles['PF Beta']['clients'][0]['home'])/'auth.json'
+            b_before=b_auth.read_bytes();b_pid=b1['process_group']
+            result=run([binary,'stop-session',a1['id']],check=False,input='yes\n')
+            assert result.returncode==0,result.stdout+result.stderr
+            wait(lambda:next(r for r in records() if r['id']==a1['id']).get('process_group',0)==0,'A stopped before recovery')
+            profile_select('PF Beta')
+            # Recovery must use A even while B is the visible default.
+            wrapper=root/'harbor/herdr/bin/herdr'
+            def a_conversation_released():
+                agents=json.loads(run([wrapper,'agent','list']).stdout)['result']['agents']
+                return not any((agent.get('agent_session') or {}).get('value')==a1['codex_session_id'] for agent in agents)
+            wait(a_conversation_released,'Herdr releases stopped A Conversation',timeout=15)
+            popup();key('/');text('PF-A-one');key('Enter');key('Enter');screen('Review query-resume');key('a');key('Enter')
+            screen('Ask Codex');time.sleep(1);turn('AH_LOCAL_SECOND',relay_a)
+            wait(lambda:any('AH_LOCAL_FIRST' in marks and 'AH_LOCAL_SECOND' in marks for _,marks in relay_a.observed),'A recovered original history')
+            resumed=next(r for r in records() if r['id']==a1['id'])
+            assert resumed['codex_session_id']==a1['codex_session_id'] and resumed['profile']==a1['profile']
+            assert resumed['instance_id']==a1['instance_id'] and resumed['codex_home']==a1['codex_home']
+            assert b_auth.read_bytes()==b_before and next(r for r in records() if r['id']==b1['id'])['process_group']==b_pid
+            for name,other_marker in [('PF Alpha','AH_RELAY_B'),('PF Beta','AH_LOCAL_FIRST')]:
+                home=pathlib.Path(profiles[name]['clients'][0]['home'])
+                assert any(home.joinpath('sessions').rglob('*.jsonl')), 'Profile history absent'
+                assert all(other_marker not in path.read_text() for path in home.joinpath('sessions').rglob('*.jsonl')), 'history crossed Profiles'
+                assert list(pathlib.Path(profiles[name]['clients'][0]['sqlite']).glob('*.sqlite')), 'Profile SQLite absent'
+            # Separate Conversations within A share its settings/history root,
+            # but never each other's messages.
+            for record,forbidden in [(a1,'AH_LOCAL_C'),(a2,'AH_LOCAL_FIRST')]:
+                files=list(pathlib.Path(record['codex_home']).joinpath('sessions').rglob('*'+record['codex_session_id']+'.jsonl'))
+                assert files and all(forbidden not in path.read_text() for path in files), 'same-Profile Conversations merged'
+            # A restart must retain the binding, connection and exact reference.
+            for record in records():
+                run([binary,'stop-session',record['id']],input='yes\n')
+            run([binary,'stop']);run([binary,'magpie','stop']);started=False
+            tm('kill-session','-t','app')
+            run([binary,'magpie','start']);started=True
+            open_workspace();screen('Harbor ^B a')
+            for visible,name,marker,relay,first_marker in [('PF Alpha','PF-B-one','AH_RESUME_B',relay_b,'AH_RELAY_B'),('PF Beta','PF-A-one','AH_RESUME_C',relay_a,'AH_LOCAL_FIRST')]:
+                profile_select(visible)
+                popup();key('/');text(name);key('Enter');key('Enter');screen('Review query-resume');key('a');key('Enter')
+                screen('Ask Codex');time.sleep(1);turn(marker,relay)
+                wait(lambda:any(first_marker in marks and marker in marks for _,marks in relay.observed),'post-restart original history '+name)
+                current=next(r for r in records() if r['name']==name);prior=snapshot[name]
+                assert all(current.get(k)==prior.get(k) for k in ('profile','codex_home','codex_session_id','instance_id','mode','codex_connection')), 'restart changed Profile/Conversation/connection'
+            # A changed Profile default is only a future-session reference.
+            run([binary,'profiles','default',profiles['PF Alpha']['id'],'managed'])
+            assert next(r for r in records() if r['id']==a1['id'])['instance_id']==a1['instance_id']
+            (root/'profile-acceptance.json').write_text(json.dumps({'passed':True,'profiles':{k:v['id'] for k,v in profiles.items()},'sessions':{r['name']:{'id':r['id'],'profile':r['profile'],'conversation':r['codex_session_id']} for r in records()},'b_process_preserved':True,'b_auth_preserved':True,'restart_recovery':True},indent=2))
+            print('PASS Profile A/B creation, concurrent real clients, separate history/SQLite, same-Profile Conversations and exact A/B recovery across workspace/gateway restart while the other Profile is selected',root,flush=True)
+            return 0
         one=create('UI-A','ui-group');notify_before=notify_count();turn('AH_LOCAL_FIRST',relay_a)
         if a.model_picker:
             config_before=(root/'codex/config.toml').read_bytes()

@@ -54,3 +54,27 @@ These files are local build attestations, not upstream signatures. Set
 `HARBOR_TEST_CODEX_BIN` to a native Codex binary when running the tests to
 also exercise the client's HTTP fallback against a synthetic API key and
 synthetic official endpoint. No real login is needed for that test.
+
+## Profile discovery/write isolation candidate
+
+Isolated Profiles additionally require [magpie-profile-isolation.patch](magpie-profile-isolation.patch),
+applied **after** the caller-only patch at the pinned 0.1.3528 base above. The
+supplemental patch has not been verified against 0.1.4248. It disables enumeration
+of Codex homes/history and direct login writes/deletion while caller-only mode is
+active, and reports `codex_profile_isolation: true` from `/api/hello`.
+
+Build/test the combined candidate with:
+
+```sh
+git apply /path/to/agent-harbor/docs/magpie-profile-isolation.patch
+go test -tags nogui ./internal/appdir ./internal/provider ./internal/gateway -run 'TestCallerOnly|TestCodexCallerOnly' -count=1
+```
+
+Set `HARBOR_TEST_CODEX_BIN` to a native Codex binary for the caller-only native
+client test. Package the newly built executable with its SHA-256/source files and
+an additional `.profiles-patch.sha256` containing the supplemental patch's hash.
+The package script rejects a missing or mismatched attestation. These are local
+operator attestations, not upstream signatures or releases. An isolated Profile
+requires both capability fields; caller-only forwarding alone does not establish
+safe background discovery or management writes. Harbor management also verifies
+its own environment before launching Magpie's TUI.

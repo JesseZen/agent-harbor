@@ -4,7 +4,7 @@ Agent Harbor manages AI CLI sessions in Herdr and connects them to either a clie
 
 ## Development status
 
-This repository contains an **experimental development candidate**, not a supported release. Exact conversation recovery relies on a local Herdr query patch which has not been submitted to, accepted by, or released by Herdr. See [Herdr integration](docs/herdr-integration.md). Native macOS arm64 and Linux amd64 candidate acceptance used isolated real clients, real Magpie and simulated providers. Other architectures have build/package evidence only. Future behavior and client compatibility may change.
+This repository contains an **experimental development candidate**, not a supported release. Exact conversation recovery relies on a local Herdr query patch which has not been submitted to, accepted by, or released by Herdr. See [Herdr integration](docs/herdr-integration.md). Earlier native macOS arm64 and Linux amd64 candidate acceptance used isolated real clients, real Magpie and simulated providers. The new Profile runtime has Linux amd64 evidence with Codex 0.169.0; its native macOS, remote and real-account gates remain open. Other architectures have build/package evidence only. Future behavior and client compatibility may change.
 
 ## Code and testing
 
@@ -14,6 +14,7 @@ Start here when working on the project:
 
 - [Product outline](docs/spec.md) and [glossary](docs/glossary.md): intended behavior and terminology.
 - [Codex and Magpie architecture](docs/magpie-codex-architecture.md) and [coordination spec](docs/magpie-codex-coordination-spec.md): login-preserving integration targets and the boundaries for the development candidate. The Magpie caller-only patch and account refresh are experimental and are not upstream releases.
+- [Profile service contract](docs/profile-contract.md): workspace identity, scoped client environments, shared Magpie boundaries and current acceptance limits.
 - [Herdr integration](docs/herdr-integration.md): the upstream boundary and candidate recovery patch.
 - [Remote workspaces](docs/remote-workspaces.md): native Herdr machine connections and server-owned Harbor sessions.
 - [Development candidate guide](bridge/PACKAGE-README.md): packaging and usage of the candidate.

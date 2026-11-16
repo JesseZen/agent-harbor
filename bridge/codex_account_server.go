@@ -43,7 +43,7 @@ func codexSocketIdentity(path string) string {
 }
 
 func startOwnedCodexServer(binary string, settings []string, directory string, env []string) (*ownedCodexServer, error) {
-	tmp, err := os.MkdirTemp("", "ah-codex-")
+	tmp, err := os.MkdirTemp(profileSocketParent(env), "ah-codex-")
 	if err != nil {
 		return nil, errors.New("could not create the private Codex App Server directory")
 	}
@@ -113,6 +113,13 @@ type codexRPC struct {
 }
 
 func connectCodexRPC(ctx context.Context, socket string) (*codexRPC, error) {
+	// Codex exposes long requested Unix paths through its supported short-path
+	// rendezvous symlink. Go's Unix dialer needs the physical short path.
+	resolved, err := filepath.EvalSymlinks(socket)
+	if err != nil {
+		return nil, errors.New("could not resolve the session's Codex App Server socket")
+	}
+	socket = resolved
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}
@@ -168,5 +175,5 @@ func verifyCodexServer(s session) bool {
 		return false
 	}
 	facts, err := readProcessFacts(s.CodexServerPID)
-	return err == nil && facts.Variables["AH_SESSION_RUN_TOKEN"] == s.RunToken
+	return err == nil && facts.Variables["AH_SESSION_RUN_TOKEN"] == s.RunToken && profileProcessMatches(s, facts)
 }

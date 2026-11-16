@@ -30,6 +30,7 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 	p := newUIPage(m.width, 10000)
 	p.line(paint(fg("brand"), "🐦 Harbor · Connections"))
 	p.tabs("magpie", m.uiHover, m.uiFocus, experimentalCodexAccounts())
+	p.line("Shared instance: provider settings and request logs affect all Profiles using it.")
 	if m.notice != "" {
 		for _, line := range strings.Split(ansi.Wrap(m.notice, max(1, m.width-2), ""), "\n") {
 			p.line(line)

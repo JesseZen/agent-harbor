@@ -22,7 +22,10 @@ type sessionView struct {
 	Status          string `json:"status"`
 	Reason          string `json:"reason,omitempty"`
 }
-type sessionDraft struct{ Directory, Name, Connection, Instance, Model, Client string }
+type sessionDraft struct {
+	Directory, Name, Connection, Instance, Model, Client string
+	Profile                                              *profileBinding
+}
 type sessionApproval struct {
 	Observation              *runtimeObservation
 	Session                  session
@@ -42,6 +45,19 @@ type observedRoute struct {
 // The CLI and Harbor app share this boundary. Approval carries the exact record
 // reviewed by the user; changes invalidate it at the atomic launch boundary.
 type applicationService interface {
+	EnsureProfiles() (profile, error)
+	SelectProfile(profileBinding) error
+	SetProfileDefaultInstance(profileBinding, string) error
+	ReviewSessionProfile(sessionApproval, profileBinding) error
+	ProfileEnvironment(profileBinding) (appEnvironment, error)
+	ProfileCatalog(profileBinding, string) ([]catalogModel, error)
+	Profiles() ([]profile, error)
+	CreateProfile(profileCreateRequest) (profile, error)
+	RenameProfile(profileBinding, string) error
+	ResolveProfileClient(profileClientRequest) (profileClientEnvironment, error)
+	ProfileSessions(profileClientRequest) ([]session, error)
+	WithProfileClient(context.Context, profileClientRequest, profileClientOperation, func(profileClientScope) error) error
+	ValidateProfileResult(profileBinding, profileBinding) error
 	Reassociate(sessionApproval, herdrIdentity, string) error
 	PreviousPane(session) (previousPane, error)
 	ClosePreviousPane(previousPane) error
@@ -177,6 +193,17 @@ func (h harborService) get(ctx context.Context, id string, cached bool) (session
 	return sessionView{}, errors.New("session no longer available; refresh")
 }
 func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
+	if d.Profile != nil {
+		if d.Client == "" {
+			d.Client = d.Profile.Client
+		}
+		if d.Client != d.Profile.Client {
+			return d, ErrProfileIdentity
+		}
+		if _, err := h.ResolveProfileClient(profileClientRequest{Binding: *d.Profile}); err != nil {
+			return d, err
+		}
+	}
 	if d.Client == "" {
 		d.Client = "codex"
 	}
@@ -203,7 +230,27 @@ func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
 		return d, errors.New("choose local or magpie")
 	}
 	if d.Connection == "magpie" {
-		models, err := h.Catalog(d.Instance)
+		if d.Instance == "" && d.Profile != nil {
+			p, _, err := resolveProfileRecord(*d.Profile)
+			if err != nil {
+				return d, err
+			}
+			d.Instance = p.DefaultInstanceID
+			if d.Instance == "" {
+				r, err := loadMagpieRegistry()
+				if err != nil {
+					return d, err
+				}
+				d.Instance = r.Default
+			}
+		}
+		var models []catalogModel
+		var err error
+		if d.Profile != nil {
+			models, err = h.ProfileCatalog(*d.Profile, d.Instance)
+		} else {
+			models, err = h.Catalog(d.Instance)
+		}
 		if err != nil {
 			return d, err
 		}
@@ -220,6 +267,20 @@ func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
 	return d, nil
 }
 func (h harborService) Create(d sessionDraft) (session, error) {
+	if d.Profile == nil {
+		p, err := h.EnsureProfiles()
+		if err != nil {
+			return session{}, err
+		}
+		b, err := bindingOf(p, d.Client)
+		if d.Client == "" {
+			b, err = bindingOf(p, "codex")
+		}
+		if err != nil {
+			return session{}, err
+		}
+		d.Profile = &b
+	}
 	d, err := h.Draft(d)
 	if err != nil {
 		return session{}, err
@@ -345,7 +406,7 @@ func (harborService) Stop(a sessionApproval) error {
 	if facts.Variables["AH_SESSION_RUN_TOKEN"] == "" {
 		return errors.New("session process has no start token; nothing was stopped")
 	}
-	if facts.Variables["AH_SESSION_RUN_TOKEN"] != s.RunToken {
+	if facts.Variables["AH_SESSION_RUN_TOKEN"] != s.RunToken || !profileProcessMatches(s, facts) {
 		return errors.New("cannot verify ownership of the session process group; nothing was stopped")
 	}
 	if err := syscall.Kill(-s.ProcessGroup, syscall.SIGTERM); err != nil {

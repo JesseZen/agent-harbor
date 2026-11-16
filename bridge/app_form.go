@@ -229,7 +229,13 @@ func (m *harborModel) formCatalog() tea.Cmd {
 	g, id := m.generation, m.draft.Instance
 	m.screen = "new-catalog-loading"
 	return func() tea.Msg {
-		c, e := m.service.Catalog(id)
+		var c []catalogModel
+		var e error
+		if m.draft.Profile != nil {
+			c, e = m.service.ProfileCatalog(*m.draft.Profile, id)
+		} else {
+			c, e = m.service.Catalog(id)
+		}
 		return appCatalog{generation: g, instance: id, models: c, err: e}
 	}
 }

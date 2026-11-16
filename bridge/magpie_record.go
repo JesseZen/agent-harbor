@@ -93,13 +93,13 @@ func managedProcessEnvironment(layout managedLayout, address, webKey string, sta
 		"MAGPIE_WEB_KEY":         &webKey,
 		"MAGPIE_NO_STATS":        new("1"),
 	}
-	return replaceEnvironment(os.Environ(), updates)
+	return replaceEnvironment(magpieBaseEnvironment(), updates)
 }
 
 // managedChildEnvironment isolates a helper invocation of the copied binary
 // without claiming a gateway address.
 func managedChildEnvironment(layout managedLayout) []string {
-	return replaceEnvironment(os.Environ(), map[string]*string{
+	return replaceEnvironment(magpieBaseEnvironment(), map[string]*string{
 		"HOME":                &layout.Home,
 		"CODEX_HOME":          &layout.Home,
 		"CODEX_SQLITE_HOME":   &layout.Home,

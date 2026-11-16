@@ -53,6 +53,13 @@ func showModels(args []string) error {
 }
 
 func fetchCatalog(address string) ([]catalogModel, error) {
+	env, err := userEnvironment()
+	if err != nil {
+		return nil, err
+	}
+	return fetchCatalogEnvironment(address, env)
+}
+func fetchCatalogEnvironment(address string, env []string) ([]catalogModel, error) {
 	endpoint, err := url.Parse(address)
 	if err != nil || endpoint.Scheme != "http" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || (endpoint.Path != "" && endpoint.Path != "/" && endpoint.Path != "/v1" && endpoint.Path != "/v1/") {
 		return nil, errors.New("use a local Magpie HTTP address without credentials or query parameters")
@@ -98,7 +105,7 @@ func fetchCatalog(address string) ([]catalogModel, error) {
 		}
 	}
 	if identity.CallerOnly {
-		data.Models = append(cachedCodexModels(), data.Models...)
+		data.Models = append(cachedCodexModelsEnvironment(env), data.Models...)
 	}
 	return data.Models, nil
 }

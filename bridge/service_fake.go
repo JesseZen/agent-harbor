@@ -42,9 +42,15 @@ func (f *fakeApplicationService) Get(id string) (sessionView, error) {
 	return sessionView{}, errors.New("session not found")
 }
 func (f *fakeApplicationService) Draft(d sessionDraft) (sessionDraft, error) {
+	if d.Profile != nil {
+		return d, ErrProfileNotReady
+	}
 	return d, f.call("draft")
 }
 func (f *fakeApplicationService) Create(d sessionDraft) (session, error) {
+	if d.Profile != nil {
+		return session{}, ErrProfileNotReady
+	}
 	if err := f.call("create"); err != nil {
 		return session{}, err
 	}
@@ -178,4 +184,25 @@ func (f *fakeApplicationService) RenameObserved(v sessionView, name string) erro
 
 func (f *fakeApplicationService) GetContext(ctx context.Context, id string) (sessionView, error) {
 	return f.Get(id)
+}
+
+// Profile behavior is opt-in in this UI fake; unseeded operations fail closed.
+func (f *fakeApplicationService) Profiles() ([]profile, error) { return nil, ErrProfileNotReady }
+func (f *fakeApplicationService) CreateProfile(profileCreateRequest) (profile, error) {
+	return profile{}, ErrProfileNotReady
+}
+func (f *fakeApplicationService) RenameProfile(profileBinding, string) error {
+	return ErrProfileNotReady
+}
+func (f *fakeApplicationService) ResolveProfileClient(profileClientRequest) (profileClientEnvironment, error) {
+	return profileClientEnvironment{}, ErrProfileNotReady
+}
+func (f *fakeApplicationService) ProfileSessions(profileClientRequest) ([]session, error) {
+	return nil, ErrProfileNotReady
+}
+func (f *fakeApplicationService) WithProfileClient(context.Context, profileClientRequest, profileClientOperation, func(profileClientScope) error) error {
+	return ErrProfileNotReady
+}
+func (f *fakeApplicationService) ValidateProfileResult(profileBinding, profileBinding) error {
+	return ErrProfileNotReady
 }

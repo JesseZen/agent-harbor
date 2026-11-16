@@ -33,3 +33,6 @@ A Magpie instance whose configuration and lifecycle belong to Harbor. An externa
 
 **Client Capability（客户端能力）**:
 A supported operation for a particular client and connection, such as starting a conversation, identifying it or resuming it. Support for one operation does not imply support for the others.
+
+**Profile**:
+A named group of Harbor Sessions sharing personal Agent Client data and current client logins within one owned workspace/server. Its stable identity is independent of its display name, project, account, Conversation and Connection Intent. An isolated Profile owns separate client data; an explicitly identified existing environment preserves user-owned data and may be shared with clients outside Harbor. A Profile does not isolate project files or create a worktree.

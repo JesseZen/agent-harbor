@@ -22,7 +22,10 @@ type sessionView struct {
 	Status          string `json:"status"`
 	Reason          string `json:"reason,omitempty"`
 }
-type sessionDraft struct{ Directory, Name, Connection, Instance, Model, Client string }
+type sessionDraft struct {
+	Directory, Name, Connection, Instance, Model, Client string
+	Profile                                              *profileBinding
+}
 type sessionApproval struct {
 	Observation              *runtimeObservation
 	Session                  session
@@ -42,6 +45,13 @@ type observedRoute struct {
 // The CLI and Harbor app share this boundary. Approval carries the exact record
 // reviewed by the user; changes invalidate it at the atomic launch boundary.
 type applicationService interface {
+	Profiles() ([]profile, error)
+	CreateProfile(profileCreateRequest) (profile, error)
+	RenameProfile(profileBinding, string) error
+	ResolveProfileClient(profileClientRequest) (profileClientEnvironment, error)
+	ProfileSessions(profileClientRequest) ([]session, error)
+	WithProfileClient(context.Context, profileClientRequest, profileClientOperation, func(profileClientScope) error) error
+	ValidateProfileResult(profileBinding, profileBinding) error
 	Reassociate(sessionApproval, herdrIdentity, string) error
 	PreviousPane(session) (previousPane, error)
 	ClosePreviousPane(previousPane) error
@@ -177,6 +187,9 @@ func (h harborService) get(ctx context.Context, id string, cached bool) (session
 	return sessionView{}, errors.New("session no longer available; refresh")
 }
 func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
+	if d.Profile != nil {
+		return d, ErrProfileNotReady
+	}
 	if d.Client == "" {
 		d.Client = "codex"
 	}

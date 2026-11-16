@@ -13,6 +13,9 @@ func checkSession(s session, kind launchKind, override string) error {
 }
 
 func checkSessionBase(s session, kind launchKind, override string, checkModel bool) error {
+	if s.Profile != nil {
+		return ErrProfileNotReady
+	}
 	if err := neutralReferenceCheck(s); err != nil {
 		return err
 	}

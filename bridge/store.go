@@ -35,8 +35,9 @@ type endedEvidence struct {
 }
 
 type session struct {
-	RunnerPID int            `json:"runner_pid,omitempty"`
-	Ended     *endedEvidence `json:"ended_evidence,omitempty"`
+	Profile   *profileBinding `json:"profile,omitempty"`
+	RunnerPID int             `json:"runner_pid,omitempty"`
+	Ended     *endedEvidence  `json:"ended_evidence,omitempty"`
 
 	Reassociations []reassociationDecision `json:"reassociations,omitempty"`
 	Conversation   *conversationEvidence   `json:"conversation,omitempty"`
@@ -275,6 +276,9 @@ func createSessionWithInstance(dir, mode, address, model string, selected *magpi
 }
 
 func createSessionIntent(d sessionDraft, address string, selected *magpieInstance) (session, error) {
+	if d.Profile != nil {
+		return session{}, ErrProfileNotReady
+	}
 	dir, mode, model := d.Directory, d.Connection, d.Model
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {

@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -377,57 +376,32 @@ func TestSilentGatewayKeepsOwnership(t *testing.T) {
 	}
 }
 
-// A failure after the child starts must leave nothing running. The child is a
-// script that records its pid and serves a Magpie self-report, so the failure
-// happens after readiness and the recorded pid proves termination.
-
-// A failure after the child starts must leave nothing running. The child is a
-// script that records its pid and answers with a Magpie self-report, so the
-// failure happens after readiness and the recorded pid proves termination.
+// A native child reports its actual PID and environment through the same probe
+// as a gateway. Persistence failure must kill it after readiness is established.
 func TestFailedRecordWriteStopsTheChild(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the fixture is a shell script")
-	}
 	root := tempRoot(t)
 	t.Setenv("AGENT_HARBOR_BRIDGE_HOME", filepath.Join(root, "state"))
 	t.Setenv("HOME", filepath.Join(root, "home"))
 	pidFile := filepath.Join(root, "child.pid")
 	pairStart := freeConsecutivePair(t)
-
-	server := filepath.Join(root, "fake_server.py")
-	python := "import http.server, os\n" +
-		"class H(http.server.BaseHTTPRequestHandler):\n" +
-		"    def do_GET(self):\n" +
-		"        body = '{\"name\":\"magpie\",\"version\":\"0.1.3528\",\"pid\":%d,\"serves\":\"serve\"}' % int(os.environ['FAKE_PID'])\n" +
-		"        self.send_response(200)\n" +
-		"        self.send_header('content-type', 'application/json')\n" +
-		"        self.end_headers()\n" +
-		"        self.wfile.write(body.encode())\n" +
-		"    def log_message(self, *a): pass\n" +
-		"http.server.HTTPServer(('127.0.0.1', int(os.environ['FAKE_PORT'])), H).serve_forever()\n"
-	if err := os.WriteFile(server, []byte(python), 0600); err != nil {
+	bundled := filepath.Join(root, "bundled-magpie")
+	executable, err := os.Executable()
+	if err != nil {
 		t.Fatal(err)
 	}
-	bundled := filepath.Join(root, "bundled-magpie")
-	script := "#!/bin/sh\n" +
-		"if [ \"$1\" != \"serve\" ]; then exit 0; fi\n" +
-		"export FAKE_PID=$$\n" +
-		"export FAKE_PORT=" + strconv.Itoa(pairStart) + "\n" +
-		"echo $$ > " + pidFile + "\n" +
-		"exec python3 " + server + "\n"
-	if err := os.WriteFile(bundled, []byte(script), 0o755); err != nil {
+	data, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bundled, data, 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AGENT_HARBOR_MAGPIE_BIN", bundled)
-
-	// The record cannot be written even though the child becomes ready, so the
-	// failure lands after readiness and the child must not be left running.
-	writeManagedRecordFile = func(string, []byte) error {
-		return errors.New("disk is full")
-	}
+	t.Setenv("AH_MANAGED_READY_FIXTURE", pidFile)
+	writeManagedRecordFile = func(string, []byte) error { return errors.New("disk is full") }
 	defer func() { writeManagedRecordFile = writeStateFile }()
 
-	err := startManagedMagpie(managedStartOptions{Port: pairStart, WebPort: pairStart + 1})
+	err = startManagedMagpie(managedStartOptions{Port: pairStart, WebPort: pairStart + 1})
 	if err == nil {
 		t.Fatal("start reported success without writing its record")
 	}

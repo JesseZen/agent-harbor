@@ -1,14 +1,31 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestMain(m *testing.M) {
+	if pidFile := os.Getenv("AH_MANAGED_READY_FIXTURE"); pidFile != "" {
+		if len(os.Args) > 1 && os.Args[1] == "serve" {
+			if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+				panic(err)
+			}
+			err := http.ListenAndServe(os.Getenv("MAGPIE_ADDR"), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"name": "magpie", "version": "0.1.3528", "pid": os.Getpid(), "serves": "serve"})
+			}))
+			panic(err)
+		}
+		os.Exit(0) // settings invocations before serve have no side effects.
+	}
+
 	// Version probes have no lifecycle side effects in the native fixture.
 	if len(os.Args) == 2 && os.Args[1] == "--version" && os.Getenv("BRIDGE_NATIVE_CLIENT") == "1" {
 		os.Stdout.WriteString("codex-cli 0.167.0\n")

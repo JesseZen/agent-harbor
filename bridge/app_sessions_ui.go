@@ -59,7 +59,7 @@ func (m harborModel) sessionActions(more bool) []uiAction {
 }
 func (m harborModel) sessionsHeader() uiPage {
 	p := newUIPage(m.width, m.height)
-	p.line(paint(fg("brand"), "⚓ HARBOR · Profile: "+m.activeProfileLabel()))
+	p.line(paint(fg("brand"), "⚓ Harbor · Profile: "+m.activeProfileLabel()))
 	p.tabs("sessions", m.uiHover, m.uiFocus, true)
 	p.shortcuts([]uiAction{{ID: "action:n", Label: "New session", Key: "n", Primary: true}, {ID: "action:r", Label: "Refresh", Key: "r"}}, m.uiFocus)
 	p.search(m.searchQuery(), "Search sessions, projects or connections", m.searchFocus == "sessions", m.input)
@@ -77,10 +77,44 @@ func (m harborModel) sessionsFooterHeight() int {
 	}
 	return len(p.shortcutBar().Lines) + 1
 }
-func (m harborModel) sessionsCount() int { return max(1, m.sessionsBodyHeight()/3) }
+func (m harborModel) sessionRowHeight(s sessionView) int {
+	if sessionAttention(s) != "" || m.selectionMissing {
+		return 3
+	}
+	return 2
+}
+func (m harborModel) sessionsWindow() (int, int) {
+	rows := m.visible()
+	if len(rows) == 0 {
+		return 0, 0
+	}
+	cursor := max(0, min(m.cursor, len(rows)-1))
+	start, used := cursor, m.sessionRowHeight(rows[cursor])
+	for start > 0 && used+m.sessionRowHeight(rows[start-1]) <= m.sessionsBodyHeight() {
+		start--
+		used += m.sessionRowHeight(rows[start])
+	}
+	// Preserve the visible window on a click when it can still contain the selection.
+	if m.mouseListScreen == m.screen && m.mouseListStart <= cursor {
+		total := 0
+		for i := m.mouseListStart; i <= cursor; i++ {
+			total += m.sessionRowHeight(rows[i])
+		}
+		if total <= m.sessionsBodyHeight() {
+			start = m.mouseListStart
+		}
+	}
+	end, used := start, 0
+	for end < len(rows) && (end == start || used+m.sessionRowHeight(rows[end]) <= m.sessionsBodyHeight()) {
+		used += m.sessionRowHeight(rows[end])
+		end++
+	}
+	return start, end
+}
+func (m harborModel) sessionsCount() int { start, end := m.sessionsWindow(); return max(1, end-start) }
 func (m harborModel) sessionsLayout() uiPage {
 	p := newUIPage(m.width, m.height)
-	p.line(paint(fg("brand"), "⚓ HARBOR · Profile: "+m.activeProfileLabel()))
+	p.line(paint(fg("brand"), "⚓ Harbor · Profile: "+m.activeProfileLabel()))
 	p.tabs("sessions", m.uiHover, m.uiFocus, true)
 	if m.screen == "sessions-more" {
 		if s, ok := m.selected(); ok {
@@ -94,7 +128,7 @@ func (m harborModel) sessionsLayout() uiPage {
 	}
 	p = m.sessionsHeader()
 	rows := m.visible()
-	start := m.listStart(m.cursor, m.sessionsCount())
+	start, end := m.sessionsWindow()
 	top := len(p.Lines)
 	bodyH := m.sessionsBodyHeight()
 	leftW := p.Width
@@ -106,7 +140,7 @@ func (m harborModel) sessionsLayout() uiPage {
 	if len(rows) == 0 {
 		left.emptyState("No matching sessions")
 	}
-	for i := start; i < min(len(rows), start+m.sessionsCount()); i++ {
+	for i := start; i < end; i++ {
 		s := rows[i]
 		y := len(left.Lines)
 		mark := "  "
@@ -135,10 +169,19 @@ func (m harborModel) sessionsLayout() uiPage {
 		if m.selectionMissing {
 			reason = "Selected target changed. Select a session."
 		}
-		left.line(paint(fg("warn"), ansi.Truncate(cleanUI(reason), leftW-2, "…")))
-		left.hit("session:"+s.ID, 1, y, leftW-2, min(3, bodyH-y))
+		if reason != "" {
+			left.line(paint(fg("warn"), ansi.Truncate(cleanUI(reason), leftW-2, "…")))
+		}
+		left.hit("session:"+s.ID, 1, y, leftW-2, min(len(left.Lines)-y, bodyH-y))
 	}
-	left.scrollRail(0, min(bodyH, len(left.Lines)), len(rows)*3, start*3)
+	total, offset := 0, 0
+	for i, row := range rows {
+		if i < start {
+			offset += m.sessionRowHeight(row)
+		}
+		total += m.sessionRowHeight(row)
+	}
+	left.scrollRail(0, min(bodyH, len(left.Lines)), total, offset)
 	for _, r := range left.Hits {
 		p.hit(r.ID, r.X, r.Y+top, r.W, r.H)
 	}
@@ -209,7 +252,7 @@ func (m harborModel) sessionsLayout() uiPage {
 func (m harborModel) sessionsFocusIDs() []string {
 	p := m.sessionsLayout()
 	ids := []string{"list"}
-	for _, r := range p.Hits {
+	for _, r := range p.focusHits() {
 		if !strings.HasPrefix(r.ID, "session:") && r.ID != "" {
 			ids = append(ids, r.ID)
 		}
@@ -377,7 +420,7 @@ func (m harborModel) updateSessionsUIAt(msg tea.Msg, now time.Time) (tea.Model, 
 		double := m.mouse.id == id && m.mouse.x == mouse.X && m.mouse.y == mouse.Y && !now.Before(m.mouse.at) && now.Sub(m.mouse.at) < 350*time.Millisecond
 		for i, s := range m.visible() {
 			if s.ID == id {
-				m.mouseListStart = m.listStart(m.cursor, m.sessionsCount())
+				m.mouseListStart, _ = m.sessionsWindow()
 				m.mouseListScreen = "sessions"
 				m.cursor = i
 				m.selectionMissing = false
@@ -415,7 +458,7 @@ func (m harborModel) sessionsHelp() string {
 		}
 		lines = append(lines, kv(a.Key, label))
 	}
-	return strings.Join(append(lines, "", "Single click selects. Use the shortcuts in the bottom bar to act.", "External sessions remain client-managed; unknown connections stay unknown."), "\n")
+	return strings.Join(append(lines, "", "Single click selects. Use the shortcuts in the bottom bar to act.", "External sessions remain client-managed; unknown connections stay unknown.", "Ctrl+Z suspends on supported terminals; resume refreshes runtime state."), "\n")
 }
 
 func (m harborModel) sessionsHint() string {

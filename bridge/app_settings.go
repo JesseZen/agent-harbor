@@ -3,7 +3,6 @@ package main
 import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 	"strconv"
 	"strings"
 )
@@ -11,6 +10,7 @@ import (
 type settingsSaved struct{ err error }
 type settingsModel struct {
 	details               bool
+	help                  bool
 	scroll                int
 	width, height, cursor int
 	values                shortcutPreferences
@@ -40,12 +40,23 @@ func newSettingsModel() settingsModel {
 }
 func (m settingsModel) Init() tea.Cmd { return nil }
 func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok && key.Type == tea.KeyCtrlZ {
+		return m, tea.Suspend
+	}
+
+	next, cmd := m.update(msg)
+	n := next.(settingsModel)
+	n.scroll = max(0, min(n.scroll, n.layout().MaxScroll))
+	return n, cmd
+}
+func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = v.Width
 		m.height = v.Height
 	case settingsSaved:
 		m.busy = false
+		m.cursor = 0
 		if v.err != nil {
 			m.notice = v.err.Error()
 		} else {
@@ -59,7 +70,7 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.hover = strings.TrimPrefix(target, "nav:")
 			return m, nil
 		}
-		if m.details {
+		if m.details || m.help {
 			if v.Button == tea.MouseButtonWheelDown {
 				m.scroll++
 			}
@@ -104,7 +115,16 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		key := v.String()
-		if m.focusNav != "" {
+		if key == "ctrl+c" {
+			m.closed = true
+			return m, tea.Quit
+		}
+		if key == "?" && !m.editing && !m.searching && !m.details && !m.help {
+			m.help = true
+			m.scroll = 0
+			return m, nil
+		}
+		if m.focusNav != "" && !m.details && !m.help {
 			tabs := m.navIDs()
 			at := 0
 			for i, id := range tabs {
@@ -125,7 +145,7 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.focusNav = tabs[at-1]
 				} else {
 					m.focusNav = ""
-					m.cursor = 5
+					m.cursor = 2
 				}
 			case "enter":
 				return m.navigate(m.focusNav)
@@ -148,7 +168,7 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					tabs := m.navIDs()
 					m.focusNav = tabs[len(tabs)-1]
 				} else {
-					m.cursor = 5
+					m.cursor = 2
 				}
 			case "enter", "tab":
 				m.searching = false
@@ -169,10 +189,15 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if m.details {
+		if m.details || m.help {
 			switch key {
-			case "esc", "i":
+			case "esc", "i", "?":
 				m.details = false
+				m.help = false
+			case "pgdown":
+				m.scroll += max(1, m.height/2)
+			case "pgup":
+				m.scroll = max(0, m.scroll-max(1, m.height/2))
 			case "down", "j":
 				m.scroll++
 			case "up", "k":
@@ -203,6 +228,9 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		switch key {
+		case "?":
+			m.help = true
+			m.scroll = 0
 		case "/":
 			m.searching = true
 		case "i":
@@ -212,7 +240,7 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.closed = true
 			return m, tea.Quit
 		case "tab", "down", "j":
-			if key == "tab" && m.cursor == 5 {
+			if key == "tab" && (len(m.filtered()) == 0 || m.cursor == m.filtered()[len(m.filtered())-1]) {
 				if m.height >= 19 {
 					m.focusNav = "sessions"
 				} else {
@@ -246,6 +274,7 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor == 3 {
 				m.values = defaultShortcuts()
 				m.notice = "Defaults restored in draft. Save to apply."
+				m.cursor = 0
 			}
 			if m.cursor == 4 {
 				if err := validateShortcuts(m.values); err != nil {
@@ -295,7 +324,10 @@ func (m settingsModel) filtered() []int {
 	return out
 }
 func (m settingsModel) nextControl(delta int) int {
-	rows := append(m.filtered(), 3, 4, 5)
+	rows := m.filtered()
+	if len(rows) == 0 {
+		return 0
+	}
 	at := 0
 	for i, n := range rows {
 		if n == m.cursor {
@@ -315,21 +347,22 @@ func (m settingsModel) actions() []uiAction {
 func (m settingsModel) layout() uiPage {
 	p := newUIPage(m.width, m.height)
 	p.line(paint(fg("brand"), "⚓ Harbor · Settings"))
+	if m.help {
+		return secondaryDocument(m.width, m.height, "Settings help", renderHelp(m.width, settingsHelp()), []uiAction{{ID: "back", Key: "esc", Label: "Back"}}, "back", m.scroll)
+	}
 	if m.details {
 		text := m.notice
+		if m.help {
+			text = "Tab / Shift+Tab or arrows select fields. Enter edits a field; Enter accepts the draft, Esc cancels the edit.\n\nCtrl+S saves all changes. Ctrl+R restores defaults in the draft. Esc returns without saving. Unsaved changes block navigation to another tab.\n\n/ searches settings. Esc clears search before leaving it. i shows details for the current message.\n\nCtrl+Z suspends on supported terminals; resume keeps the draft.\n\nShortcuts apply only to this Harbor workspace. prefix is Ctrl+B; native Herdr settings remain prefix+s."
+		}
 		if text == "" {
 			text = actionHints(m.actions()) + "\n\n" + "Shortcuts affect only this owned Harbor workspace. prefix is Ctrl+B. Native Herdr settings remain prefix+s. Direct Ctrl keys intercept input before the CLI and may conflict with terminal encodings or Emacs bindings. Only unoccupied supported chords are accepted."
 		}
-		rows := strings.Split(ansi.Wrap(cleanUI(text), max(1, p.Width-2), ""), "\n")
-		count := max(1, p.Height-4)
-		start := min(m.scroll, max(0, len(rows)-count))
-		for _, r := range rows[start:min(len(rows), start+count)] {
-			p.line(r)
+		title := "Settings details"
+		if m.help {
+			title = "Settings help"
 		}
-		p.scrollRail(1, min(count, len(p.Lines)-1), len(rows), start)
-		p.shortcut(uiAction{ID: "back", Label: "Back", Key: "Esc"}, true)
-		p.Hint = "↑↓ scroll"
-		return p.finish(0)
+		return secondaryDocument(m.width, m.height, title, text, []uiAction{{ID: "back", Label: "Back", Key: "esc"}}, "back", m.scroll)
 	}
 	if p.Height >= 19 {
 		p.tabs("settings", m.hover, m.focusNav, true)
@@ -376,7 +409,7 @@ func (m settingsModel) layout() uiPage {
 		notice = ""
 	}
 	p.line(paint(fg("value"), cleanUI(notice)))
-	hint := "Tab / ↑↓ focus · Enter edit · / search · i Details"
+	hint := "Tab / ↑↓ focus · Enter edit · / search · i Details · ? help"
 
 	if m.editing {
 		hint = ""

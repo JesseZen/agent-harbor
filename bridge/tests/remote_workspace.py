@@ -23,6 +23,7 @@ def main():
         parser.add_argument('--' + key, required=True)
     for key in ('binary', 'herdr', 'codex'):
         parser.add_argument('--remote-' + key, help='Linux server executable; defaults to client executable')
+    parser.add_argument('--identity-file', help='optional fixture-owned SSH key; never copied into Harbor state')
     parser.add_argument('--remote-root', required=True, help='new exclusive absolute directory')
     args = parser.parse_args()
     assert pathlib.Path(args.codex).open('rb').read(4) in (b'\x7fELF', b'\xcf\xfa\xed\xfe'), 'native client Codex required'
@@ -34,7 +35,8 @@ def main():
     root.chmod(0o700)
     print('client diagnostics', root, flush=True)
     print('server diagnostics', remote, flush=True)
-    ssh_base = ['/usr/bin/ssh', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
+    identity_options = ['-o', 'IdentitiesOnly=yes', '-i', str(pathlib.Path(args.identity_file).resolve())] if args.identity_file else []
+    ssh_base = ['/usr/bin/ssh', *identity_options, '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
                 '-o', 'UserKnownHostsFile=' + str(pathlib.Path(args.known_hosts).resolve()),
                 '-o', 'ConnectTimeout=10', '--', args.host]
 
@@ -96,7 +98,7 @@ def main():
     keys = root / 'known_hosts'
     shutil.copy2(args.known_hosts, keys)
     ssh_shim = root / 'bin/ssh'
-    ssh_shim.write_text('#!/bin/sh\nexec /usr/bin/ssh -o ' +
+    ssh_shim.write_text('#!/bin/sh\nexec /usr/bin/ssh ' + ' '.join(map(shlex.quote, identity_options)) + ' -o ' +
                         shlex.quote('UserKnownHostsFile=' + str(keys)) + ' "$@"\n')
     ssh_shim.chmod(0o700)
     tmux = shutil.which('tmux')
@@ -165,7 +167,7 @@ def main():
         open_client()
         choose_remote()
         key('C-b', 'a')
-        contains('HARBOR')
+        contains('Search sessions')
         (root / 'remote-popup.txt').write_text(screen())
         (root / 'remote-popup-160.ansi').write_text(tm('capture-pane', '-e', '-p', '-t', 'native:0.0'))
         key('n')

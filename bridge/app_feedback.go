@@ -13,6 +13,9 @@ func (m harborModel) editingText() bool {
 	if m.screen == "new-directory" {
 		return !m.picker.list
 	}
+	if m.uiFocus == "new-client-search" || m.uiFocus == "selector-search" {
+		return true
+	}
 	if m.searchFocus == m.screen {
 		return true
 	}
@@ -25,8 +28,47 @@ func (m harborModel) editingText() bool {
 
 // Normalize page boundaries even when a specialized input handler returns early.
 func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "?" && m.settings == nil && !m.editingText() && (strings.HasPrefix(m.screen, "profile-") || m.screen == "accounts" || m.screen == "accounts-result") {
-		return m.update(key)
+	if key, ok := msg.(tea.KeyMsg); ok && key.Type == tea.KeyCtrlZ {
+		return m, tea.Suspend
+	}
+	if _, ok := msg.(tea.ResumeMsg); ok {
+		return m.requestRefresh()
+	}
+
+	if done, ok := msg.(appServiceDone); ok {
+		if !m.servicePending || done.id != m.serviceTaskID {
+			return m, nil
+		}
+		m.servicePending = false
+		cmd := done.apply(&m, done.err)
+		m.noticeID++
+		m.noticeTransient = ordinaryNotice(m.notice)
+		if m.noticeTransient {
+			id := m.noticeID
+			cmd = tea.Batch(cmd, tea.Tick(3*time.Second, func(time.Time) tea.Msg { return appNoticeExpired{id} }))
+		}
+		if m.screen == "sessions" {
+			m.uiFocus = "list"
+			m.scroll = 0
+		}
+		return m, cmd
+	}
+	if m.servicePending {
+		if key, ok := msg.(tea.KeyMsg); ok && key.Type != tea.KeyCtrlC {
+			return m, nil
+		}
+		if _, ok := msg.(tea.MouseMsg); ok {
+			return m, nil
+		}
+	}
+
+	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "?" && m.settings == nil && !m.editingText() && m.screen != "help" && m.screen != "busy" && m.screen != "magpie-busy" && m.screen != "accounts-busy" {
+		m.secondaryHelpScroll = m.scroll
+		m.secondaryHelpFocus = m.uiFocus
+		m.previous = m.screen
+		m.screen = "help"
+		m.scroll = 0
+		return m, nil
 	}
 	next, cmd := m.updateFrame(msg)
 	n := next.(harborModel)
@@ -35,7 +77,7 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			n.uiFocus = "list"
 			n.scroll = 0
 		}
-		if n.notice == m.notice && (m.noticeTransient || ordinaryNotice(m.notice)) {
+		if n.notice == m.notice && (m.noticeTransient || ordinaryNotice(m.notice) || !feedbackDocumentTransition(m.screen, n.screen)) {
 			n.notice = ""
 			n.noticeTransient = false
 			n.noticeID++
@@ -43,6 +85,9 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if page, ok := n.additionalPage(); ok && n.settings == nil {
 		n.scroll = max(0, min(n.scroll, page.MaxScroll))
+	}
+	if n.screen == "confirm" || n.screen == "confirm-evidence" {
+		n.scroll = max(0, min(n.scroll, n.reviewLayout().MaxScroll))
 	}
 	return n, cmd
 }
@@ -183,5 +228,18 @@ func (m harborModel) feedbackLine() string {
 }
 
 func ordinaryNotice(s string) bool {
-	return s == "Action completed" || s == "Magpie action completed" || s == "Directory ready. Enter continues." || s == "Profile saved" || strings.HasPrefix(s, "Profile selected:") || strings.HasPrefix(s, "Default saved;")
+	return s == "Directory selected" || s == "Directory selected. Enter continues." || strings.HasPrefix(s, "Original environment binding recorded;") || s == "Action completed" || s == "Magpie action completed" || s == "Directory ready. Enter continues." || s == "Profile saved" || strings.HasPrefix(s, "Profile selected:") || strings.HasPrefix(s, "Default saved;")
+}
+
+// Evidence belongs to the action that produced it. Documents are temporary
+// views of that action; cancelling or opening another task ends its feedback.
+func feedbackDocumentTransition(from, to string) bool {
+	isDocument := func(screen string) bool {
+		switch screen {
+		case "help", "error", "detail", "confirm-evidence", "magpie-detail", "new-instance-detail", "magpie-context":
+			return true
+		}
+		return false
+	}
+	return isDocument(from) || isDocument(to)
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -11,7 +12,12 @@ type appFormCreated struct {
 
 func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
-	back := func() (tea.Model, tea.Cmd) { m.screen = "new-form"; m.scroll = 0; return m, nil }
+	back := func() (tea.Model, tea.Cmd) {
+		m.screen = "new-form"
+		m.formFocus = min(4, m.formFocus)
+		m.scroll = 0
+		return m, nil
+	}
 	if k == "esc" {
 		m.generation++
 		if m.screen == "new-form" {
@@ -28,11 +34,14 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "new-form":
 		switch k {
 		case "tab", "down":
-			m.formFocus = (m.formFocus + 1) % 7
+			m.formFocus = (m.formFocus + 1) % 5
 		case "shift+tab", "up":
-			m.formFocus = (m.formFocus + 6) % 7
+			m.formFocus = (m.formFocus + 4) % 5
 		case "enter":
 			m.notice = ""
+			if m.formFocus < 5 {
+				m.draft.RecoveryChoice = ""
+			}
 			m.formSaved = m.draft
 			switch m.formFocus {
 			case 0:
@@ -67,53 +76,50 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if m.creating {
 					return m, nil
 				}
-				if err := m.service.ValidateDirectory(m.draft.Directory); err != nil {
-					m.formFocus = 0
-					m.notice = err.Error()
-					return m, nil
-				}
-				if m.selectedClient() == "codex" && (m.environment.CodexVersion == "" || m.environment.CodexVersion == "unknown") {
-					m.formFocus = 1
-					m.notice = "Install the supported native Codex CLI and retry."
-					return m, nil
-				}
-				if m.draft.Connection == "magpie" {
-					if m.draft.Instance == "" || m.draft.Model == "" {
-						m.formFocus = 2
-						m.notice = "Choose a Magpie instance and model or routing group."
-						return m, nil
-					}
-					ack, e := m.service.AuxiliaryAcknowledged(m.draft.Instance)
-					if e != nil {
-						m.formFocus = 2
-						m.notice = e.Error()
-						return m, nil
-					}
-					if !ack {
-						m.screen = "new-notice"
-						return m, nil
-					}
-				}
-				if m.draft.Name != "" {
-					if e := validateSessionName(m.draft.Name); e != nil {
-						m.formFocus = 4
-						m.notice = e.Error()
-						return m, nil
-					}
-				}
-				d, e := m.service.Draft(m.draft)
-				if e != nil {
-					m.notice = e.Error()
-					if m.draft.Connection == "magpie" {
-						m.formFocus = 3
-					}
-					return m, nil
-				}
-				m.draft = d
 				m.creating = true
 				m.screen = "busy"
-				g := m.generation
-				return m, func() tea.Msg { s, e := m.service.Create(d); return appFormCreated{g, appCreated{s, e}} }
+				g, d, client, version := m.generation, m.draft, m.selectedClient(), m.environment.CodexVersion
+				return m, func() tea.Msg {
+					reject := func(focus int, page string, err error) tea.Msg { return appFormRejected{g, focus, page, err} }
+					if err := m.service.ValidateDirectory(d.Directory); err != nil {
+						return reject(0, "new-form", err)
+					}
+					if client == "codex" && (version == "" || version == "unknown") {
+						return reject(1, "new-form", fmt.Errorf("Install the supported native Codex CLI and retry."))
+					}
+					if d.Connection == "magpie" {
+						if d.Instance == "" || d.Model == "" {
+							return reject(2, "new-form", fmt.Errorf("Choose a Magpie instance and model or routing group."))
+						}
+						ack, err := m.service.AuxiliaryAcknowledged(d.Instance)
+						if err != nil {
+							return reject(2, "new-form", err)
+						}
+						if !ack {
+							return reject(5, "new-notice", nil)
+						}
+					}
+					if d.Name != "" {
+						if err := validateSessionName(d.Name); err != nil {
+							return reject(4, "new-form", err)
+						}
+					}
+					d, err := m.service.Draft(d)
+					if err != nil {
+						focus := 5
+						if d.Connection == "magpie" {
+							focus = 3
+						}
+						return reject(focus, "new-form", err)
+					}
+					if preparer, ok := m.service.(interface{ PrepareRecovery(sessionDraft) error }); ok {
+						if err := preparer.PrepareRecovery(d); err != nil {
+							return appPreparedDraft{g, d, appCreated{err: err}}
+						}
+					}
+					s, err := m.service.Create(d)
+					return appPreparedDraft{g, d, appCreated{s, err}}
+				}
 			case 6:
 				m.formActive = false
 				m.screen = "sessions"
@@ -153,11 +159,17 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "new-notice":
 		if k == "enter" {
-			if e := m.service.AcknowledgeAuxiliary(m.draft.Instance); e != nil {
-				m.notice = e.Error()
-				return m, nil
-			}
-			return back()
+			instance := m.draft.Instance
+			n, c, _ := m.serviceTask(func() error { return m.service.AcknowledgeAuxiliary(instance) }, func(n *harborModel, err error) tea.Cmd {
+				if err != nil {
+					n.notice = err.Error()
+					return nil
+				}
+				n.screen = "new-form"
+				n.scroll = 0
+				return nil
+			})
+			return n, c
 		}
 	case "new-connection":
 		if k == "up" || k == "down" {
@@ -210,16 +222,21 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if k == "enter" && len(rows) > 0 {
 			m.draft.Model = rows[m.catalogCursor].ID
-			ack, err := m.service.AuxiliaryAcknowledged(m.draft.Instance)
-			if err != nil {
-				m.notice = err.Error()
-				return m, nil
-			}
-			if !ack {
-				m.screen = "new-notice"
-				return m, nil
-			}
-			return back()
+			instance := m.draft.Instance
+			ack := false
+			n, c, _ := m.serviceTask(func() error { var err error; ack, err = m.service.AuxiliaryAcknowledged(instance); return err }, func(n *harborModel, err error) tea.Cmd {
+				if err != nil {
+					n.notice = err.Error()
+					return nil
+				}
+				n.screen = "new-form"
+				if !ack {
+					n.screen = "new-notice"
+				}
+				n.scroll = 0
+				return nil
+			})
+			return n, c
 		}
 	}
 	return m, nil
@@ -237,4 +254,16 @@ func (m *harborModel) formCatalog() tea.Cmd {
 		c, e := catalogForDraft(m.service, draft, id)
 		return appCatalog{generation: g, instance: id, models: c, err: e}
 	}
+}
+
+type appFormRejected struct {
+	generation uint64
+	focus      int
+	page       string
+	err        error
+}
+type appPreparedDraft struct {
+	generation uint64
+	draft      sessionDraft
+	result     appCreated
 }

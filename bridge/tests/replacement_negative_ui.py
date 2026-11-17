@@ -7,7 +7,7 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
     expected_running=0
     before={p:p.read_bytes() for p in (root/'codex/sessions').rglob('*.jsonl')}
     def refusal(name,reason):
-        popup();key('/');text(name);key('Enter');key('Enter');screen('Review query-resume');key('a');key('Enter');key('i');screen(reason)
+        popup();key('/');text(name);key('Enter');key('Enter');screen('Resume conversation');key('a');key('Enter');key('i');screen(reason)
         assert {r['name']:(r['codex_session_id'],r.get('instance_id'),r.get('magpie_model')) for r in records() if r['name'] in saved}==saved
         assert {p:p.read_bytes() for p in (root/'codex/sessions').rglob('*.jsonl')}==before,'refusal changed conversation files'
         assert sum(r['running'] for r in json.loads(run([binary,'sessions','--json']).stdout))==expected_running,'refusal launched client'
@@ -32,16 +32,16 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
     # Fixture-owned persistence is the external input under fault injection;
     # outcomes and absence of execution are observed only through public APIs.
     record_file=root/'harbor/sessions.json'
-    for status in ['missing','conflict']:
+    # A complete missing final observation is now reviewable by explicit
+    # Resume. Refuse conflicting evidence instead of expecting that supported
+    # choice to remain blocked. Use another real fixture reference as conflict.
+    for status,reason in [('conflict','saved identity is already reviewed or has conflicting evidence'),('missing','identity evidence conflicts')]:
         altered=copy.deepcopy(original)
-        next(r for r in altered if r['name']=='UI-A')['conversation']['status']=status
+        target=next(r for r in altered if r['name']=='UI-A')
+        target['conversation']['status']=status
+        if status=='missing':
+            target['conversation']['observed_reference']=copy.deepcopy(next(r for r in original if r['name']=='UI-B')['conversation']['reference'])
         record_file.write_text(json.dumps(altered))
-        # A restart may require explicit reviewed-compatibility reassociation.
-        # Both provenance paths must refuse a subsequently missing/conflicting
-        # observation; assert the precise public explanation for that input.
-        provenance=next(r for r in altered if r['name']=='UI-A')['conversation']['provenance']
-        reason=('conversation observation needs review' if provenance=='herdr-pane-observation'
-                else 'query recovery requires an upstream-observed reference')
         try:refusal('UI-A',reason)
         finally:record_file.write_text(json.dumps(original))
     # A complete saved reference with a missing final observation can be
@@ -55,18 +55,18 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
         missing['conversation']['status']='missing'
         record_file.write_text(json.dumps(altered))
         try:
-            popup();key('/');text(name);key('Tab');key('v');screen('Review review-reference')
+            popup();key('/');text(name);key('Tab');key('v');screen('Review saved conversation')
             import time
-            time.sleep(.25);key('Tab');key('Enter');screen('Inspect evidence')
+            time.sleep(.25);key('i');screen('Details')
             assert next(r for r in records() if r['name']==name)['conversation']['status']=='missing', 'unapproved reference was changed'
-            key('a');key('Enter')
+            key('Escape');key('a');key('Enter')
             wait(lambda:next(r for r in records() if r['name']==name)['conversation']['status']=='reviewed','saved reference review')
             reviewed=next(r for r in records() if r['name']==name)
             assert reviewed['conversation']['reference']==reference and reviewed['conversation']['provenance']=='reviewed-compatibility'
             assert len(reviewed.get('reassociations',[]))==audit_count+1 and reviewed['reassociations'][-1]['accepted']
             assert not next(r for r in json.loads(run([binary,'sessions','--json']).stdout) if r['name']==name)['running'], 'reference review started a client'
             reviewed_records[name]=copy.deepcopy(reviewed)
-            if 'HARBOR' in capture():key('q')
+            if 'Harbor · Profile:' in capture():key('q')
             print('PASS saved identity review for',name,'requires acceptance and preserves conversation',flush=True)
         finally:record_file.write_text(json.dumps(original))
     for config_dir,reason in [('', 'Magpie instance unknown'),(str(root/'different-config'),'Magpie instance changed')]:

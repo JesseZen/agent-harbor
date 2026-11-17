@@ -60,7 +60,7 @@ try:
   tm('send-keys','-t','app:0.0','-l',f'\x1b[<{button};{x};{y+1}M'+(f'\x1b[<0;{x};{y+1}m' if button==0 else ''));time.sleep(.4)
  def save(name):
   (root/(name+'.ansi')).write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
- keys('C-b');keys('a');wait('HARBOR')
+ keys('C-b');keys('a');wait('Search sessions')
  import urllib.request, socket
  class Provider(http.server.BaseHTTPRequestHandler):
   def do_GET(self):

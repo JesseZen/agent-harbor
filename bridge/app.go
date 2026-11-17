@@ -54,6 +54,8 @@ type appRoute struct {
 
 // harborModel owns interaction only. All product effects cross the service seam.
 type harborModel struct {
+	servicePending       bool
+	serviceTaskID        uint64
 	profileReturn        string
 	profileReturnScroll  int
 	profileReview        *profileReviewState
@@ -261,7 +263,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case directoryPreviewResult:
 		p := &m.picker
-		if m.screen != "new-directory" || msg.generation != p.previewGeneration || msg.path != p.previewPath {
+		if (m.screen != "new-directory" && !(m.screen == "help" && m.previous == "new-directory")) || msg.generation != p.previewGeneration || msg.path != p.previewPath {
 			return m, nil
 		}
 		rows := p.matches()
@@ -271,7 +273,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p.preview = msg.text
 		return m, nil
 	case directoryResult:
-		if m.screen != "new-directory" || msg.generation != m.picker.generation {
+		if (m.screen != "new-directory" && !(m.screen == "help" && m.previous == "new-directory")) || msg.generation != m.picker.generation {
 			return m, nil
 		}
 		m.picker.entries = msg.entries
@@ -562,12 +564,30 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.draft = sessionDraft{Profile: msg.environment.Profile, Connection: "local", Directory: msg.environment.Directory}
 		m.formActive = true
-		m.formFocus = 5
+		m.formFocus = 0
 		m.creating = false
 		m.screen = "new-form"
 		m.input.SetValue(msg.environment.Directory)
 		m.input.Focus()
 		return m, nil
+	case appFormRejected:
+		if !m.formActive || !m.creating || msg.generation != m.generation || m.screen != "busy" {
+			return m, nil
+		}
+		m.creating = false
+		m.formFocus = min(4, msg.focus)
+		m.screen = msg.page
+		m.notice = ""
+		if msg.err != nil {
+			m.notice = msg.err.Error()
+		}
+		return m, nil
+	case appPreparedDraft:
+		if !m.formActive || !m.creating || msg.generation != m.generation || m.screen != "busy" {
+			return m, nil
+		}
+		m.draft = msg.draft
+		return m.update(appFormCreated{msg.generation, msg.result})
 	case appFormCreated:
 		if !m.formActive || !m.creating || msg.generation != m.generation || m.screen != "busy" {
 			return m, nil
@@ -579,9 +599,15 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.creating = false
+			if errors.Is(msg.err, errRecoveryChoice) {
+				m.screen = "new-recovery"
+				m.uiFocus = "recovery:esc"
+				m.scroll = 0
+				return m, nil
+			}
 			if msg.err != nil {
 				m.screen = "new-form"
-				m.formFocus = 5
+				m.formFocus = 0
 				m.notice = msg.err.Error()
 				return m, nil
 			}
@@ -645,7 +671,6 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.screen == "" {
 						m.screen = "sessions"
 					}
-					m.notice = ""
 				case "magpie-detail":
 					m.screen = "magpie"
 				case "new-instance-detail":
@@ -973,12 +998,21 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				observation := s.Runtime
 				m.reviewedObservation = &observation
 				m.nativeReview = ""
-				if s.Mode == "local" && s.CLI == "codex" {
-					m.nativeReview = m.sessionNativeSummary(s.session)
-				}
-				m.action, m.screen = "review-reference", "confirm"
-				m.referenceAccepted, m.scroll, m.notice = false, 0, ""
-				return m, nil
+				var summary string
+				n, c, _ := m.serviceTask(func() error {
+					if s.Mode == "local" && s.CLI == "codex" {
+						summary = m.sessionNativeSummary(s.session)
+					}
+					return nil
+				}, func(n *harborModel, err error) tea.Cmd {
+					n.nativeReview = summary
+					n.action, n.screen = "review-reference", "confirm"
+					n.referenceAccepted, n.scroll, n.notice = false, 0, ""
+					n.uiFocus = "review:esc"
+					n.reviewOpenedAt = time.Now()
+					return nil
+				})
+				return n, c
 			case "d":
 				m.reviewed = s.session
 				observation := s.Runtime

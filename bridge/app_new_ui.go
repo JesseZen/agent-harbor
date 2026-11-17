@@ -38,10 +38,12 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 	}
 	p := newUIPage(m.width, m.height)
 	switch m.screen {
+	case "new-recovery":
+		return secondaryDocument(m.width, m.height, "Conversation recovery", "Profile: "+m.profileDisplayLabel(m.draft.Profile)+"\n\nRecovery needs Herdr’s Codex identity hooks in this Profile. Prepare enables hooks; Codex will ask you to trust them.\n\nSkip opens without automatic recovery. No conversation identity will be inferred.\n\nCancel returns to the form without creating a record or terminal.", []uiAction{{ID: "recovery:yes", Label: "Prepare and create", Key: "y"}, {ID: "recovery:skip", Label: "Skip and create", Key: "s"}, {ID: "recovery:esc", Label: "Cancel", Key: "esc"}, {ID: "recovery:?", Label: "Help", Key: "?"}}, m.uiFocus, m.scroll), true
 	case "new-directory":
 		return m.directoryPage(), true
 	case "new-form":
-		p.line(paint(fg("brand"), "New session · Profile: "+m.profileDisplayLabel(m.draft.Profile)))
+		p.title("New session · Profile: " + m.profileDisplayLabel(m.draft.Profile))
 		model := "Native " + m.selectedClient() + " configuration (read-only)"
 		connection := "Native · " + m.selectedClient() + " settings and login"
 		if m.selectedClient() == "codex" && m.environment.NativeConfig != "" {
@@ -82,7 +84,7 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 			p.shortcut(uiAction{ID: "new-details", Label: "Details", Key: "!"}, false)
 		}
 	case "new-cli":
-		p.line("🤖 Choose client")
+		p.title("Choose client")
 		query := m.input.Value()
 		p.search(query, "Filter clients", m.uiFocus == "new-client-search", m.input)
 		rows := m.visibleCreationClients()
@@ -128,17 +130,17 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 			p.line(cleanUI(m.notice))
 		}
 	case "new-name":
-		p.line("🏷 Session name")
+		p.title("Session name")
 		placeholder := "Project and connection (optional)"
 		if m.selectedClient() == "codex" {
 			placeholder = "First Codex title (optional)"
 		}
 		for _, line := range strings.Split(textEntry(m.input, m.width, placeholder), "\n") {
-			p.line(line)
+			p.line(documentLine(line))
 		}
 		p.shortcuts([]uiAction{{ID: "new-name-save", Label: "Apply", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
 	case "new-connection":
-		p.line("🔌 Connection")
+		p.title("Connection")
 		p.field("new-native", selectorMark(m.formSaved.Connection == "local"), "Native", m.selectedClient()+" settings and login", m.connectionCursor == 0, false)
 		p.field("new-magpie", selectorMark(m.formSaved.Connection == "magpie"), "Magpie", "Choose instance and model", m.connectionCursor == 1, false)
 		p.shortcuts([]uiAction{{ID: "new-connection-select", Label: "Select", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
@@ -151,6 +153,64 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 	return p.finish(0), true
 }
 func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	if m.formActive && m.screen == "new-recovery" {
+		key := ""
+		switch v := msg.(type) {
+		case tea.KeyMsg:
+			key = v.String()
+		case tea.MouseMsg:
+			if v.Action == tea.MouseActionPress && v.Button == tea.MouseButtonLeft {
+				p, _ := m.newSessionPage()
+				key = strings.TrimPrefix(p.target(v.X, v.Y), "recovery:")
+			}
+		default:
+			return m, nil, false
+		}
+		if key == "tab" || key == "shift+tab" {
+			return m, nil, true
+		}
+		if key == "enter" {
+			key = "esc"
+		}
+		if key == "up" || key == "down" {
+			if key == "up" {
+				m.scroll = max(0, m.scroll-1)
+			} else {
+				m.scroll++
+			}
+			return m, nil, true
+		}
+		if key == "?" {
+			n, c := m.Update(uiKey("?"))
+			return n, c, true
+		}
+		if key == "esc" {
+			m.screen = "new-form"
+			m.formFocus = 0
+			m.uiFocus = ""
+			m.draft.RecoveryChoice = ""
+			return m, nil, true
+		}
+		if key == "y" || key == "yes" || key == "s" || key == "skip" {
+			m.draft.RecoveryChoice = "yes"
+			if key == "s" || key == "skip" {
+				m.draft.RecoveryChoice = "skip"
+			}
+			m.screen = "new-form"
+			m.formFocus = 5
+			m.uiFocus = ""
+			n, c := m.updateForm(uiKey("enter"))
+			return n, c, true
+		}
+		if key == "pgdown" {
+			m.scroll += max(1, m.height/2)
+		}
+		if key == "pgup" {
+			m.scroll = max(0, m.scroll-max(1, m.height/2))
+		}
+		return m, nil, true
+	}
+
 	if m.formActive {
 		if n, c, ok := m.connectionSelectorInput(msg); ok {
 			return n, c, true
@@ -206,21 +266,33 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 				return m, nil, true
 			}
 			if m.draft.Profile != nil {
-				environment, err := m.service.ResolveProfileClient(profileClientRequest{Binding: *m.draft.Profile})
-				if err != nil {
-					m.notice = err.Error()
-					return m, nil, true
-				}
-				if environment.Kind == profileIsolated && c.Target != "codex" {
-					m.notice = "This client requires an explicitly selected existing environment; isolated support is available for Codex."
-					return m, nil, true
-				}
 				binding := *m.draft.Profile
-				binding.Client = c.Target
-				m.draft.Profile = &binding
+				var environment profileClientEnvironment
+				return m.serviceTask(func() error {
+					var err error
+					environment, err = m.service.ResolveProfileClient(profileClientRequest{Binding: binding})
+					return err
+				}, func(n *harborModel, err error) tea.Cmd {
+					if err != nil {
+						n.notice = err.Error()
+						return nil
+					}
+					if environment.Kind == profileIsolated && c.Target != "codex" {
+						n.notice = "This client requires an explicitly selected existing environment; isolated support is available for Codex."
+						return nil
+					}
+					binding.Client = c.Target
+					n.draft.Profile = &binding
+					n.draft.Client = c.Target
+					n.screen = "new-form"
+					n.uiFocus = ""
+					n.notice = ""
+					return nil
+				})
 			}
 			m.draft.Client = c.Target
 			m.screen = "new-form"
+			m.formFocus = 0
 			m.uiFocus = ""
 			m.notice = ""
 			return m, nil, true
@@ -261,15 +333,8 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 	if m.screen == "new-form" && key.String() == "ctrl+s" {
 		return activate("new-create")
 	}
-	if m.screen == "new-name" {
-		k := key.String()
-		if k == "tab" || k == "shift+tab" {
-			m.uiFocus = uiCycle(m.uiFocus, []string{"", "new-name-save", "new-back"}, k == "shift+tab")
-			return m, nil, true
-		}
-		if k == "enter" && m.uiFocus == "new-back" {
-			return activate("new-back")
-		}
+	if m.screen == "new-name" && (key.String() == "tab" || key.String() == "shift+tab") {
+		return m, nil, true
 	}
 	if m.screen == "new-connection" && (key.String() == "tab" || key.String() == "shift+tab") {
 		m.connectionCursor = 1 - m.connectionCursor

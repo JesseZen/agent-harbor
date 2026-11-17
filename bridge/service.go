@@ -25,6 +25,7 @@ type sessionView struct {
 type sessionDraft struct {
 	Directory, Name, Connection, Instance, Model, Client string
 	Profile                                              *profileBinding
+	RecoveryChoice                                       string
 	CodexConnection                                      string
 }
 type sessionApproval struct {

@@ -12,17 +12,21 @@ so resize and filtering cannot use old coordinates. Page-specific IDs refer to
 stable objects, never a cursor index captured before a refresh.
 
 `uiAction` provides the control ID, label, key, primary emphasis and disabled
-reason. The same definition supplies buttons and contextual help. Input editors
+reason. The same definition supplies fixed footer shortcuts and contextual help. Input editors
 consume ordinary characters before page actions. Lists select on a single
 click; explicit actions execute. Confirmation pages must never reuse a pending
 list double-click. Busy pages suppress duplicate operations.
 
 The palette lives in `app_style.go`: charcoal background, bright field labels,
-gray values, quieter explanations, gray keys, sea green primary buttons,
+gray values, quieter explanations, gray keys, sea green accents,
 lavender current tabs and blue keyboard focus. Focus uses a background and
 indicator without reversing label/value emphasis. Current, hover and keyboard
 focus have independent inputs. An unselected tab's hover adds only underline.
-NO_COLOR preserves all text and indicators. Terminal font, line spacing and
+NO_COLOR preserves all text and indicators. Colors follow the terminal profile;
+shared surfaces and search highlights must not force RGB escapes on 16/256-color
+terminals. `AGENT_HARBOR_ASCII=1` selects width-preserving display substitutes
+for Harbor symbols; `TERM=dumb` also disables color. Persisted names and paths
+are unchanged. Terminal font, line spacing and
 mouse motion availability are runtime capabilities, not application promises.
 
 Settings keeps its values in one draft independent of the search result list.
@@ -43,10 +47,10 @@ requests for those modules rather than editing shared entry points concurrently.
 | --- | --- |
 | First run, readiness, choice review, onboarding help / waiting | Secondary pages (09) |
 | Sessions, empty/search states, contextual More menu | Sessions (02) |
-| Settings, shortcut editor, search, diagnostics | Settings (01) |
+| Settings, shortcut editor, search, help, diagnostics | Settings (01) |
 | Object confirmation, recovery/reference review, evidence | Review (03) |
 | Preparing a new session | Secondary pages (09) |
-| New form, client picker, local name edit | Creation (04) |
+| New form, client picker, local name edit, pre-creation recovery choice | Creation (04) |
 | Project search, known/browse/recursive scopes, path/preview | Directory (05) |
 | Native/Magpie choice, instance/catalog loading, selection, scoped disclosure | Connection selector (06) |
 | Selected connection, bind, details, confirmations, managed actions, waiting | Connections (07) |
@@ -64,7 +68,38 @@ the same semantic document shell. The old frame painter, string-based style
 guessing and independently reconstructed mouse rectangles have been removed.
 
 Printable characters belong to the focused input. Esc clears a nonempty search,
-then leaves it, then cancels the local page. Tab and Shift+Tab cycle actual
-controls. Help restores its parent control and scroll position. A secondary
+then leaves it, then cancels the local page. Tab and Shift+Tab move between fields, lists and navigation tabs; footer
+actions are direct shortcuts and never acquire keyboard focus. Help restores its parent control and scroll position. A secondary
 page returning to Sessions restores list focus; a stale editor action cannot
 consume the next Enter. Ctrl+C closes Harbor and Ctrl+G dismisses feedback.
+
+Recovery preparation happens in Harbor before publishing a new record or opening
+a terminal. Existing environments and explicitly disabled hooks offer Prepare,
+Skip and Cancel; Enter cancels this preparation choice and preserves the draft.
+The first-launch skip decision never supplies Conversation identity or bypasses
+Profile binding checks. Codex still owns hook trust.
+
+Service mutations run in commands with an identified completion. While one is
+pending, resize and runtime polling remain active; duplicate input is suppressed.
+A completion cannot apply twice. Read-only fields create no hit regions and
+cannot shadow an explicit row target. Profile row clicks select the row; Enter
+applies that exact Profile. List arrows clear stale action focus.
+
+Confirmations use their displayed keys directly: Enter confirms, Esc cancels,
+and arrows/PgUp/PgDown scroll evidence. They keep the existing input-penetration
+guard; no footer selection or Tab step is required. Recovery shows unverified
+login/writer state before explicit Resume, while full paths and evidence remain
+in Details. Settings Help and Details share the document viewport and clamp
+stored offsets after input and resize. Errors survive Help/Details round trips;
+ordinary success feedback expires and is cleared when leaving its task.
+
+On supported POSIX terminals, Ctrl+Z uses Bubble Tea suspend/resume. Harbor retains the draft and requests fresh runtime state on resume; the framework restores terminal modes during the handoff. Windows has no job-control suspend.
+
+
+Shortcut labels use compact control notation (`^S`, `^R`, `^C`). A bright key
+and dim action description form one wrapping unit. Actions and navigation hints
+share one footer flow; colour/brightness replaces decorative dot separators.
+Contextual Help uses grouped Key/Action tables, wrapping descriptions inside the
+right column, with the shared scroll rail and fixed return shortcut. Details
+retain bright labels and dim values/prose rather than painting the entire document
+white. These rules apply to shared controls and all their callers.

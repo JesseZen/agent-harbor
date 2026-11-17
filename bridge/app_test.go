@@ -35,10 +35,7 @@ func appKey(m tea.Model, key string) tea.Model {
 		msg.Type = tea.KeyDown
 	}
 	next, cmd := m.Update(msg)
-	for cmd != nil {
-		next, cmd = next.Update(cmd())
-	}
-	return next
+	return settleApp(next, cmd)
 }
 func TestHarborSessionsAtPracticalSizes(t *testing.T) {
 	for _, size := range [][2]int{{60, 20}, {100, 30}, {160, 45}} {
@@ -113,7 +110,7 @@ func TestHarborCreatesLocalOnlyAfterReview(t *testing.T) {
 		if !strings.Contains(model.View(), "New session") {
 			t.Fatal(model.View())
 		}
-		model = appKey(model, "enter")
+		model = appKey(model, "ctrl+s")
 		if !strings.Contains(strings.Join(f.Calls, "|"), "open ") {
 			t.Fatal(f.Calls)
 		}
@@ -274,7 +271,7 @@ func TestHarborMagpieWarningCanBeReadAndCancelReturns(t *testing.T) {
 		model = appKey(model, "m")
 		model = appKey(model, "enter")
 		for i := 0; i < 50; i++ {
-			model = appKey(model, "down")
+			model = appKey(model, "pgdown")
 		}
 		if !strings.Contains(model.View(), "END WARNING") {
 			t.Fatal(model.View())

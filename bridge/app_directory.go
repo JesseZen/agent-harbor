@@ -231,27 +231,31 @@ func (m harborModel) updateDirectory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		path := rows[min(p.cursor, len(rows)-1)].path
-		if err := m.service.ValidateDirectory(path); err != nil {
-			p.err = err
-			return m, nil
-		}
-		if p.cancel != nil {
-			p.cancel()
-		}
-		p.generation++
-		p.stopPreview()
-		m.uiFocus = ""
-		m.formFocus = 0
-		m.input.SetValue(path)
-		m.input.CursorEnd()
-		m.screen = "new-project"
-		m.notice = "Directory selected. Enter continues."
-		if m.formActive {
-			m.draft.Directory = path
-			m.screen = "new-form"
-			m.notice = "Directory selected"
-		}
-		return m, nil
+		n, c, _ := m.serviceTask(func() error { return m.service.ValidateDirectory(path) }, func(n *harborModel, err error) tea.Cmd {
+			p := &n.picker
+			if err != nil {
+				p.err = err
+				return nil
+			}
+			if p.cancel != nil {
+				p.cancel()
+			}
+			p.generation++
+			p.stopPreview()
+			n.uiFocus = ""
+			n.formFocus = 0
+			n.input.SetValue(path)
+			n.input.CursorEnd()
+			n.screen = "new-project"
+			n.notice = "Directory selected. Enter continues."
+			if n.formActive {
+				n.draft.Directory = path
+				n.screen = "new-form"
+				n.notice = "Directory selected"
+			}
+			return nil
+		})
+		return n, c
 	case "right", "left":
 		if p.list {
 			root := filepath.Dir(p.root)
@@ -370,7 +374,7 @@ func (m harborModel) directoryPage() uiPage {
 	p := newUIPage(m.width, m.height)
 	d := m.picker
 	rows := d.matches()
-	p.line(paint(fg("brand"), "📂 Choose project"))
+	p.title("Choose project")
 	p.search(d.query.Value(), "Search known projects or enter /path/", m.uiFocus == "search", d.query)
 	scope := "Known projects · search only known paths"
 	if d.scope != "known sources" {
@@ -413,7 +417,7 @@ func (m harborModel) directoryPage() uiPage {
 		available := max(0, p.Height-len(p.Lines)-len(p.shortcutBar().Lines))
 		offset := min(d.detailScroll, max(0, len(lines)-available))
 		for _, line := range lines[offset:min(len(lines), offset+available)] {
-			p.line(line)
+			p.line(documentLine(line))
 		}
 		return p.finish(0)
 	}
@@ -535,7 +539,7 @@ func (m harborModel) directoryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 	case "ctrl+p":
 		return activate("dir-details")
 	case "tab", "shift+tab":
-		ids := []string{"search", "dir-list", "dir-use", "dir-cancel", "dir-browse", "dir-recursive", "dir-known", "dir-retry", "dir-details"}
+		ids := []string{"search", "dir-list"}
 		i := 0
 		for j, id := range ids {
 			if id == m.uiFocus {

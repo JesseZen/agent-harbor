@@ -48,8 +48,7 @@ func TestFlowAccountsScrollAndCaller(t *testing.T) {
 	m.scroll = 0
 	n, _ = m.Update(uiKey("p"))
 	m = n.(harborModel)
-	n, _ = m.Update(uiKey("enter"))
-	m = n.(harborModel)
+	m = appKey(m, "enter").(harborModel)
 	if m.screen != "accounts" || m.accountProfile.ProfileID != b.ProfileID {
 		t.Fatal("lost caller", m.screen)
 	}

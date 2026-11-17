@@ -125,6 +125,9 @@ func TestSearchMatcherAndHighlight(t *testing.T) {
 		t.Fatal("NO_COLOR")
 	}
 	os.Unsetenv("NO_COLOR")
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(old)
 	s := highlightSearch("\x1b[48;2;29;53;71m日本語\x1b[0m", "日本")
 	if ansi.Strip(s) != "日本語" || !strings.Contains(s, "38;2;"+brandRGB()) {
 		t.Fatal(s)

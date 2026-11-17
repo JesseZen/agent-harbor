@@ -41,13 +41,13 @@ func TestRecoverSingleDecisionAndRetryFocus(t *testing.T) {
 	}
 }
 
-func TestRecoverArrowsNavigateActionsInsteadOfOpeningEvidence(t *testing.T) {
+func TestRecoverArrowsScrollWithoutSelectingFooterActions(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	m.screen, m.action, m.uiFocus = "confirm", "query-resume", "review:enter"
 	m.reviewed = savedReviewFixture().session
 	m = appKey(m, "down").(harborModel)
-	if m.screen != "confirm" || m.uiFocus != "evidence" {
-		t.Fatalf("Down opened evidence instead of moving focus: %s %s", m.screen, m.uiFocus)
+	if m.screen != "confirm" || m.uiFocus != "review:enter" {
+		t.Fatalf("Down changed the direct-action context: %s %s", m.screen, m.uiFocus)
 	}
 }
 

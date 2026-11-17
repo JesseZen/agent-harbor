@@ -12,7 +12,9 @@ func TestContextHelpRestoresParentControlAfterMouseBack(t *testing.T) {
 	m.models = []catalogModel{{ID: "group/test"}}
 	m.draft.Instance = "fixture"
 	m.uiFocus = "selector-apply"
-	m.scroll = 1
+	p0, _ := m.additionalPage()
+	m.scroll = min(1, p0.MaxScroll)
+	expectedScroll := m.scroll
 	n, _ := m.Update(uiKey("?"))
 	m = n.(harborModel)
 	if m.screen != "help" {
@@ -26,7 +28,7 @@ func TestContextHelpRestoresParentControlAfterMouseBack(t *testing.T) {
 			break
 		}
 	}
-	if m.screen != "new-catalog" || m.uiFocus != "selector-apply" || m.scroll != 1 {
+	if m.screen != "new-catalog" || m.uiFocus != "selector-apply" || m.scroll != expectedScroll {
 		t.Fatalf("parent state lost: %s %s %d", m.screen, m.uiFocus, m.scroll)
 	}
 }
@@ -58,7 +60,7 @@ func TestReverseFocusStartsAtLastControl(t *testing.T) {
 	m.models = []catalogModel{{ID: "test"}}
 	n, _, _ := m.connectionSelectorInput(tea.KeyMsg{Type: tea.KeyShiftTab})
 	m = n.(harborModel)
-	if m.uiFocus != "selector-cancel" {
+	if m.uiFocus != "selector-list" {
 		t.Fatal(m.uiFocus)
 	}
 	n, _, _ = m.connectionSelectorInput(tea.KeyMsg{Type: tea.KeyTab})

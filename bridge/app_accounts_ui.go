@@ -21,7 +21,7 @@ func (m harborModel) accountContent() uiPage {
 	wrap := func(text string) {
 		for _, paragraph := range strings.Split(text, "\n") {
 			for _, line := range strings.Split(ansi.Wrap(cleanUI(paragraph), max(1, m.width-2), ""), "\n") {
-				p.line(line)
+				p.line(documentLine(line))
 			}
 		}
 	}
@@ -117,7 +117,7 @@ func (m harborModel) accountActivate(id string) (tea.Model, tea.Cmd) {
 }
 func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	if status, ok := msg.(appAccountStatus); ok {
-		if status.generation != m.accountGeneration || m.accountProfile == nil || m.service.ValidateProfileResult(status.profile, *m.accountProfile) != nil {
+		if status.generation != m.accountGeneration || m.accountProfile == nil || status.profile != *m.accountProfile {
 			return m, nil, true
 		}
 		m.accountSnapshot = &status.result
@@ -127,7 +127,7 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	if done, ok := msg.(appAccountDone); ok {
-		if done.profile != nil && (m.accountProfile == nil || m.service.ValidateProfileResult(*done.profile, *m.accountProfile) != nil) {
+		if done.profile != nil && (m.accountProfile == nil || *done.profile != *m.accountProfile) {
 			return m, nil, true
 		}
 		if done.snapshot != nil {
@@ -193,7 +193,7 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		case "tab", "shift+tab":
 			p, _ := m.accountsPage()
 			ids := []string{}
-			for _, r := range p.Hits {
+			for _, r := range p.focusHits() {
 				if r.ID != "" {
 					ids = append(ids, r.ID)
 				}

@@ -12,7 +12,11 @@ Before a managed Codex launch, Harbor checks Herdr's identity integration in the
 Session's bound Profile environment. An isolated Profile prepares the official
 integration automatically unless hooks were explicitly disabled. Existing
 environments and explicitly disabled hooks require a choice to prepare recovery,
-continue without automatic recovery, or cancel. Codex owns hook trust; Harbor
+continue without automatic recovery, or cancel. In Harbor's creation flow this
+choice happens in the popup before publishing a Session record or opening its
+terminal; cancelling preserves the draft. A first-launch skip remains an explicit
+choice in the bound Profile and never supplies Conversation identity.
+Codex owns hook trust; Harbor
 never approves it on the user's behalf. Installation alone is not Conversation
 identity: only an observed reference can make recovery ready. Records without a
 captured reference stop before recovery confirmation and require explicit
@@ -23,9 +27,9 @@ When recovery has a complete saved reference and no conflicting identity evidenc
 the Resume action confirms that exact reference and its recorded connection in
 one step. Evidence is optional detail, not a prerequisite navigation step. A failed
 launch retains the reviewed snapshot for retry; any intervening record or runtime
-change still requires a fresh review. Recovery focuses Resume by default, preserves
-that focus on failure, and returns from details to Details. Arrow keys navigate the
-actions. Missing references and actual identity or connection conflicts remain
+change still requires a fresh review. Recovery uses Enter for Resume and Esc to cancel, with no footer focus or Tab step.
+Failure retains the same recovery context. Arrow keys scroll the
+evidence. Missing references and actual identity or connection conflicts remain
 blocking; recovery never substitutes another conversation.
 
 An explicit Session name takes precedence over automatic titles. New Codex

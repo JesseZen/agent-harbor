@@ -29,7 +29,7 @@ func TestProfilePageCreateRenameSelectAndCapturedDraft(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("create did not reload profiles")
 	}
-	n, _ = m.Update(cmd())
+	n = settleApp(m, cmd)
 	m = n.(harborModel)
 	if len(f.ProfileRecords) != 2 {
 		t.Fatal(f.ProfileRecords)
@@ -39,7 +39,7 @@ func TestProfilePageCreateRenameSelectAndCapturedDraft(t *testing.T) {
 	m.input.SetValue("Work B")
 	n, cmd = m.Update(uiKey("enter"))
 	m = n.(harborModel)
-	n, _ = m.Update(cmd())
+	n = settleApp(m, cmd)
 	m = n.(harborModel)
 	if f.ProfileRecords[1].Name != "Work B" {
 		t.Fatal(f.ProfileRecords)
@@ -54,7 +54,7 @@ func TestProfilePageCreateRenameSelectAndCapturedDraft(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("no new-session load")
 	}
-	n, _ = m.Update(cmd())
+	n = settleApp(m, cmd)
 	m = n.(harborModel)
 	if m.draft.Profile == nil || m.draft.Profile.ProfileID != f.ProfileRecords[1].ID {
 		t.Fatal("draft did not capture B")
@@ -96,7 +96,15 @@ func TestProfilePageMouseAndKeyboardDefault(t *testing.T) {
 	m = appKey(m, "down").(harborModel)
 	n, cmd := m.Update(uiKey("enter"))
 	m = n.(harborModel)
-	if f.ProfileRecords[0].DefaultInstanceID != "shared-api" || cmd == nil {
+	if cmd == nil {
+		t.Fatal("missing mutation command")
+	}
+	if f.ProfileRecords[0].DefaultInstanceID != "" {
+		t.Fatal("mutation ran in Update")
+	}
+	n = settleApp(m, cmd)
+	m = n.(harborModel)
+	if f.ProfileRecords[0].DefaultInstanceID != "shared-api" {
 		t.Fatal("keyboard default not saved")
 	}
 }
@@ -124,10 +132,13 @@ func TestProfileLegacyBindingRequiresReviewAndExplicitChoice(t *testing.T) {
 		t.Fatal("review default accepted binding")
 	}
 	m = appKey(m, "b").(harborModel)
-	m = appKey(m, "tab").(harborModel)
-	n, cmd := m.Update(uiKey("enter"))
+	n, cmd := m.Update(uiKey("ctrl+y"))
 	m = n.(harborModel)
-	if cmd == nil || f.Sessions[0].Profile == nil || f.Sessions[0].Profile.ProfileID != p.ID {
+	if cmd == nil {
+		t.Fatal("missing binding command")
+	}
+	m = settleApp(m, cmd).(harborModel)
+	if f.Sessions[0].Profile == nil || f.Sessions[0].Profile.ProfileID != p.ID {
 		t.Fatal("explicit review did not bind original environment")
 	}
 }
@@ -153,8 +164,7 @@ func TestAccountPageUsesGlobalProfileSelection(t *testing.T) {
 	m.profiles = f.ProfileRecords
 	m.profileCursor = 1
 	m.uiFocus = ""
-	n, _ = m.Update(uiKey("enter"))
-	m = n.(harborModel)
+	m = appKey(m, "enter").(harborModel)
 	if m.activeProfile == nil || *m.activeProfile != bb || m.accountProfile == nil || *m.accountProfile != bb {
 		t.Fatal("Profile/account selections diverged")
 	}

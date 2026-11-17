@@ -2,10 +2,12 @@ package main
 
 import (
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 )
 
 // Harbor's console palette. Views produce plain, width-fitted text first;
@@ -23,7 +25,10 @@ var harborPalette = map[string]string{
 // keysMark prefixes body lines that list keyboard shortcuts ("s start  x stop").
 const keysMark = ""
 
-func colorOff() bool { _, off := os.LookupEnv("NO_COLOR"); return off }
+func colorOff() bool {
+	_, off := os.LookupEnv("NO_COLOR")
+	return off || os.Getenv("TERM") == "dumb" || lipgloss.ColorProfile() == termenv.Ascii
+}
 
 func fg(role string) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(harborPalette[role])).Background(lipgloss.Color(harborPalette["bg"]))
@@ -66,24 +71,37 @@ func statusRole(word string) string {
 }
 
 // paintKeys renders "k label  k label" or "k label · k label" hint strings.
+var controlKeyPattern = regexp.MustCompile(`(?i)ctrl\+([a-z])`)
+
+func controlKeyNotation(s string) string {
+	return controlKeyPattern.ReplaceAllStringFunc(s, func(v string) string { return "^" + strings.ToUpper(v[5:]) })
+}
 func paintKeys(text string) string {
-	if colorOff() {
-		return text
-	}
-	sep := "  "
-	if strings.Contains(text, " · ") {
-		sep = " · "
-	}
-	parts := strings.Split(text, sep)
-	for i, p := range parts {
-		lead := len(p) - len(strings.TrimLeft(p, " "))
-		body := strings.TrimLeft(p, " ")
-		key, label, ok := strings.Cut(body, " ")
-		if !ok || body == "" {
-			parts[i] = paint(fg("label"), p)
-			continue
+	parts := strings.Split(text, " · ")
+	for i, part := range parts {
+		key, label := splitHint(part)
+		if key == "" {
+			key, label, _ = strings.Cut(controlKeyNotation(part), " ")
 		}
-		parts[i] = strings.Repeat(" ", lead) + paint(fg("key").Bold(true), key) + paint(fg("label"), " "+label)
+		parts[i] = paint(fg("text").Bold(true), key) + paint(fg("muted"), " "+label)
 	}
-	return strings.Join(parts, paint(fg("muted"), sep))
+	return strings.Join(parts, "  ")
+}
+
+// Explicit fallback: terminal glyph coverage cannot be detected reliably.
+func asciiUI() bool { return os.Getenv("AGENT_HARBOR_ASCII") == "1" || os.Getenv("TERM") == "dumb" }
+
+// Keep chrome substitutions cell-for-cell so mouse regions and padding retain
+// their geometry. Unicode letters remain readable in names and paths.
+func chromeText(s string) string {
+	if !asciiUI() {
+		return s
+	}
+	pairs := []string{"┌", "+", "┐", "+", "└", "+", "┘", "+", "├", "+", "┤", "+", "┬", "+", "┴", "+", "┼", "+", "⚓", "AH", "🚢", "SH", "🐦", "MG", "📂", "WD", "🤖", "AI", "🔌", "CN", "🧠", "MD", "💬", "CV", "👤", "PR", "🗂", "PF", "⚙", "S", "⌕", "/", "›", ">", "‹", "<", "·", ".", "●", "*", "•", "-", "↑", "^", "↓", "v", "←", "<", "→", ">", "│", "|", "─", "-", "╭", "+", "╮", "+", "╰", "+", "╯", "+", "█", "#", "…", ".", "⚠", "!", "✓", "+", "✗", "x", "▏", "|", "’", "'", "—", "-", "⎋", "E", "↵", "R", "⇥", "T", "⇧", "+", "⏳", "..", "🔎", "/ ", "⚡", "! ", "🧩", "EX", "○", "o", "💻", "PC", "🚀", "GO", "🧭", "TO", "🛟", "RE", "🧹", "CL", "🗑", "X"}
+	for i := 0; i < len(pairs); i += 2 {
+		width := ansi.StringWidth(pairs[i])
+		value := ansi.Truncate(pairs[i+1], width, "")
+		pairs[i+1] = value + strings.Repeat(" ", max(0, width-ansi.StringWidth(value)))
+	}
+	return strings.NewReplacer(pairs...).Replace(s)
 }

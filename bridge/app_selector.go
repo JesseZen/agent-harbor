@@ -17,15 +17,15 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 	p := newUIPage(m.width, 10000)
 	wrap := func(text string) {
 		for _, line := range strings.Split(ansi.Wrap(text, max(1, m.width-2), ""), "\n") {
-			p.line(line)
+			p.line(documentLine(line))
 		}
 	}
 	footer := newUIPage(m.width, 10000)
 	switch m.screen {
 	case "new-instance-loading", "new-catalog-loading":
-		p.line("Loading connection…")
+		p.title("Loading connection…")
 	case "new-instance":
-		p.line("🐦 Magpie · Choose instance")
+		p.title("Magpie · Choose instance")
 		p.search(m.instanceFilter, "Filter instances", m.uiFocus == "selector-search", m.input)
 		rows := m.instanceRows()
 		listTop := len(p.Lines)
@@ -50,7 +50,7 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 		}
 		footer.shortcut(uiAction{ID: "selector-select", Label: "Select instance", Key: "enter", Primary: true}, m.uiFocus == "selector-select")
 	case "new-catalog":
-		p.line("🐦 Magpie · Model or routing group")
+		p.title("Magpie · Model or routing group")
 		p.line(cleanUI(m.catalogInstanceLabel()))
 		p.search(m.catalogFilter, "Filter models and groups", m.uiFocus == "selector-search", m.input)
 		rows := m.filteredModels()
@@ -72,15 +72,7 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 		p.scrollRail(listTop, len(p.Lines)-listTop, len(rows), start)
 		wrap("Auxiliary requests may send conversation parts to other providers.")
 		wrap("Groups may switch members; an ID does not prove the destination.")
-		label := "Apply selection"
-		ack, err := m.service.AuxiliaryAcknowledged(m.draft.Instance)
-		if !ack {
-			label = "Acknowledge & apply"
-		}
-		action := uiAction{ID: "selector-apply", Label: label, Key: "enter", Primary: true}
-		if err != nil {
-			action.Disabled = err.Error()
-		}
+		action := uiAction{ID: "selector-apply", Label: "Acknowledge & apply", Key: "enter", Primary: true}
 		if len(rows) == 0 {
 			action.Disabled = "No matching models"
 		}
@@ -150,18 +142,24 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 				return m, nil, true
 			}
 			// Explicit consent and selection are one action; Create alone launches.
-			ack, e := m.service.AuxiliaryAcknowledged(m.draft.Instance)
-			if e == nil && !ack {
-				e = m.service.AcknowledgeAuxiliary(m.draft.Instance)
-			}
-			if e != nil {
-				m.notice = e.Error()
-				return m, nil, true
-			}
-			m.draft.Model = rows[m.catalogCursor].ID
-			m.screen = "new-form"
-			m.uiFocus = ""
-			m.notice = ""
+			model, instance := rows[m.catalogCursor].ID, m.draft.Instance
+			return m.serviceTask(func() error {
+				ack, err := m.service.AuxiliaryAcknowledged(instance)
+				if err == nil && !ack {
+					err = m.service.AcknowledgeAuxiliary(instance)
+				}
+				return err
+			}, func(n *harborModel, err error) tea.Cmd {
+				if err != nil {
+					n.notice = err.Error()
+					return nil
+				}
+				n.draft.Model = model
+				n.screen = "new-form"
+				n.uiFocus = ""
+				n.notice = ""
+				return nil
+			})
 		case id == "selector-select" || id == "selector-ack":
 			n, c := m.updateForm(uiKey("enter"))
 			return n, c, true
@@ -238,7 +236,7 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 	case "tab", "shift+tab":
 		ids := []string{}
 		listed := false
-		for _, h := range p.Hits {
+		for _, h := range p.focusHits() {
 			if h.ID == "search" {
 				ids = append(ids, "selector-search")
 			}

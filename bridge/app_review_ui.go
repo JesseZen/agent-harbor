@@ -46,19 +46,7 @@ func (m harborModel) reviewLayout() uiPage {
 	p := newUIPage(m.width, m.height)
 	p.line(paint(fg("brand"), "⚓ Harbor › "+reviewActionLabel(m.action)))
 	if m.screen == "confirm-evidence" {
-		lines := m.reviewEvidence()
-		count := max(1, m.height-3)
-		start := min(m.scroll, max(0, len(lines)-count))
-		for _, line := range lines[start:min(len(lines), start+count)] {
-			p.line(line)
-		}
-		p.scrollRail(1, min(count, len(p.Lines)-1), len(lines), start)
-		for len(p.Lines) < m.height-2 {
-			p.line("")
-		}
-		p.shortcut(uiAction{ID: "review-back", Label: "Back to decision", Key: "esc"}, true)
-		p.Hint = "↑↓ scroll"
-		return p.finish(0)
+		return secondaryDocument(m.width, m.height, reviewActionLabel(m.action)+" · Details", strings.Join(m.reviewEvidence(), "\n"), []uiAction{{ID: "review-back", Label: "Back to decision", Key: "esc"}}, "review-back", m.scroll)
 	}
 	p.line(paint(fg("text"), cleanUI(m.reviewed.Name)))
 	p.field("", "📂", "Project", cleanUI(m.reviewed.WorkingDirectory), false, false)
@@ -67,9 +55,24 @@ func (m harborModel) reviewLayout() uiPage {
 	if connection == "local" {
 		connection = "Native · client settings and login"
 	} else {
-		connection += " · " + m.reviewed.InstanceID + " / " + m.reviewed.MagpieModel
+		connection += " · " + m.reviewed.InstanceID
+		if m.action != "resume" && m.action != "query-resume" {
+			connection += " / " + m.reviewed.MagpieModel
+		}
 	}
 	p.field("", "🔌", "Connection", cleanUI(connection), false, false)
+	if m.reviewed.Mode == "magpie" && (m.action == "resume" || m.action == "query-resume") {
+		model := "Unavailable · inspect Details"
+		if joinedCodex(m.reviewed) {
+			model = "Codex saved selection"
+		} else if m.reviewedSelection != nil {
+			model = m.reviewedSelection.Model
+			if m.reviewedSelection.Effort != "" {
+				model += " · " + m.reviewedSelection.Effort
+			}
+		}
+		p.field("", "🧠", "Model", cleanUI(model), false, false)
+	}
 	conversation := m.reviewed.CodexSessionID
 	if m.reviewed.Conversation != nil {
 		conversation = m.reviewed.Conversation.Reference.Value
@@ -80,6 +83,19 @@ func (m harborModel) reviewLayout() uiPage {
 	impact := map[string]string{"start": "", "stop": "The conversation stays resumable.", "remove": "Codex history is kept. Remove only the Harbor record.", "review-reference": "Save this review only. This does not resume the conversation.", "query-resume": "", "resume": "", "close-previous": "Close only the inspected idle shell; keep conversation and record."}[m.action]
 	for _, line := range strings.Split(ansi.Wrap(impact, max(1, m.width-2), ""), "\n") {
 		if line != "" {
+			p.line(paint(fg("muted"), line))
+		}
+	}
+	if m.action == "query-resume" {
+		for _, line := range strings.Split(ansi.Wrap("Current login and other writers: unverified.", max(1, m.width-2), ""), "\n") {
+			p.line(paint(fg("warn"), line))
+		}
+		if m.reviewed.Conversation != nil && m.reviewed.Conversation.Status != "observed" {
+			p.field("", "", "Saved identity", m.reviewed.Conversation.Status, false, false)
+		}
+	}
+	if (m.action == "query-resume" || m.action == "resume") && m.reviewed.Mode == "magpie" {
+		for _, line := range strings.Split(ansi.Wrap("Routing group destinations can change.", max(1, m.width-2), ""), "\n") {
 			p.line(paint(fg("muted"), line))
 		}
 	}
@@ -95,8 +111,13 @@ func (m harborModel) reviewLayout() uiPage {
 
 	actions := m.reviewActions()
 	p.shortcuts(actions, m.uiFocus)
-	p.Hint = "Tab / ↑↓ focus"
-	return p.finish(0)
+	p.Hint = ""
+	layout := p.finish(m.scroll)
+	if layout.MaxScroll > 0 {
+		p.Hint = "↑↓ / PgUp/PgDown scroll"
+		return p.finish(m.scroll)
+	}
+	return layout
 }
 func (m harborModel) activateReview(id string) (tea.Model, tea.Cmd) {
 	m.uiFocus = ""
@@ -144,15 +165,23 @@ func (m harborModel) updateReviewUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, false
 	}
 	k := key.String()
-	if m.screen == "confirm" && (k == "tab" || k == "shift+tab" || k == "down" || k == "j" || k == "up" || k == "k") {
-		hits := m.reviewLayout().Hits
-		ids := []string{}
-		for _, r := range hits {
-			if r.ID != "" {
-				ids = append(ids, r.ID)
-			}
+	if m.screen == "confirm" && (k == "tab" || k == "shift+tab") {
+		return m, nil, true
+	}
+	if m.screen == "confirm" && (k == "up" || k == "down" || k == "j" || k == "k") {
+		if k == "up" || k == "k" {
+			m.scroll = max(0, m.scroll-1)
+		} else {
+			m.scroll = min(m.reviewLayout().MaxScroll, m.scroll+1)
 		}
-		m.uiFocus = uiCycle(m.uiFocus, ids, k == "shift+tab" || k == "up" || k == "k")
+		return m, nil, true
+	}
+	if m.screen == "confirm" && (k == "pgup" || k == "pgdown") {
+		delta := max(1, m.height/2)
+		if k == "pgup" {
+			delta = -delta
+		}
+		m.scroll = max(0, min(m.reviewLayout().MaxScroll, m.scroll+delta))
 		return m, nil, true
 	}
 	if m.screen == "confirm-evidence" {
@@ -162,7 +191,11 @@ func (m harborModel) updateReviewUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			m.uiFocus = "evidence"
 			m.scroll = 0
 		case "down", "j":
-			m.scroll = min(max(0, len(m.reviewEvidence())-max(1, m.height-3)), m.scroll+1)
+			m.scroll = min(m.reviewLayout().MaxScroll, m.scroll+1)
+		case "pgdown":
+			m.scroll = min(m.reviewLayout().MaxScroll, m.scroll+max(1, m.height/2))
+		case "pgup":
+			m.scroll = max(0, m.scroll-max(1, m.height/2))
 		case "up", "k":
 			m.scroll = max(0, m.scroll-1)
 		}
@@ -180,11 +213,10 @@ func (m harborModel) updateReviewUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	if k == "enter" && time.Since(m.reviewOpenedAt) < 200*time.Millisecond {
 		return m, nil, true
 	}
-	if k == "enter" && m.uiFocus != "" {
-		id := m.uiFocus
+	if k == "enter" {
 		m.uiFocus = ""
-		next, cmd := m.activateReview(id)
-		return next, cmd, true
+		n, c := m.update(msg)
+		return n, c, true
 	}
 	return m, nil, false
 }

@@ -16,7 +16,7 @@ async function main() {
   const output = option('--output');
   const modules = option('--modules');
   if (!input || !output || !modules) {
-    throw new Error('Usage: render_terminal.cjs --input ANSI_DIR --output DIR --modules NODE_MODULES [--check-divider] [--legacy-unicode]');
+    throw new Error('Usage: render_terminal.cjs --input ANSI_DIR --output DIR --modules NODE_MODULES [--check-divider] [--legacy-unicode] [--executable PATH]');
   }
   const load = createRequire(path.join(path.resolve(modules), '__visual_require.cjs'));
   const { chromium } = load('playwright');
@@ -25,7 +25,8 @@ async function main() {
   const css = path.join(path.dirname(xterm), '../css/xterm.css');
   const legacy = args.includes('--legacy-unicode');
   fs.mkdirSync(output, { recursive: true });
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const executable = option('--executable');
+  const browser = await chromium.launch({ ...(executable ? { executablePath: executable } : { channel: 'chrome' }), headless: true });
   const results = [];
   let failed = false;
   try {

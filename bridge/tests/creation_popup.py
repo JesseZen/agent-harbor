@@ -58,7 +58,7 @@ try:
   tm('send-keys','-t','app:0.0','-l',f'\x1b[<{button};{x};{y+1}M'+(f'\x1b[<0;{x};{y+1}m' if button==0 else ''));time.sleep(.4)
  def save(name):
   (root/(name+'.ansi')).write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
- keys('C-b');keys('a');wait('HARBOR')
+ keys('C-b');keys('a');wait('Search sessions')
  click('New session');wait('New session')
  click('Connection');wait('Choose instance');click('Native');click('Select');wait('New session')
  click('Name');keys('C-a','C-k');keys('-l','Mouse Native');click('Apply');wait('Mouse Native')
@@ -70,7 +70,7 @@ try:
  records=json.loads((root/'harbor/sessions.json').read_text());assert len(records)==1,records
  assert records[0]['working_directory']==str(root/'project')
  assert records[0]['name']=='Mouse Native' and records[0]['cli']=='codex' and records[0]['mode']=='local',records
- keys('C-b');keys('a');wait('HARBOR');keys('n');wait('New session')
+ keys('C-b');keys('a');wait('Search sessions');keys('n');wait('New session')
  keys('Up','Enter');keys('C-a','C-k');keys('-l','Keyboard Native');keys('Enter','Tab','Enter');time.sleep(2)
  records=json.loads((root/'harbor/sessions.json').read_text());assert len(records)==2,records
  assert records[1]['working_directory']==str(root/'project')

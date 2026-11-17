@@ -35,9 +35,10 @@ type endedEvidence struct {
 }
 
 type session struct {
-	Profile   *profileBinding `json:"profile,omitempty"`
-	RunnerPID int             `json:"runner_pid,omitempty"`
-	Ended     *endedEvidence  `json:"ended_evidence,omitempty"`
+	RecoverySetupSkipped bool            `json:"recovery_setup_skipped,omitempty"`
+	Profile              *profileBinding `json:"profile,omitempty"`
+	RunnerPID            int             `json:"runner_pid,omitempty"`
+	Ended                *endedEvidence  `json:"ended_evidence,omitempty"`
 
 	Reassociations []reassociationDecision `json:"reassociations,omitempty"`
 	Conversation   *conversationEvidence   `json:"conversation,omitempty"`
@@ -296,6 +297,7 @@ func createSessionIntent(d sessionDraft, address string, selected *magpieInstanc
 		return session{}, err
 	}
 	s := session{Profile: d.Profile, Version: 2, Name: filepath.Base(dir) + " · " + mode, ID: hex.EncodeToString(id[:]), WorkingDirectory: dir, CLI: d.Client, Mode: mode, MagpieURL: address, MagpieModel: model, Recovery: "needs_id", CreatedAt: time.Now().UTC()}
+	s.RecoverySetupSkipped = d.RecoveryChoice == "skip"
 	s.AutoNamePending = strings.TrimSpace(d.Name) == "" && d.Client == "codex"
 	if mode == "magpie" && d.Client == "codex" {
 		s.CodexConnection = "caller"

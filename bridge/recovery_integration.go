@@ -57,12 +57,23 @@ func codexHooksEnabled(home string) (*bool, error) {
 	return config.Features.Hooks, nil
 }
 
+var errRecoveryChoice = errors.New("choose how to prepare conversation recovery")
+
 func prepareCodexRecovery(s session, e profileClientEnvironment, herdr string, env []string, in io.Reader, out io.Writer) error {
+	return prepareCodexRecoveryChoice(s, e, herdr, env, "", in, out)
+}
+
+// A nil reader requests an in-app decision instead of handing the terminal to
+// a line prompt. Nothing is installed until the explicit choice is received.
+func prepareCodexRecoveryChoice(s session, e profileClientEnvironment, herdr string, env []string, choice string, in io.Reader, out io.Writer) error {
 	if s.CLI != "codex" || s.Profile == nil || herdr == "" {
 		return nil
 	}
 	if e.Binding != *s.Profile || e.Home == "" || environmentValue(env, "CODEX_HOME") != e.Home {
 		return ErrProfileIdentity
+	}
+	if !s.Started && s.RecoverySetupSkipped {
+		return nil
 	}
 	current, err := codexIntegrationStatus(herdr, s.WorkingDirectory, env)
 	if err != nil {
@@ -78,9 +89,14 @@ func prepareCodexRecovery(s session, e profileClientEnvironment, herdr string, e
 	// New isolated homes get the official integration as part of startup.
 	// Existing configuration and an explicit hooks=false require a choice.
 	if e.Kind != profileIsolated || enabled != nil && !*enabled {
-		fmt.Fprintln(out, "Conversation recovery needs Herdr's Codex identity hooks in this Profile. Codex will ask you to trust them.")
-		fmt.Fprint(out, "Type yes to prepare recovery, skip to open without automatic recovery, or Enter to cancel: ")
-		choice, _ := bufio.NewReader(in).ReadString('\n')
+		if choice == "" && in == nil {
+			return errRecoveryChoice
+		}
+		if choice == "" {
+			fmt.Fprintln(out, "Conversation recovery needs Herdr's Codex identity hooks in this Profile. Codex will ask you to trust them.")
+			fmt.Fprint(out, "Type yes to prepare recovery, skip to open without automatic recovery, or Enter to cancel: ")
+			choice, _ = bufio.NewReader(in).ReadString('\n')
+		}
 		switch strings.TrimSpace(choice) {
 		case "skip":
 			fmt.Fprintln(out, "Opening without automatic recovery. No conversation identity will be inferred.")
@@ -124,4 +140,25 @@ func sessionAttention(s sessionView) string {
 		return "Conversation identity needs review; inspect session details."
 	}
 	return ""
+}
+
+// Prepare before publishing a record or opening a pane. Recheck the exact
+// bound environment under its client lock; never use the selected Profile.
+func (h harborService) PrepareRecovery(d sessionDraft) error {
+	if d.Client != "codex" || d.Profile == nil || os.Getenv("HERDR_BIN_PATH") == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	release, err := acquireProfileClient(ctx, *d.Profile)
+	if err != nil {
+		return err
+	}
+	defer release()
+	e, err := h.ResolveProfileClient(profileClientRequest{Binding: *d.Profile})
+	if err != nil {
+		return err
+	}
+	s := session{CLI: d.Client, Profile: d.Profile, WorkingDirectory: d.Directory}
+	return prepareCodexRecoveryChoice(s, e, os.Getenv("HERDR_BIN_PATH"), e.Environment, d.RecoveryChoice, nil, io.Discard)
 }

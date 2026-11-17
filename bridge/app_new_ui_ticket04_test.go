@@ -15,11 +15,11 @@ func creationClick(t *testing.T, m harborModel, id string) harborModel {
 	}
 	for _, r := range p.Hits {
 		if r.ID == id {
-			next, _, handled := m.newSessionPageInput(tea.MouseMsg{X: r.X, Y: r.Y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+			next, cmd, handled := m.newSessionPageInput(tea.MouseMsg{X: r.X, Y: r.Y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
 			if !handled {
 				t.Fatal("unhandled")
 			}
-			return next.(harborModel)
+			return settleApp(next, cmd).(harborModel)
 		}
 	}
 	t.Fatalf("missing %s", id)

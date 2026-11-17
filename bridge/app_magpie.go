@@ -147,7 +147,7 @@ func (m harborModel) magpieView() string {
 		return "🔌 Bind an external running Magpie\n\n" + m.input.View() + "\n\n" + note("Harbor verifies its configuration identity.") + "\n" + note("It never starts or stops this external instance.")
 	}
 	if m.screen == "magpie-confirm" {
-		lines := []string{"🐦 Review Magpie action: " + m.action, "", "Instance  " + m.instanceID, ""}
+		lines := []string{"Review connection · " + map[string]string{"start": "Start gateway", "stop": "Stop gateway", "use": "Set default", "web": "Open web management", "manage": "Manage providers"}[m.action], "", "Instance  " + m.instanceID, ""}
 		switch m.action {
 		case "start":
 			lines = append(lines, note("Creates a Harbor-owned configuration and home."), note("Keeps running after Harbor closes."), note("Only an explicit stop ends it."), note("Subscription accounts are not imported."))

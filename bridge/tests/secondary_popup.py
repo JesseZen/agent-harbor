@@ -62,7 +62,7 @@ try:
   tm('send-keys','-t','app:0.0','-l',f'\x1b[<{button};{x};{y+1}M'+(f'\x1b[<0;{x};{y+1}m' if button==0 else ''));time.sleep(.4)
  def save(name):
   (root/(name+'.ansi')).write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
- keys('C-b');keys('a');wait('HARBOR');wait('Harbor 日本語')
+ keys('C-b');keys('a');wait('Search sessions');wait('Harbor 日本語')
  for cols,rows in [(160,45),(100,30),(60,20)]:
   tm('resize-window','-t','app:0','-x',str(cols),'-y',str(rows));time.sleep(.5)
   keys('i');wait('Session details');save('secondary-detail-'+str(cols));click('Back');wait('Search sessions')

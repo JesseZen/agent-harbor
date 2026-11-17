@@ -62,15 +62,15 @@ try:
   tm('send-keys','-t','app:0.0','-l',f'\x1b[<{button};{x};{y+1}M'+(f'\x1b[<0;{x};{y+1}m' if button==0 else ''));time.sleep(.4)
  def save(name):
   (root/(name+'.ansi')).write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
- keys('C-b');keys('a');wait('HARBOR');wait('Harbor 日本語')
+ keys('C-b');keys('a');wait('Search sessions');wait('Harbor 日本語')
  for cols,rows in [(160,45),(100,30),(60,20)]:
   tm('resize-window','-t','app:0','-x',str(cols),'-y',str(rows));time.sleep(.5)
   save('sessions-'+str(cols))
   if 'Docs review' not in capture():click('UI cleanup',64);wait('Docs review')
-  click('Docs review');assert 'HARBOR' in capture() and 'Review start' not in capture()
+  click('Docs review');assert 'Search sessions' in capture() and 'Start session' not in capture()
   click('Details');wait('Session details');assert 'Docs review' in capture();keys('Escape')
   click('Search sessions');keys('-l','UI cleanup');assert 'Docs review' not in capture();keys('Escape')
-  click('More');wait('Actions for UI cleanup');click('Rename');keys('Escape');wait('HARBOR')
+  click('More');wait('Actions for UI cleanup');click('Rename');keys('Escape');wait('Search sessions')
   keys('i');wait('Session details');assert 'UI cleanup' in capture();keys('Escape')
  # Navigation is independent of selection and uses actual controls.
  tm('resize-window','-t','app:0','-x','160','-y','45');time.sleep(.5)

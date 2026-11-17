@@ -93,8 +93,8 @@ func TestTicket05UseExactPathAndPreserveOtherDraftFields(t *testing.T) {
 	m.picker.entries = []directoryEntry{{path, "recent"}}
 	m.picker.cursor = 0
 	n, cmd, _ := m.directoryPageInput(uiKey("enter"))
-	m = n.(harborModel)
-	if cmd != nil || m.screen != "new-form" || m.draft.Directory != path || m.draft.Name != "Unchanged" || m.draft.Connection != "local" || m.creating {
+	m = settleApp(n, cmd).(harborModel)
+	if m.screen != "new-form" || m.draft.Directory != path || m.draft.Name != "Unchanged" || m.draft.Connection != "local" || m.creating {
 		t.Fatal("use changed draft or launched", m.draft)
 	}
 }

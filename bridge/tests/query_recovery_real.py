@@ -49,7 +49,9 @@ threading.Thread(target=server.serve_forever,daemon=True).start()
 (root/'codex/config.toml').write_text('check_for_update_on_startup = false\ncli_auth_credentials_store = "file"\nmodel = "test-model"\nmodel_provider = "fixture"\n[features]\nhooks = true\n[model_providers.fixture]\nname = "fixture"\nbase_url = "http://127.0.0.1:'+str(server.server_port)+'/v1"\nrequires_openai_auth = false\nwire_api = "responses"\n[projects.'+json.dumps(str(root/'project'))+']\ntrust_level = "trusted"\n')
 def key(*keys):tm('send-keys','-t','app:0.0',*keys);time.sleep(.25)
 def text(value):key('-l',value);time.sleep(.8)
-def records():return json.loads((root/'h/sessions.json').read_text())
+def records():
+ path=root/'h/sessions.json'
+ return json.loads(path.read_text()) if path.exists() else []
 def until(predicate,label,timeout=40):
  end=time.monotonic()+timeout
  while time.monotonic()<end:
@@ -66,10 +68,16 @@ try:
  tm('new-session','-d','-s','app','-x','160','-y','45',str(launcher))
  wait('First run');wait(codex_version);wait(herdr_version)
  key('Enter');wait('Review: local');key('Enter');wait('Harbor ^B a')
- key('C-b','a');wait('HARBOR');key('n');wait('New session')
- key('Enter')
+ key('C-b','a');wait('Search sessions');key('n');wait('New session')
+ key('C-s')
  if not a.preinstalled:
-  wait('Type yes to prepare recovery');text('skip' if a.skip_identity else 'yes');key('Enter')
+  wait('Conversation recovery')
+  tabs_before=run([root/'h/herdr/bin/herdr','tab','list']).stdout
+  key('Escape');wait('New session')
+  assert not records(), 'cancelled setup published a session record'
+  assert run([root/'h/herdr/bin/herdr','tab','list']).stdout==tabs_before, 'cancelled setup opened a terminal'
+  (root/'cancelled-setup.ansi').write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
+  key('C-s');wait('Conversation recovery');key('s' if a.skip_identity else 'y')
  until(lambda:'Ask Codex' in capture() or 'Hooks need review' in capture(),'Codex startup or hook trust')
  if 'Hooks need review' in capture():key('Down','Enter')
  wait('Ask Codex');time.sleep(2)
@@ -85,9 +93,9 @@ try:
  if a.skip_identity:
   assert not records()[0].get('conversation'), 'skipped setup inferred identity'
   text('/exit');key('Enter');until(lambda:records()[0].get('process_group',0)==0,'exit without identity')
-  key('C-b','a');wait('HARBOR');key('Enter');time.sleep(.5)
+  key('C-b','a');wait('Search sessions');key('Enter');time.sleep(.5)
   page=wait('Conversation identity was not captured')
-  assert 'Review resume' not in page and 'Resume conversation' not in page, 'offered impossible recovery'
+  assert 'Resume conversation' not in page and 'Resume conversation' not in page, 'offered impossible recovery'
   (root/'missing-identity-screen.txt').write_text(page)
   print('PASS skipped identity setup preserves missing reference and blocks invalid UI recovery before confirmation',codex_version,herdr_version,root,flush=True)
   raise SystemExit(0)

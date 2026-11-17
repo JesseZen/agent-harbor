@@ -154,6 +154,10 @@ func (m onboardingModel) choices() []onboardingChoice {
 }
 func (m onboardingModel) Init() tea.Cmd { return nil }
 func (m onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok && key.Type == tea.KeyCtrlZ {
+		return m, tea.Suspend
+	}
+
 	if next, cmd, ok := m.secondaryInput(msg); ok {
 		return next, cmd
 	}

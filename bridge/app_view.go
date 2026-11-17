@@ -97,6 +97,10 @@ func (m harborModel) details(s sessionView) string {
 	return strings.Join(lines, "\n")
 }
 func (m harborModel) View() string {
+	if m.servicePending {
+		return secondaryDocument(m.width, m.height, "Working", "Waiting for the service. Repeated actions are disabled.", []uiAction{{ID: "secondary:ctrl+c", Key: "ctrl+c", Label: "Close Harbor"}}, "", 0).view()
+	}
+
 	if m.settings != nil {
 		return m.settings.View()
 	}
@@ -153,32 +157,7 @@ func fitBlock(s string, width, height int) string {
 	return strings.Join(out, "\n")
 }
 
-func (m harborModel) helpView() string {
-	parent := m
-	parent.screen = m.previous
-	actions := []uiAction{}
-	if p, ok := parent.additionalPage(); ok {
-		actions = p.Actions
-	}
-	if m.previous == "confirm" || m.previous == "confirm-evidence" {
-		actions = parent.reviewActions()
-	}
-	if len(actions) > 0 {
-		lines := []string{"Harbor · " + m.previous, "", "Tab / Shift+Tab  Move control focus", "↑↓  Select a list row or scroll text", "Enter  Apply the focused control", "/  Search a list; text input owns ordinary characters", "Esc  Clear search, leave its field, then cancel the local page", "PgUp/PgDown  Scroll long documents", ""}
-		seen := map[string]bool{}
-		for _, a := range actions {
-			if a.Key != "" && !seen[a.ID] {
-				seen[a.ID] = true
-				lines = append(lines, actionHints([]uiAction{a}))
-			}
-		}
-		if strings.HasPrefix(m.previous, "new-") {
-			lines = append(lines, "", "Only Create saves and launches a session; field edits and connection Apply update the draft.")
-		}
-		return strings.Join(lines, "\n")
-	}
-	return m.sessionsHelp()
-}
+func (m harborModel) helpView() string { return renderHelp(m.width, m.contextHelp()) }
 
 func (m harborModel) confirmView() string {
 	model := m.reviewed.MagpieModel

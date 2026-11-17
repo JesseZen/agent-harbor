@@ -56,7 +56,7 @@ func (m harborModel) secondaryContent() (string, string, []uiAction, bool) {
 		if m.creating {
 			action = "Create session"
 		}
-		return "Working", action + " · " + target + "\n\nWaiting for the service. Repeated actions are disabled.\nThis operation cannot be cancelled here.", nil, true
+		return "Working", action + " · " + target + "\n\nWaiting for the service. Repeated actions are disabled.\nThis operation cannot be cancelled here.", []uiAction{{ID: "secondary:ctrl+c", Key: "ctrl+c", Label: "Close Harbor"}}, true
 	}
 	return "", "", nil, false
 }
@@ -64,9 +64,9 @@ func (m harborModel) secondaryContent() (string, string, []uiAction, bool) {
 // Keep shortcuts below the scrollable document, including short windows.
 func secondaryDocument(w, h int, title, body string, actions []uiAction, focus string, scroll int) uiPage {
 	p := newUIPage(w, h)
-	p.line(paint(fg("title").Bold(true), "⚓ HARBOR › "+cleanUI(title)))
+	p.line(paint(fg("brand"), "⚓ Harbor › "+cleanUI(title)))
 	for _, line := range strings.Split(ansi.Wrap(body, max(1, w-2), ""), "\n") {
-		p.line(line)
+		p.line(documentLine(line))
 	}
 	p.shortcuts(actions, focus)
 	if len(p.Lines) > h-1 && title != "First run" {
@@ -141,11 +141,6 @@ func (m harborModel) secondaryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 		return m, nil, true
 	}
 	if key == "tab" || key == "shift+tab" {
-		ids := []string{}
-		for _, a := range actions {
-			ids = append(ids, a.ID)
-		}
-		m.uiFocus = uiCycle(m.uiFocus, ids, key == "shift+tab")
 		return m, nil, true
 	}
 	if key == "enter" && strings.HasPrefix(m.uiFocus, "secondary:") {
@@ -260,7 +255,7 @@ func (m onboardingModel) secondaryPage() uiPage {
 	}
 	if m.help {
 		title = "Keyboard help"
-		body = "↑/k ↓/j Choose a connection\nEnter Review, then confirm\nEsc Cancel review or exit\nr Refresh checks\nCtrl+D/U Scroll\nq Cancel onboarding\n\nNothing attaches to Herdr until a choice succeeds."
+		body = renderHelp(w, []helpSection{{"Navigation", []helpRow{{"↑/k ↓/j", "Choose a connection"}, {"Enter", "Review, then confirm"}, {"Esc", "Cancel review or exit"}, {"r", "Refresh checks"}, {"^D / ^U", "Scroll"}, {"q", "Cancel onboarding"}}}, {"Connection", []helpRow{{"Enter", "Nothing attaches to Herdr until a choice succeeds"}}}})
 	}
 	if m.busy {
 		body += "\n\nWorking… " + m.choices()[m.cursor].Kind + " · waiting for the service. Repeated actions are disabled."
@@ -306,24 +301,8 @@ func (m onboardingModel) secondaryInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 			return m, nil, true
 		}
 		if v.String() == "tab" || v.String() == "shift+tab" {
-			actions := m.secondaryActions()
-			i := -1
-			for n, a := range actions {
-				if a.ID == m.focus {
-					i = n
-				}
-			}
-			d := 1
-			if v.String() == "shift+tab" {
-				d = -1
-			}
-			if len(actions) > 0 {
-				m.focus = actions[(i+d+len(actions))%len(actions)].ID
-			}
+			m.focus = ""
 			return m, nil, true
-		}
-		if v.String() == "enter" && m.focus != "" {
-			key = strings.TrimPrefix(m.focus, "onboard:")
 		}
 	default:
 		return m, nil, false

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +49,14 @@ esac
 			e := profileClientEnvironment{Binding: binding, Kind: tc.kind, Home: home}
 			env := replaceEnvironment(os.Environ(), map[string]*string{"CODEX_HOME": &home})
 			var out bytes.Buffer
+			if tc.kind == profileExisting || strings.Contains(tc.config, "hooks=false") {
+				if err := prepareCodexRecoveryChoice(s, e, herdr, env, "", nil, &out); !errors.Is(err, errRecoveryChoice) {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(filepath.Join(home, "installed")); !os.IsNotExist(err) {
+					t.Fatal("preflight installed without consent")
+				}
+			}
 			err := prepareCodexRecovery(s, e, herdr, env, strings.NewReader(tc.choice), &out)
 			if (err != nil) != tc.fail {
 				t.Fatalf("err=%v output=%s", err, out.String())
@@ -86,5 +95,24 @@ func TestRecoverIntegrationFailureDoesNotClaimReady(t *testing.T) {
 	wrong.Home = root + "-other"
 	if err := prepareCodexRecovery(s, wrong, herdr, []string{"CODEX_HOME=" + root}, strings.NewReader("yes\n"), &out); err != ErrProfileIdentity {
 		t.Fatal("wrong Profile accepted", err)
+	}
+}
+
+func TestRecoverySkipAppliesOnlyToFirstLaunch(t *testing.T) {
+	b := profileBinding{Client: "codex"}
+	s := session{CLI: "codex", Profile: &b, RecoverySetupSkipped: true}
+	e := profileClientEnvironment{Binding: b, Home: t.TempDir()}
+	var out bytes.Buffer
+	if err := prepareCodexRecovery(s, e, "/missing-herdr", []string{"CODEX_HOME=" + e.Home}, nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	wrong := e
+	wrong.Binding.ProfileID = "other"
+	if err := prepareCodexRecovery(s, wrong, "/missing-herdr", []string{"CODEX_HOME=" + e.Home}, nil, &out); err != ErrProfileIdentity {
+		t.Fatal("skip bypassed Profile validation", err)
+	}
+	s.Started = true
+	if err := prepareCodexRecovery(s, e, "/missing-herdr", []string{"CODEX_HOME=" + e.Home}, nil, &out); err == nil {
+		t.Fatal("creation choice bypassed later recovery checks")
 	}
 }

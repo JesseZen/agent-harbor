@@ -31,7 +31,7 @@ func TestFormOnlyCreateSubmitsAndGuardsCompletion(t *testing.T) {
 		t.Fatal(f.Calls)
 	}
 	model = appKey(model, "down")
-	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, cmd := model.Update(uiKey("ctrl+s"))
 	if cmd == nil {
 		t.Fatal("no create")
 	}
@@ -151,10 +151,8 @@ func TestFormDirectoryPickerSelectAndCancelStayLocal(t *testing.T) {
 	if n.screen != "new-form" || n.draft != m.draft {
 		t.Fatal(n.screen, n.draft)
 	}
-	next, _ = n.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	n = next.(harborModel)
-	next, _ = n.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	n = next.(harborModel)
+	n = appKey(n, "enter").(harborModel)
+	n = appKey(n, "enter").(harborModel)
 	if n.screen != "new-form" || n.draft.Name != "keep" || strings.Contains(strings.Join(f.Calls, "|"), "create") {
 		t.Fatal(n.screen, n.draft, f.Calls)
 	}
@@ -191,7 +189,7 @@ func TestFormNavigationAndCatalogFailurePreserveIntent(t *testing.T) {
 		t.Fatal("shift tab")
 	}
 	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if model.(harborModel).formFocus != 5 {
+	if model.(harborModel).formFocus != 0 {
 		t.Fatal("tab")
 	}
 	for _, k := range []string{"up", "enter", "discard", "esc"} {
@@ -223,7 +221,7 @@ func TestFormNoColorFocusAndHelp(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	m, _ := formFixture()
 	view := m.View()
-	if strings.Contains(view, "\x1b[") || !strings.Contains(view, "›ctrl+s Create‹") {
+	if strings.Contains(view, "\x1b[") || !strings.Contains(view, "^S Create") {
 		t.Fatal(view)
 	}
 	n := appKey(m, "?").(harborModel)

@@ -7,8 +7,8 @@ import (
 )
 
 func selectorKey(m harborModel, k string) harborModel {
-	n, _, _ := m.connectionSelectorInput(uiKey(k))
-	return n.(harborModel)
+	n, c, _ := m.connectionSelectorInput(uiKey(k))
+	return settleApp(n, c).(harborModel)
 }
 func TestTicket06CancelAndStaleCatalog(t *testing.T) {
 	m, _ := formFixture()

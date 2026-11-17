@@ -2,9 +2,25 @@
 
 视觉结构的逐页对照与统一方案见 [ui-visual-review.md](ui-visual-review.md)。
 
+## 底栏直按快捷键（2026-11-17 最新规则）
+
+用户再次确认底栏是键位提示，不是可 Tab 选中的控件。已移除 `›…‹`，Tab 遍历仅包含输入、列表与导航，不包含保存、返回、确认等 footer 动作。Settings 的方向键/Tab 不会进入 Restore/Save/Cancel；新建表单只遍历五个字段，创建直接 `^S`。目录/连接选择的 Tab 仅切换搜索和列表。确认页直接 Enter 确认、Esc 取消，保留原有输入穿透保护；recovery setup 的 y/s/Esc 决策保留，Enter 取消。
+
+已在四种外层尺寸（160×45、100×30、80×24、60×24）捕获 84 张新版本终端图并经 Unicode 15 渲染，核对实际 `_app` executable 哈希。Help 滚到底后第一次 Up 在四尺寸均移动。原生 Codex 门禁通过创建前取消无记录/无 tab、准备 hooks、正常退出与同一 Conversation/Native 连接精确恢复。macOS arm64 交叉构建通过，隔离 `version` 和代码签名检查通过；真实账号人工验收及跨机器网络、物理睡眠仍待验。
+
+Help 表格与明暗规则沿用下节；本节取代历史记录中“Tab/方向键选择确认按钮”及“安全默认焦点”的描述。全量隔离回归（75.978 秒）及 `go vet` 通过；新增测试证明底栏没有焦点标记和 Tab 目标，直接快捷键仍执行原 service 操作。
+
+## 快捷键与文档层级整改（2026-11-17）
+
+用户指出前轮截图的底栏全部暗灰、动作/导航提示分成两套、分隔点过多，以及 Help 为亮白文字堆叠。本轮修复共享组件：Ctrl 键显示 `^S`/`^R`；可用键位亮白、说明暗灰；动作和导航提示共用一条自动换行流，不再以中点分隔或强制另起导航行。不可用项保留暗灰和文字状态；字段、列表与导航仍保留明确选中状态。
+
+Settings、上下文 Help 与首次启动 Help 使用同一个分组 Key/Action 表格，左列明亮、右列暗灰，说明在单元格内换行，正文使用已有比例滚动条，返回快捷键固定底部。Details、Accounts 错误/说明、连接披露、目录预览与选择器说明共用标签明亮、值/段落暗灰的层级；不改变身份、确认和取消语义。
+
+全量隔离 Go 回归通过（65.991 秒），`go vet ./...` 通过。新增检查覆盖键位/说明分别着色、Ctrl 简写、底栏合流与鼠标命中、窄屏表格宽度和滚动条。本轮截图替代上一轮相同页面的视觉证据；真实账号人工验收和现有环境覆盖仍未进行。
+
 ## 实现状态（2026-11-17 更新）
 
-本文后面的表格是 `0934148` 的问题记录，不是完成清单。下表以 `ui/flow-audit` 分支代码为准；这是未完成的 UI 阶段性成果，尚未合入 main。
+本文后面的表格是 `0934148` 的问题记录，不是完成清单。下表以 `ui/flow-audit` 分支代码为准；下列本轮实现已落地；整体验收仍受末行列出的真实账号和终端场景限制，尚未合入 main。
 
 | 状态 | 内容 |
 | --- | --- |
@@ -14,17 +30,31 @@
 | 已实现 | 新建名称提示改为灰色输入框占位文字，输入后消失；会话重命名、Profile 新建/重命名与旧筛选编辑复用相同输入框；Profiles emoji 仅保留顶层 tab，正文 Profile 字段与页面标题去除重复 emoji。 |
 | 已实现 | 参考 omp 18.22.0：搜索框空闲灰框、聚焦淡紫框，⌕ 与真实文本输入光标，灰色 placeholder；底栏统一 ⎋ / ↵ / ⇥ 符号；长列表和文档右侧自动显示比例滚动条，短内容隐藏。 |
 | 已实现 | Accounts、Profiles、Settings、Connections、客户端空结果、Start/Resume 审阅移除重复操作说明；空状态统一灰色且不加 bullet。账号限制/路径进 Details，危险后果与连接披露仍保留。搜索输入时隐藏不生效的 Sessions 全局动作提示。 |
-| 部分实现 | 表单/确认页的快捷键位置统一；Accounts/Profiles 正文层级已统一；其余标题和所有确认页的上下键语义尚未全部统一。首次启动短页不再误写箭头滚动；完整帮助仍未补齐。 |
-| 部分实现 | 成功通知不再顶掉快捷键，已清理普通成功通知跨任务残留；不可用快捷键显示 unavailable，空状态与 NO_COLOR 活跃 tab 标记已补；其他错误原因和通知分类仍需继续检查。 |
+| 已实现 | 子任务标题统一 Harbor 路径；Session/Magpie 确认直接按 Enter/Esc，recovery setup 直接 y/s/Esc；方向键和 PgUp/PgDown 滚正文；Settings 有独立 ? Help，非输入页面共享上下文 Help。 |
+| 已实现 | 普通成功通知使用普通样式并到期清除，离开任务清除旧反馈；错误在 Details/Help 往返时保留、取消任务时清除；原连接缺失的明确选择披露保留到用户离开该任务。不可用动作仍显示实际原因。 |
 | 已实现 | 确认取消统一回列表焦点；Accounts 调用 Profile 选择/取消回 Accounts，选择后重查当前环境；Settings 从调用页打开并返回；More 首项焦点及上下键；搜索先清空再离开输入；共享 footer 布局输出滚动上限，输入/缩放后 clamp。 |
 | 已实现 | Profiles 使用现有字段/选中样式；Accounts 分开 Profile、登录状态、已存登录，明确空状态，路径与详细错误放 i Details；空列表 s 给出添加入口；Accounts/Profiles 的 ? 帮助可达。 |
-| 部分实现 | Review 与 Working 使用用户动作名（不显示 query-resume）；窄屏当前/聚焦 tab 保留标题，其余 tab 只显示图标；目录删除列表后重复的完整路径/预览；普通成功通知离开任务清除，并使用普通成功样式。其他页标题、通知分类与紧凑列表仍需继续统一。 |
-| 部分实现 | Profiles/Accounts 主层级、空账号、路径 Details、窄屏导航与目录重复路径已改；剩余标题/Details 全面统一、会话空 attention 行压缩尚未完成。 |
-| 未实现 | 创建时 recovery setup 的行式交接/取消残留；同步 service 调用移到命令；终端颜色能力与 ASCII fallback。 |
+| 已实现 | Review/Working 使用用户动作名；窄屏导航、目录去重保留；Session 无 attention 时两行，有警告时三行，窗口、滚动条和鼠标区域按实际行高计算。 |
+| 已实现 | Profiles/Accounts 主层级、空账号、路径 Details 与窄屏导航共用已有组件；Settings Details/Help、恢复 evidence 复用文档壳并保存/clamp 滚动。Profile 鼠标选择不再被空 ID 的只读字段命中区遮住，清除旧动作焦点后 Enter 应用可见 Profile。 |
+| 已实现 | 创建前在 popup 选择 Prepare/Skip/Cancel；取消不发布记录或 pane，保留草稿。当前产品入口的 service 工作在命令执行，Working 期间允许缩放且拒绝重复操作。颜色按终端能力降级，NO_COLOR/TERM=dumb 无颜色，AGENT_HARBOR_ASCII=1 使用等宽 ASCII chrome。 |
 | 仅方案，未落地 | 早先八张 Profiles/Accounts/Rename/Resume 视觉示意；其中保留按钮的部分已被用户“去掉按钮”决定替代。 |
-| 尚未验证 | 真实账号登录/浏览器授权、完整外部 Magpie bind、Magpie 实际模型回合/恢复、断线重连、嵌套 tmux/SSH 异常、suspend/panic 清理。 |
+| 已实际验证 | 原生 Codex/Herdr 的创建、回合和精确恢复；支持 caller-only + Profile isolation 的本地 Magpie 候选通过完整 Profile A/B 并发、历史/SQLite 隔离及跨重启恢复。fixture 使用合成提供方与显式登出环境，不代表真实 ChatGPT 账号授权。 |
+| 验收仍待闭合 | 真实账号登录/浏览器授权；外部 Magpie、模型选择、断线重连与终端异常等本轮结果见紧接的续完记录。未验证项不能计为整个 UI 完工；上游候选不代表已接受或发布。 |
 
 当前实现的测试与截图说明见 [视觉报告的实现记录](ui-visual-review.md)。以下保留原始观察，避免把旧问题记录误当作新版本表现。
+
+
+## 续完实现与验收（2026-11-17）
+
+从 `2752014` 继续修改，未改写或合入 main。创建先解析绑定 Profile，再在其客户端锁内检查 recovery setup；Prepare 只配置该环境，Skip 只对本次首次启动生效，后续恢复仍执行身份检查。取消回草稿，无 Harbor 记录、Herdr tab/pane。CLI 原行式决策仍保留给 CLI，popup 不再退出交给它。
+
+当前产品入口的 Profile 写入/默认值/选择、客户端解析、目录验证和辅助功能确认均通过命令返回带 ID 的结果；UI 不接收重复完成消息，不用旧 model 快照覆盖缩放。真实目录锁等待时 Working 页面仍可缩放，重复动作不执行。旧逐步创建器的兼容代码不是当前产品入口，本轮没有把它当作当前异步行为的证据。
+
+恢复确认保留一次明确 Resume，不增加重复接受步骤；主页面披露当前登录/其他写入者未验证和 routing group 可能变化，Details 展开原始证据。失败保持 Resume 焦点，同页重试使用原 Profile/Conversation/连接。共享空 ID hit 修复来自实际 A/B 门禁，避免鼠标看似选中另一 Profile、Enter 却继续使用旧环境。
+
+构建与验证均在 cnb 独立 checkout、HOME/XDG/Codex、tmux socket、端口和进程进行。最终全量 `GOWORK=off go test ./...` 通过（68.133 秒）。Magpie 从文档固定上游提交应用 caller-only 与 Profile isolation 两个本地补丁构建，对应 appdir/provider/gateway 的 caller-only 回归通过；相同版本字符串不能替代能力检查。完整 A/B fixture 通过真实原生客户端、合成提供方回合、历史/SQLite 隔离，以及选择另一 Profile 时和工作区/网关重启后的精确恢复。
+
+本节后续记录最终四尺寸、色彩和终端证据；未完成的验收保持明确列出。历史截图与测试耗时不覆盖最终源码。
 
 
 ## omp 参考控件与全页减噪（2026-11-17）
@@ -49,7 +79,7 @@ Accounts 总览只显示 Profile、登录状态、已存账号与一条空状态
 
 带色 ANSI 和按键事件保留在本地忽略目录的 `ui-flow-continuation-20261117` 证据包；PNG 是仓库 Unicode 15 renderer 对终端捕获的再渲染，不是设计图或原生像素截图。renderer 新增 80 列识别和 `--rows`，防止 60×24 捕获按旧 60×20 高度裁掉底部。
 
-仍未完成：recovery setup 行式交接及取消后的记录语义；所有同步 service 调用异步化；Magpie 确认与 Session 确认的导航全面统一；Settings 的独立 ? 帮助；ASCII fallback/终端颜色能力；完整真实账号、模型调用和精确恢复验收。恢复/停止的真实操作未执行，取消焦点由共享确认路径、状态测试和实际移除取消路径验证，不能当作真实恢复成功。
+当时未完成（现状以上表和续完记录为准）：recovery setup 行式交接及取消后的记录语义；所有同步 service 调用异步化；Magpie 确认与 Session 确认的导航全面统一；Settings 的独立 ? 帮助；ASCII fallback/终端颜色能力；完整真实账号、模型调用和精确恢复验收。恢复/停止的真实操作未执行，取消焦点由共享确认路径、状态测试和实际移除取消路径验证，不能当作真实恢复成功。
 
 ## 原始走查结论
 

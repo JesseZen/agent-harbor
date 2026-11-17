@@ -64,11 +64,11 @@ try:
  (root/'harbor/magpie.json').write_text(json.dumps(dict(default='managed',instances=instances)))
  keys('C-b');keys('m');wait('Search gateways');click('External fixture');wait('Selected instance')
  save('connection-external-160')
- click('Start Harbor-managed');wait('Review Magpie action: start');assert 'Instance  managed' in capture()
+ click('Start Harbor-managed');wait('Review connection · Start gateway');assert 'Instance  managed' in capture()
  click('Cancel / Back');wait('Search gateways')
- keys('x');wait('Review Magpie action: stop');assert 'Instance  managed' in capture()
+ keys('x');wait('Review connection · Stop gateway');assert 'Instance  managed' in capture()
  keys('Escape');wait('Search gateways')
- keys('w');wait('Review Magpie action: web');assert 'Instance  managed' in capture()
+ keys('w');wait('Review connection · Open web management');assert 'Instance  managed' in capture()
  keys('Escape');wait('Search gateways')
  keys('u');wait('future new sessions only');keys('Escape');wait('Search gateways')
  assert json.loads((root/'harbor/magpie.json').read_text())['default']=='managed'
@@ -102,12 +102,12 @@ try:
  external_id=next(i['id'] for i in registry['instances'] if i['address']==address)
  keys('r');wait('Search gateways');keys('/');keys('-l',address);keys('Enter')
  # The selected verified external remains alive while the named managed target starts/stops.
- keys('s');wait('Review Magpie action: start');keys('Tab');keys('Enter');wait('Magpie action completed')
+ keys('s');wait('Review connection · Start gateway');keys('Tab');keys('Enter');wait('Magpie action completed')
  assert external.poll() is None
  registry=json.loads((root/'harbor/magpie.json').read_text())
  managed=next(i for i in registry['instances'] if i['id']=='managed')
  assert managed['address']!=address
- keys('x');wait('Review Magpie action: stop');keys('Tab');keys('Enter');wait('Magpie action completed')
+ keys('x');wait('Review connection · Stop gateway');keys('Tab');keys('Enter');wait('Magpie action completed')
  assert external.poll() is None
  with urllib.request.urlopen(address+'/v1/models',timeout=3) as response:catalog=json.load(response)
  assert any('fixture-model' in i['id'] for i in catalog['data'])
@@ -118,7 +118,7 @@ try:
  assert json.loads((root/'harbor/magpie.json').read_text())['default']==external_id
  assert (root/'harbor/sessions.json').read_bytes()==session_bytes
  # Enter the actual upstream management UI and return without stopping it.
- keys('Enter');wait('Review Magpie action: manage');keys('Tab');keys('Enter')
+ keys('Enter');wait('Review connection · Manage providers');keys('Tab');keys('Enter')
  wait('1 agents');keys('2');wait('fixture');save('connection-upstream-160')
  keys('q');wait('Selected instance');assert external.poll() is None
  click('Details');wait('IDENTITY');keys('Escape');wait('Selected instance')
@@ -127,7 +127,7 @@ try:
  for cols,rows in [(100,30),(60,20)]:
   tm('resize-window','-t','app:0','-x',str(cols),'-y',str(rows));time.sleep(.5)
   save('connection-'+str(cols))
-  keys('s');wait('Review Magpie action: start');save('connection-confirm-'+str(cols));keys('Escape')
+  keys('s');wait('Review connection · Start gateway');save('connection-confirm-'+str(cols));keys('Escape')
  print('PASS real popup external selected real managed start/stop/cancel/offline/future default preserves saved session/sizes',root)
 
 finally:

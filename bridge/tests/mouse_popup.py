@@ -63,7 +63,7 @@ try:
  out=wait('Manage Magpie');(root/'magpie-help.txt').write_text(out)
  tm('send-keys','-t','app:0.0','Escape');time.sleep(.2);tm('send-keys','-t','app:0.0','Escape');time.sleep(.4)
  tm('send-keys','-t','app:0.0','C-b');tm('send-keys','-t','app:0.0','a')
- out=wait('HARBOR');assert 'n new' in out;(root/'popup.txt').write_text(out)
+ out=wait('Search sessions');assert 'n New session' in out;(root/'popup.txt').write_text(out)
  def mouse(text, button=0, double=False):
   import unicodedata
   def wcswidth(text):return sum(2 if unicodedata.east_asian_width(c) in ("W","F") else 0 if unicodedata.combining(c) else 1 for c in text)
@@ -82,8 +82,8 @@ try:
    mouse('Mouse First');time.sleep(.2)
   mouse('Mouse First',button=65);time.sleep(.3)
   assert any('› Mouse Second' in l for l in capture().splitlines()),capture()
-  mouse('Mouse Second',double=True);wait('Review start')
-  mouse('Mouse Second');time.sleep(.2);assert 'Review start' in capture(),capture()
+  mouse('Mouse Second',double=True);wait('Start session')
+  mouse('Mouse Second');time.sleep(.2);assert 'Start session' in capture(),capture()
   assert all(not r['started'] for r in json.loads((root/'harbor/sessions.json').read_text()))
   (root/('mouse-review-'+str(cols)+'.txt')).write_text(capture())
   tm('send-keys','-t','app:0.0','Escape');wait('Sessions ·')

@@ -55,7 +55,7 @@ try:
   keys('C-b');keys(',');wait('Harbor · Settings')
   (root/('settings-'+str(cols)+'.ansi')).write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
   keys('Escape')
- keys('C-b');keys('a');wait('HARBOR');keys(',');wait('Harbor · Settings')
+ keys('C-b');keys('a');wait('Search sessions');keys(',');wait('Harbor · Settings')
  def click(label):
   lines=capture().splitlines();y=next(i for i,line in enumerate(lines) if label in line)
   prefix=lines[y][:lines[y].index(label)]
@@ -85,7 +85,7 @@ try:
  keys('Down');keys('Enter');wait('Saved for this workspace')
  assert json.loads((root/'harbor/shortcuts.json').read_text())=={'harbor':'prefix+t','settings':'ctrl+g','magpie':'prefix+f'}
  keys('Escape');keys('q');time.sleep(.3)
- keys('C-b');keys('t');wait('HARBOR');keys('q')
+ keys('C-b');keys('t');wait('Search sessions');keys('q')
  keys('C-b');keys('f');wait('No recorded instances.');keys('q')
  keys('C-g');wait('Harbor · Settings');keys('Escape')
  # Detach and re-enter exact generated configuration, then stop and reopen.

@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 	"strings"
 )
 
@@ -49,12 +49,13 @@ func uiCycle(current string, ids []string, reverse bool) string {
 	return ids[0]
 }
 
-func newUIPage(w, h int) uiPage { return uiPage{Width: max(1, w), Height: max(1, h)} }
+func newUIPage(w, h int) uiPage      { return uiPage{Width: max(1, w), Height: max(1, h)} }
+func (p *uiPage) title(title string) { p.line(paint(fg("brand"), "⚓ Harbor › "+cleanUI(title))) }
 func (p *uiPage) line(s string) {
 	p.Lines = append(p.Lines, ansi.Truncate(s, max(1, p.Width-2), "…"))
 }
 func (p *uiPage) hit(id string, x, y, w, h int) {
-	if w > 0 && h > 0 && y >= 0 && y+h <= p.Height {
+	if id != "" && w > 0 && h > 0 && y >= 0 && y+h <= p.Height {
 		p.Hits = append(p.Hits, uiRect{x, y, w, h, id})
 	}
 }
@@ -116,17 +117,14 @@ func (p uiPage) view() string {
 		lines = lines[:p.Height]
 	}
 	for i, s := range lines {
-		s = " " + s
+		s = " " + chromeText(s)
 		s += strings.Repeat(" ", max(0, p.Width-ansi.StringWidth(s)))
 		if !colorOff() {
 			// Nested controls reset SGR backgrounds. Restore the page surface after
 			// those resets so trailing cells never expose the host terminal theme.
-			var r, g, b uint32
-			fmt.Sscanf(harborPalette["bg"], "#%02x%02x%02x", &r, &g, &b)
-			bg := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
-			var fr, fgc, fb uint32
-			fmt.Sscanf(harborPalette["text"], "#%02x%02x%02x", &fr, &fgc, &fb)
-			foreground := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", fr, fgc, fb)
+			profile := lipgloss.ColorProfile()
+			bg := "\x1b[" + profile.Convert(termenv.RGBColor(harborPalette["bg"])).Sequence(true) + "m"
+			foreground := "\x1b[" + profile.Convert(termenv.RGBColor(harborPalette["text"])).Sequence(false) + "m"
 			base := bg + foreground
 			s = base + strings.NewReplacer("\x1b[0m", "\x1b[0m"+base, "\x1b[m", "\x1b[m"+base, "\x1b[49m", bg, "\x1b[39m", foreground).Replace(s) + "\x1b[0m"
 		}
@@ -154,64 +152,73 @@ func (p uiPage) shortcutBar() uiPage {
 			line = ""
 		}
 	}
-	for _, a := range p.Actions {
-		if a.Key == "" {
-			continue
+	appendHint := func(key, label, id string, disabled, focused bool) {
+		key = keyLabel(key)
+		label = cleanUI(label)
+		if disabled {
+			label += " (unavailable)"
 		}
-		text := keyLabel(a.Key) + " " + cleanUI(a.Label)
-		if a.Disabled != "" {
-			text += " (unavailable)"
+		role := "text"
+		if disabled {
+			role = "muted"
 		}
-		if p.Focus == a.ID {
-			text = "›" + text + "‹"
+		text := paint(fg("muted"), label)
+		if key != "" {
+			text = paint(fg(role).Bold(true), key) + " " + text
 		}
-		if ansi.StringWidth(line)+ansi.StringWidth(text)+2 > p.Width-2 {
+		if line != "" && ansi.StringWidth(line)+2+ansi.StringWidth(text) > p.Width-2 {
 			flush()
 		}
 		if line != "" {
 			line += "  "
 		}
-		x, y := 1+ansi.StringWidth(line), len(bar.Lines)
-		role := "key"
-		if a.Disabled != "" {
-			role = "muted"
-		}
-		// A shortcut is one unit; wrap long labels without dropping the key.
 		parts := strings.Split(ansi.Wrap(text, max(1, p.Width-2), ""), "\n")
 		for i, part := range parts {
 			if i > 0 {
 				flush()
-				x, y = 1, len(bar.Lines)
 			}
-			if role == "muted" {
-				line += paint(fg(role), part)
-			} else {
-				line += paint(fg("muted"), part)
-			}
-			if a.Disabled == "" {
-				bar.hit(a.ID, x, y, ansi.StringWidth(part), 1)
+			x, y := 1+ansi.StringWidth(line), len(bar.Lines)
+			line += part
+			if id != "" && !disabled {
+				bar.hit(id, x, y, ansi.StringWidth(part), 1)
 			}
 		}
+	}
+	for _, a := range p.Actions {
+		if a.Key != "" {
+			appendHint(a.Key, a.Label, a.ID, a.Disabled != "", p.Focus == a.ID)
+		}
+	}
+	for _, hint := range strings.Split(p.Hint, " · ") {
+		if hint == "" {
+			continue
+		}
+		key, label := splitHint(hint)
+		appendHint(key, label, "", false, false)
 	}
 	flush()
-	if p.Hint != "" {
-		hintLine := ""
-		for _, hint := range strings.Split(symbolHints(p.Hint), " · ") {
-			if hintLine != "" && ansi.StringWidth(hintLine)+3+ansi.StringWidth(hint) > p.Width-2 {
-				bar.line(paint(fg("muted"), hintLine))
-				hintLine = ""
-			}
-			if hintLine != "" {
-				hintLine += " · "
-			}
-			hintLine += hint
-		}
-		for _, line := range strings.Split(ansi.Wrap(hintLine, max(1, p.Width-2), ""), "\n") {
-			bar.line(paint(fg("muted"), line))
-		}
-	}
-
 	return bar
+}
+
+// Hints and actions share one layout and the same bright-key/dim-description pair.
+func splitHint(hint string) (string, string) {
+	words := strings.Fields(symbolHints(hint))
+	at := 0
+	for at < len(words) {
+		word := words[at]
+		if word != "/" && word != "or" && word != "⇥" && word != "⇧⇥" && word != "↵" && word != "⎋" && !strings.ContainsAny(word, "↑↓←→^") && !strings.HasPrefix(word, "Pg") && word != "Tab" && word != "Shift+Tab" && word != "Esc" && word != "Enter" {
+			break
+		}
+		at++
+	}
+	if at == 0 {
+		if len(words) > 0 && words[0] == "Type" {
+			return "", strings.Join(words, " ")
+		}
+		key, label, _ := strings.Cut(strings.Join(words, " "), " ")
+		return key, label
+	}
+	return strings.Join(words[:at], " "), strings.Join(words[at:], " ")
 }
 
 func (p uiPage) finish(scroll int) uiPage {
@@ -353,6 +360,13 @@ func boxedInput(input textinput.Model, width int, placeholder, prompt string, fo
 }
 
 func keyLabel(key string) string {
+	if strings.HasPrefix(strings.ToLower(key), "ctrl+") {
+		return "^" + strings.ToUpper(key[5:])
+	}
+
+	if asciiUI() {
+		return key
+	}
 	switch strings.ToLower(key) {
 	case "esc", "escape":
 		return "⎋"
@@ -366,6 +380,10 @@ func keyLabel(key string) string {
 	return key
 }
 func symbolHints(s string) string {
+	if asciiUI() {
+		return s
+	}
+	s = controlKeyNotation(s)
 	return strings.NewReplacer("Shift+Tab", "⇧⇥", "shift+tab", "⇧⇥", "Enter", "↵", "enter", "↵", "Tab", "⇥", "tab", "⇥", "Esc", "⎋", "esc", "⎋").Replace(s)
 }
 
@@ -389,3 +407,18 @@ func (p *uiPage) scrollRail(top, height, total, offset int) {
 	}
 }
 func (p *uiPage) emptyState(text string) { p.line(paint(fg("muted"), cleanUI(text))) }
+
+// Footer hints remain clickable, but are not keyboard focus targets.
+func (p uiPage) focusHits() []uiRect {
+	actions := map[string]bool{}
+	for _, a := range p.Actions {
+		actions[a.ID] = true
+	}
+	hits := []uiRect{}
+	for _, hit := range p.Hits {
+		if !actions[hit.ID] {
+			hits = append(hits, hit)
+		}
+	}
+	return hits
+}

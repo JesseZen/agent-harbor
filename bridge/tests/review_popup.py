@@ -62,18 +62,18 @@ try:
   tm('send-keys','-t','app:0.0','-l',f'\x1b[<{button};{x};{y+1}M'+(f'\x1b[<0;{x};{y+1}m' if button==0 else ''));time.sleep(.4)
  def save(name):
   (root/(name+'.ansi')).write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
- keys('C-b');keys('a');wait('HARBOR');wait('Harbor 日本語')
+ keys('C-b');keys('a');wait('Search sessions');wait('Harbor 日本語')
  for cols,rows in [(160,45),(100,30),(60,20)]:
   tm('resize-window','-t','app:0','-x',str(cols),'-y',str(rows));time.sleep(.5)
-  click('More');wait('Actions for');click('Remove record');wait('Review remove')
+  click('More');wait('Actions for');click('Remove record');wait('Remove record')
   save('review-'+str(cols));assert len(json.loads((root/'harbor/sessions.json').read_text()))==3
   click('Inspect evidence');wait('Back to decision');save('review-evidence-'+str(cols));click('Back to decision')
   click('Cancel');wait('Search sessions');assert len(json.loads((root/'harbor/sessions.json').read_text()))==3
  tm('resize-window','-t','app:0','-x','160','-y','45');time.sleep(.5)
- click('More');wait('Actions for');click('Remove record');wait('Review remove');click('Remove record');wait('Search sessions')
+ click('More');wait('Actions for');click('Remove record');wait('Remove record');click('Remove record');wait('Search sessions')
  assert len(json.loads((root/'harbor/sessions.json').read_text()))==2
  assert (root/'project-0').is_dir()
- keys('Up');keys('x');wait('Review remove');keys('Tab');keys('Enter');wait('Search sessions')
+ keys('Up');keys('x');wait('Remove record');keys('Tab');keys('Enter');wait('Search sessions')
  assert len(json.loads((root/'harbor/sessions.json').read_text()))==1
  print('PASS contextual confirmation mouse/keyboard/cancel/evidence/remove preserves project',root)
 finally:

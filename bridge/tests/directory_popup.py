@@ -61,7 +61,7 @@ try:
  project=root/'project-日本語-🚢';project.mkdir()
  for i in range(24): (project/('folder-%02d-日本語'%i)).mkdir()
  (project/'folder-00-日本語'/'nested-synthetic').mkdir()
- keys('C-b');keys('a');wait('HARBOR')
+ keys('C-b');keys('a');wait('Search sessions')
  for cols,rows in [(160,45),(100,30),(60,20)]:
   tm('resize-window','-t','app:0','-x',str(cols),'-y',str(rows));time.sleep(.5)
   click('New session');wait('Project');click('Project');wait('Choose project');save('directory-known-'+str(cols))

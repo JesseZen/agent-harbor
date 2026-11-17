@@ -73,17 +73,25 @@ def main():
     def screen(text):return wait(lambda: text in capture(),text)
     def key(*keys):tm('send-keys','-t','app:0.0',*keys);time.sleep(.15)
     def text(value):tm('send-keys','-t','app:0.0','-l',str(value));time.sleep(.6)
-    def popup():key('C-b','a');screen('HARBOR')
+    def popup():
+        # Search placeholders disappear while a query is present. Detect the
+        # Sessions heading so a retained popup is not mistaken for a closed one.
+        wait(lambda: 'Harbor › Working' not in capture(), 'prior popup action settled')
+        if 'Harbor · Profile:' not in capture():key('C-b','a')
+        wait(lambda: 'Harbor · Profile:' in capture() or 'Harbor · Accounts' in capture(), 'management popup visible')
+        if 'Harbor · Profile:' not in capture():click('Sessions')
+        screen('Harbor · Profile:')
     def click(label):
         import unicodedata
         lines=capture().splitlines()
-        y=next(i for i,line in enumerate(lines) if label in line)
+        # Action captions can also name the page; footer controls come last.
+        y=max(i for i,line in enumerate(lines) if label in line)
         prefix=lines[y][:lines[y].index(label)]
         x=sum(2 if unicodedata.east_asian_width(c) in ('W','F') else 0 if unicodedata.combining(c) else 1 for c in prefix)+1
         tm('send-keys','-t','app:0.0','-l',f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m');time.sleep(.3)
     def reviewed_confirm():
-        # Confirmations initially focus Cancel and guard key/click penetration.
-        time.sleep(.25);key('Tab');key('Enter')
+        # Enter directly confirms; retain the key/click penetration guard.
+        time.sleep(.25);key('Enter')
     def records():
         path=root/'harbor/sessions.json'
         return json.loads(path.read_text()) if path.exists() else []
@@ -135,10 +143,13 @@ def main():
             env['HERDR_BIN']=str(root/'harbor/herdr/bin/herdr')
             config+='[mcp_servers.herdr]\ncommand = '+json.dumps(node)+'\nargs = ['+json.dumps(str(pathlib.Path(a.mcp).resolve()))+']\n'
         (root/'codex/config.toml').write_text(config)
-        # Caller-only transport requires a caller identity. Current Codex
-        # requires it before opening its TUI even for a synthetic Magpie group;
-        # this fixture always uses a synthetic key.
-        run([root/'bin/codex','login','--with-api-key'],input='sk-harbor-fixture\n')
+        # Explicit signed-out API connections use the fixture gateway credential.
+        # A synthetic API key cannot stand in for a confirmed ChatGPT account.
+        # Experimental App Server account tests retain their separate key path.
+        if a.experimental_codex_accounts:
+            run([root/'bin/codex','login','--with-api-key'],input='sk-harbor-fixture\n')
+        else:
+            run([root/'bin/codex','logout'])
         launcher=root/'launch.sh'
         launcher.write_text('#!/bin/sh\n'+''.join('export '+k+'='+shlex.quote(v)+'\n' for k,v in env.items())+'cd '+shlex.quote(str(root/'project'))+'\nagent-harbor\nread answer\n')
         launcher.chmod(0o700)
@@ -194,9 +205,9 @@ def main():
                 click('Connection');screen('Choose instance and model');click('Native');click('Select');screen('New session')
             click('Name');screen('Session name');text(name);click('Apply');screen('New session')
             click('Create')
-            wait(lambda:any(label in capture() for label in ('Ask Codex','Hooks need review','Type yes to prepare recovery')), 'Codex prompt or identity setup')
-            if 'Type yes to prepare recovery' in capture():
-                text('skip' if a.session_names else 'yes');key('Enter')
+            wait(lambda:any(label in capture() for label in ('Ask Codex','Hooks need review','Conversation recovery')), 'Codex prompt or identity setup')
+            if 'Conversation recovery' in capture():
+                key('s' if a.session_names else 'y')
                 wait(lambda:'Ask Codex' in capture() or 'Hooks need review' in capture(), 'Codex prompt or hook review')
             if 'Hooks need review' in capture():
                 key('Down','Enter')
@@ -264,7 +275,7 @@ def main():
             assert a.replacement, 'Profile recovery acceptance requires the Herdr query candidate'
             def profile_rows():return json.loads(run([binary,'profiles','list']).stdout)
             def profile_select(name):
-                popup();key('p');screen('Harbor · Profiles');click(name);key('Enter');screen('HARBOR');key('q')
+                popup();key('p');screen('Harbor · Profiles');click(name);key('Enter');screen('Harbor · Profile:');key('q')
             for name in ('PF Alpha','PF Beta'):
                 popup();key('p');screen('Harbor · Profiles');key('n');screen('Create isolated Profile');text(name);key('Enter');screen('Profile saved');key('Escape');key('q')
             profiles={p['name']:p for p in profile_rows()}
@@ -284,7 +295,7 @@ def main():
                 run([binary,'stop']);tm('kill-session','-t','app')
                 open_workspace();screen('Harbor ^B a')
                 popup();key('/');text('PF-A-one');key('Enter');key('c');screen('Close inspected shell');reviewed_confirm();time.sleep(.5)
-                if 'HARBOR' in capture():key('q')
+                if 'Harbor · Profile:' in capture():key('q')
                 # Replay the user's persisted final-read failure using the exact
                 # reference captured from this fixture's real first turn. No ID,
                 # Profile, connection or exit evidence is invented or changed.
@@ -292,15 +303,15 @@ def main():
                 saved['conversation']['status']='observation_unavailable';saved['recovery']='needs_review'
                 (root/'harbor/sessions.json').write_text(json.dumps(rows))
                 run([binary,'magpie','stop']);started=False
-                popup();key('/');text('PF-A-one');key('Enter');key('Enter');screen('Review query-resume')
+                popup();key('/');text('PF-A-one');key('Enter');key('Enter');screen('Resume conversation')
                 assert 'Use recorded conversation' not in capture(),'separate acceptance step still required'
                 (root/'recovery-before-click.txt').write_text(capture())
                 time.sleep(.3)  # pass the popup's input-penetration guard
                 click('Resume conversation')
                 wait(lambda:len(next(r for r in records() if r['id']==first['id']).get('reassociations',[]))==1,'saved reference reviewed by Resume')
-                screen('Review query-resume');time.sleep(.5)
+                screen('Resume conversation');time.sleep(.5)
                 failed=capture();(root/'recovery-retry-screen.txt').write_text(failed)
-                assert '› Resume conversation' in failed or '> Resume conversation' in failed,'failure moved focus away from Resume'
+                assert '↵ Resume conversation' in failed and '›↵' not in failed,'failure lost the direct Resume shortcut'
                 assert 'conversation observation needs review' not in failed,'same identity review dead end'
                 run([binary,'magpie','start']);started=True
                 click('Resume conversation');screen('Ask Codex');time.sleep(1);turn('AH_LOCAL_SECOND',relay_a)
@@ -332,7 +343,7 @@ def main():
                 agents=json.loads(run([wrapper,'agent','list']).stdout)['result']['agents']
                 return not any((agent.get('agent_session') or {}).get('value')==a1['codex_session_id'] for agent in agents)
             wait(a_conversation_released,'Herdr releases stopped A Conversation',timeout=15)
-            popup();key('/');text('PF-A-one');key('Enter');key('Enter');screen('Review query-resume');key('a');key('Enter')
+            popup();key('/');text('PF-A-one');key('Enter');key('Enter');screen('Resume conversation');key('a');key('Enter')
             screen('Ask Codex');time.sleep(1);turn('AH_LOCAL_SECOND',relay_a)
             wait(lambda:any('AH_LOCAL_FIRST' in marks and 'AH_LOCAL_SECOND' in marks for _,marks in relay_a.observed),'A recovered original history')
             resumed=next(r for r in records() if r['id']==a1['id'])
@@ -358,7 +369,7 @@ def main():
             open_workspace();screen('Harbor ^B a')
             for visible,name,marker,relay,first_marker in [('PF Alpha','PF-B-one','AH_RESUME_B',relay_b,'AH_RELAY_B'),('PF Beta','PF-A-one','AH_RESUME_C',relay_a,'AH_LOCAL_FIRST')]:
                 profile_select(visible)
-                popup();key('/');text(name);key('Enter');key('Enter');screen('Review query-resume');key('a');key('Enter')
+                popup();key('/');text(name);key('Enter');key('Enter');screen('Resume conversation');key('a');key('Enter')
                 screen('Ask Codex');time.sleep(1);turn(marker,relay)
                 wait(lambda:any(first_marker in marks and marker in marks for _,marks in relay.observed),'post-restart original history '+name)
                 current=next(r for r in records() if r['name']==name);prior=snapshot[name]
@@ -404,7 +415,7 @@ def main():
             assert saved_a['model']=='relay-a/test-model' and saved_a['model_reasoning_effort']=='high',saved_a
             assert (root/'codex/config.toml').read_bytes()==config_before,'picker changed the native settings'
         wait(lambda:notify_count()>notify_before,'existing notify after first managed turn')
-        key('C-b','m');screen('Magpie instances');key('Enter');screen('Review Magpie action: manage');reviewed_confirm()
+        key('C-b','m');screen('Magpie instances');key('Enter');screen('Review connection · Manage providers');reviewed_confirm()
         screen('1 agents')
         # Magpie's agent picker writes client settings. In a managed instance
         # those writes must not escape into the native Codex configuration.
@@ -480,14 +491,14 @@ def main():
             name,first,marker,relay=({'native':('UI-Native','AH_LOCAL_C','AH_RESUME_C',native),
                                       'magpie':('UI-A','AH_LOCAL_FIRST','AH_LOCAL_SECOND',relay_a)}[a.experimental_account_recovery])
             before=next(r for r in records() if r['name']==name)
-            popup();key('/');text(name);key('Tab');key('s');screen('Review stop');reviewed_confirm()
+            popup();key('/');text(name);key('Tab');key('s');screen('Stop process');reviewed_confirm()
             wait(lambda:not next(r for r in records() if r['name']==name).get('process_group'),'experimental session stopped')
             def herdr_released_conversation():
                 agents=json.loads(run([wrapper,'agent','list']).stdout)['result']['agents']
                 return not any((agent.get('agent_session') or {}).get('value')==before['codex_session_id'] for agent in agents)
             wait(herdr_released_conversation,'Herdr releases stopped conversation',timeout=15)
-            if 'HARBOR' in capture():key('q')
-            popup();key('/');text(name);key('Enter');screen('Review query-resume');key('a');key('Enter')
+            if 'Harbor · Profile:' in capture():key('q')
+            popup();key('/');text(name);key('Enter');screen('Resume conversation');key('a');key('Enter')
             screen('Ask Codex');turn(marker,relay)
             wait(lambda:any(first in marks and marker in marks for _,marks in relay.observed),'experimental recovery history')
             after=next(r for r in records() if r['name']==name)
@@ -557,12 +568,12 @@ def main():
         popup();key('/');text('UI-A');key('Tab');key('c');screen('Close inspected shell')
         key('Escape');key('c');screen('Close inspected shell');reviewed_confirm();time.sleep(.5)
         wait(lambda:next(r for r in records() if r['name']=='UI-A').get('ended_evidence'),'reviewed exit saved when closing its own popup')
-        if 'HARBOR' in capture():key('q')
+        if 'Harbor · Profile:' in capture():key('q')
         print('PASS restored idle shell review, cancellation and explicit close',flush=True)
         for ended_name in ['UI-B','UI-Native']:
             popup();key('/');text(ended_name);key('Tab');key('c');screen('Close inspected shell');reviewed_confirm();time.sleep(.5)
             wait(lambda:next(r for r in records() if r['name']==ended_name).get('ended_evidence'),'reviewed exit '+ended_name)
-            if 'HARBOR' in capture():key('q')
+            if 'Harbor · Profile:' in capture():key('q')
         print('PASS explicit restored-shell end evidence for all three original runs',flush=True)
 
         if a.replacement:
@@ -581,16 +592,16 @@ def main():
         else:negative_ui(root,binary,managed,run,popup,key,text,screen,capture,records,wait,saved)
         assert {r['name']:(r['codex_session_id'],r.get('instance_id'),r.get('magpie_model')) for r in records()}==saved
         for name,marker,relay,first in [('UI-A','AH_LOCAL_SECOND',relay_a,'AH_LOCAL_FIRST'),('UI-B','AH_RESUME_B',relay_b,'AH_RELAY_B'),('UI-Native','AH_RESUME_C',native,'AH_LOCAL_C')]:
-            popup();key('/');text(name);key('Enter');key('Enter');screen('Review query-resume' if a.replacement else 'Review resume');screen(name);
+            popup();key('/');text(name);key('Enter');key('Enter');screen('Resume conversation');screen(name);
             if a.model_picker and name=='UI-A':screen('relay-a/test-model');screen('high')
             if a.replacement:
-                screen('Use recorded conversation')
+                screen('Current login and other writers: unverified.')
+                key('i');screen('Details')
                 if name=='UI-Native':
                     screen('Native route or login may have changed')
                     screen('A provider name does not verify its destination')
-                click('Resume conversation');screen('Inspect evidence')
-                assert not next(r for r in json.loads(run([binary,'sessions','--json']).stdout) if r['name']==name)['running'], 'uncertainty did not gate execution'
-                key('a')
+                assert not next(r for r in json.loads(run([binary,'sessions','--json']).stdout) if r['name']==name)['running'], 'Details launched before confirmation'
+                key('Escape');screen('Resume conversation');key('Up')
             key('Enter');screen('Ask Codex');time.sleep(1);turn(marker,relay)
             wait(lambda:any(first in marks and marker in marks for _,marks in relay.observed),'history '+name)
             rec=next(r for r in records() if r['name']==name)
@@ -660,8 +671,8 @@ def main():
         # Retired history actions explain native tools and preserve the conversation.
         popup();key('/');text('UI-B');key('Tab');key('d');screen('Client history');key('Enter');key('q')
         assert any(r['name']=='UI-B' for r in records())
-        popup();key('/');text('UI-B');key('Tab');key('s');screen('Review stop');reviewed_confirm();time.sleep(.5)
-        if 'HARBOR' in capture():key('q')
+        popup();key('/');text('UI-B');key('Tab');key('s');screen('Stop process');reviewed_confirm();time.sleep(.5)
+        if 'Harbor · Profile:' in capture():key('q')
         if a.replacement:
             stopped=json.loads(run([binary,'sessions','--json']).stdout)
             (root/'after-ui-stop.json').write_text(json.dumps(stopped,indent=2))
@@ -675,7 +686,7 @@ def main():
             wait(lambda:not next(r for r in json.loads(run([binary,'sessions','--json']).stdout) if r['name']=='UI-B')['running'],'stopped UI-B before removal')
         history_before = {str(p): p.read_bytes() for p in (root/'codex/sessions').rglob('*'+saved['UI-B'][0]+'*') if p.is_file()}
         assert history_before
-        popup();key('/');text('UI-B');key('Tab');key('x');screen('Review remove');reviewed_confirm()
+        popup();key('/');text('UI-B');key('Tab');key('x');screen('Remove record');reviewed_confirm()
         if a.replacement:
             # A visible busy response must never be bypassed by touching the lock.
             # Record only fixture lock holders, then retry the same public action.
@@ -688,7 +699,7 @@ def main():
                 wait(lambda:run([binary,'remove',rec['id']],check=False,input='yes\n').returncode==0,'public record removal after runner cleanup',timeout=25)
         wait(lambda:all(r['name']!='UI-B' for r in records()),'record removal')
         assert all(pathlib.Path(p).read_bytes()==data for p,data in history_before.items())
-        if 'HARBOR' in capture():key('q')
+        if 'Harbor · Profile:' in capture():key('q')
         assert sum(e['kind']=='auxiliary-title' for relay in servers for e in relay.journal)>0, 'no real auxiliary request exercised'
         for label,relay,name in [('A',relay_a,'UI-A'),('B',relay_b,'UI-B'),('C',native,'UI-Native')]:
             assert all(e['session'] in ({saved[name][0],external_session_id} if label=='C' else {saved[name][0]}) for e in relay.journal if e['kind']=='main'), 'main request thread differs from recorded conversation'

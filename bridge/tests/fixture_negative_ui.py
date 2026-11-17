@@ -7,7 +7,7 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
     rollouts=lambda:set(p.name for p in (root/'codex/sessions').rglob('*.jsonl'))
     before=rollouts()
     def refusal(name,reason):
-        popup();key('/');text(name);key('Enter');screen('Review resume');screen('🚢 '+name);key('Enter');screen(reason)
+        popup();key('/');text(name);key('Enter');screen('Resume conversation');screen('🚢 '+name);key('Enter');screen(reason)
         (root/('negative-'+reason.split(';')[0].replace(' ','-')[:35]+'.txt')).write_text(capture())
         assert counts()==saved,'refusal changed connection or conversation'
         assert rollouts()==before,'refusal created a replacement conversation'
@@ -26,7 +26,7 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
     config.write_bytes(providers.read_bytes())
     wait(lambda:'relay-a/test-model' in run([binary,'models','--instance','managed','--json']).stdout,'restored model')
     run([managed,'group','set','ui-group','models=relay-b/test-model'])
-    popup();key('/');text('UI-A');key('Enter');screen('Review resume');screen('🚢 UI-A')
+    popup();key('/');text('UI-A');key('Enter');screen('Resume conversation');screen('🚢 UI-A')
     screen('Groups may change members');screen('Review in Magpie')
     assert counts()==saved and rollouts()==before
     key('Escape');key('q')

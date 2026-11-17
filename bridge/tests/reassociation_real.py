@@ -65,7 +65,7 @@ try:
  tm('new-session','-d','-s','app','-x','160','-y','45',str(launcher))
  wait('First run');wait('codex-cli 0.167.0');wait('herdr 0.9.5')
  key('Enter');wait('Review: local');key('Enter');wait('Harbor ^B a')
- key('C-b','a');wait('HARBOR');key('n');wait('New session')
+ key('C-b','a');wait('Search sessions');key('n');wait('New session')
  key('Enter');time.sleep(3)
  if 'Hooks need review' in capture(): key('Down');key('Enter')
  wait('Ask Codex');time.sleep(2)

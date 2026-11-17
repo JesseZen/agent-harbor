@@ -33,7 +33,7 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 
 	if m.notice != "" {
 		for _, line := range strings.Split(ansi.Wrap(m.notice, max(1, m.width-2), ""), "\n") {
-			p.line(line)
+			p.line(documentLine(line))
 		}
 	}
 	p.search(m.instanceFilter, "Search gateways", m.searchFocus == "magpie", m.input)
@@ -88,7 +88,7 @@ func (m harborModel) connectionDocument() uiPage {
 				continue
 			}
 			for _, wrapped := range strings.Split(ansi.Wrap(line, max(1, m.width-2), ""), "\n") {
-				p.line(wrapped)
+				p.line(documentLine(wrapped))
 			}
 		}
 	}
@@ -102,6 +102,9 @@ func (m harborModel) connectionDocument() uiPage {
 	}
 	footer.shortcuts(actions, m.uiFocus)
 	footer.Hint = "↑↓ / PgUp/PgDown scroll"
+	if m.screen == "magpie-confirm" {
+		footer.Hint = "↑↓ / PgUp/PgDown scroll · PgUp/PgDown scroll"
+	}
 	return p.withFooter(footer, m.height, m.scroll)
 }
 func (m harborModel) connectionActivate(id string) (tea.Model, tea.Cmd) {
@@ -241,7 +244,7 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			if m.screen != "magpie" {
 				p, _ := m.connectionPage()
 				ids := []string{}
-				for _, r := range p.Hits {
+				for _, r := range p.focusHits() {
 					if r.ID != "" {
 						ids = append(ids, r.ID)
 					}
@@ -256,7 +259,7 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			m.height = h
 			m.scroll = s
 			ids := []uiRect{}
-			for _, r := range p.Hits {
+			for _, r := range p.focusHits() {
 				if r.ID != "" {
 					ids = append(ids, r)
 				}
@@ -291,7 +294,7 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		if key == "enter" && m.screen == "magpie-bind" && m.uiFocus == "search" {
 			m.uiFocus = ""
 		}
-		if key == "enter" && m.uiFocus != "" {
+		if key == "enter" && m.uiFocus != "" && m.screen != "magpie-confirm" {
 			n, c := m.connectionActivate(m.uiFocus)
 			return n, c, true
 		}
@@ -332,7 +335,7 @@ func (m harborModel) connectionRevealSelected() harborModel {
 	m.height = h
 	m.scroll = s
 	id := "instance:" + rows[min(m.instanceCursor, len(rows)-1)].ID
-	for _, r := range p.Hits {
+	for _, r := range p.focusHits() {
 		if r.ID == id {
 			if r.Y < m.scroll {
 				m.scroll = r.Y

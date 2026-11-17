@@ -23,7 +23,7 @@ crooked; old previews using that default are not reliable alignment evidence.
 Install development-only dependencies in an isolated temporary prefix:
 `@xterm/xterm@6.0.0`, `@xterm/addon-unicode-graphemes@0.4.0`, and
 `playwright@1.60.0`. Pass that prefix's `node_modules` as `--modules`; Chrome must
-be available. These packages are not bundled with Agent Harbor.
+be available; `--executable PATH` can select an existing Chromium executable. These packages are not bundled with Agent Harbor.
 
 ```
 node bridge/tests/render_terminal.cjs --input ANSI_DIR --output OUTPUT_DIR --modules NODE_MODULES --check-divider
@@ -103,7 +103,9 @@ finishes a turn, exits with `/exit`, and recovers the exact Conversation and
 context without `bind` or `reassociate`. `--preinstalled` retains the prepared
 fixture path; `--skip-identity` checks that explicitly skipped setup leaves the
 reference missing and stops UI recovery before confirmation. The Profile A/B gate likewise leaves scoped integration installation
-to Harbor at first launch. Setup tests cover approval, skip, cancellation, explicit
+to Harbor at first launch. The native gate also cancels preparation before creating a record, verifies no
+terminal was opened, then re-enters the draft and exercises Prepare or Skip.
+Setup tests cover approval, skip, cancellation, explicit
 hooks disablement, installation failure, repeated launches and an unrelated
 ambient Codex home. Missing-reference UI tests stop before confirmation; normal
 identity reminders must not be rendered as list warnings.
@@ -190,3 +192,18 @@ as unavailable in fixture-owned state. It verifies one Resume action records the
 exact saved reference, a real gateway failure preserves Resume focus, and same-page
 retry restores the original Magpie conversation and first-turn context. No user
 state is modified; this remains synthetic-provider evidence.
+
+
+`terminal_lifecycle.py --test-binary TEST_BINARY` is the isolated Linux PTY gate.
+Build its opt-in production-model probe with `go test -c -o TEST_BINARY` in the
+same isolated test environment. It uses a fake service, checks real shell job
+control and retained search input, and compares termios before/after normal exit,
+Ctrl+C, an injected model panic, and Ctrl+Z/fg. It also checks alternate-screen,
+cursor, mouse and bracketed-paste cleanup sequences. This gate exercises the
+production model and Bubble Tea options, not real client recovery.
+
+`remote_workspace.py --identity-file KEY` can use a disposable SSH key for an
+isolated transport fixture. Authentication remains native OpenSSH; the key is not
+copied into Harbor state. Record whether the server was loopback or a separate
+machine; loopback disconnect evidence does not establish physical sleep or a
+cross-machine network failure.

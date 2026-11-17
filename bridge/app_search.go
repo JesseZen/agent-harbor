@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 	"github.com/sahilm/fuzzy"
 	"strings"
 )
@@ -241,7 +243,7 @@ func highlightPositions(line string, positions map[int]bool) string {
 		}
 		r := []rune(line)[0]
 		if positions[index] {
-			out.WriteString("\x1b[1;38;2;" + brandRGB() + "m")
+			out.WriteString("\x1b[1;" + lipgloss.ColorProfile().Convert(termenv.RGBColor(harborPalette["brand"])).Sequence(false) + "m")
 			out.WriteRune(r)
 			out.WriteString("\x1b[0m" + active)
 		} else {

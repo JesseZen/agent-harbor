@@ -210,8 +210,9 @@ func TestShortcutSaveTransaction(t *testing.T) {
 func TestSettingsDetailsOwnMouse(t *testing.T) {
 	m := newSettingsModel()
 	m.details = true
+	m.notice = strings.Repeat("Long detail evidence. ", 100)
 	m.cursor = 4
-	next, cmd := m.Update(tea.MouseMsg{X: 3, Y: m.height - 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	next, cmd := m.Update(tea.MouseMsg{X: 0, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	n := next.(settingsModel)
 	if n.busy || cmd != nil || !n.details {
 		t.Fatal("hidden save activated")

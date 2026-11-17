@@ -140,6 +140,7 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			return n, c, true
 		}
 		if strings.HasPrefix(id, "profile-row:") {
+			m.uiFocus = ""
 			for i, p := range m.profiles {
 				if p.ID == strings.TrimPrefix(id, "profile-row:") {
 					m.profileCursor = i
@@ -156,13 +157,8 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				m.notice = err.Error()
 				return m, nil, true
 			}
-			if err := m.service.SetProfileDefaultInstance(b, strings.TrimPrefix(id, "profile-instance:")); err != nil {
-				m.notice = err.Error()
-			} else {
-				m.notice = "Default saved; existing sessions keep their recorded instance."
-				m.screen = "profile-list"
-			}
-			return m, m.loadProfiles(), true
+			instance := strings.TrimPrefix(id, "profile-instance:")
+			return m.saveProfileDefault(b, instance)
 		}
 		k = strings.TrimPrefix(id, "profile:")
 		iskey = true
@@ -173,7 +169,7 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	if k == "tab" || k == "shift+tab" {
 		page, _ := m.profilePage()
 		ids := []string{}
-		for _, hit := range page.Hits {
+		for _, hit := range page.focusHits() {
 			if strings.HasPrefix(hit.ID, "nav:") || strings.HasPrefix(hit.ID, "profile:") || strings.HasPrefix(hit.ID, "profile-instance:") {
 				ids = append(ids, hit.ID)
 			}
@@ -222,38 +218,53 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	}
 	if m.screen == "profile-bind" {
 		if (k == "confirm-bind" || k == "ctrl+y") && m.profileReview != nil {
-			r := m.profileReview
-			if err := m.service.ReviewSessionProfile(sessionApproval{Session: r.Session, Confirmed: true}, r.Environment.Binding); err != nil {
-				m.notice = err.Error()
-				return m, nil, true
-			}
-			m.profileReview = nil
-			m.uiFocus = ""
-			m.screen = "profile-list"
-			m.notice = "Original environment binding recorded; conversation and connection unchanged."
-			return m, m.load(), true
+			r := *m.profileReview
+			return m.serviceTask(func() error {
+				return m.service.ReviewSessionProfile(sessionApproval{Session: r.Session, Confirmed: true}, r.Environment.Binding)
+			}, func(n *harborModel, err error) tea.Cmd {
+				if err != nil {
+					n.notice = err.Error()
+					return nil
+				}
+				n.profileReview = nil
+				n.uiFocus = ""
+				n.screen = "profile-list"
+				n.notice = "Original environment binding recorded; conversation and connection unchanged."
+				return n.load()
+			})
 		}
 		return m, nil, true
 	}
 	if m.screen == "profile-new" || m.screen == "profile-rename" {
 		if k == "enter" {
-			var err error
-			if m.screen == "profile-new" {
-				_, err = m.service.CreateProfile(profileCreateRequest{Name: m.input.Value(), Kind: profileIsolated})
-			} else if m.profileCursor < len(m.profiles) {
-				b, e := bindingOf(m.profiles[m.profileCursor], "codex")
-				err = e
-				if e == nil {
-					err = m.service.RenameProfile(b, m.input.Value())
+			name, screen := m.input.Value(), m.screen
+			var b profileBinding
+			if screen == "profile-rename" {
+				if m.profileCursor >= len(m.profiles) {
+					return m, nil, true
+				}
+				var err error
+				b, err = bindingOf(m.profiles[m.profileCursor], "codex")
+				if err != nil {
+					m.notice = err.Error()
+					return m, nil, true
 				}
 			}
-			if err != nil {
-				m.notice = err.Error()
-				return m, nil, true
-			}
-			m.screen = "profile-list"
-			m.notice = "Profile saved"
-			return m, m.loadProfiles(), true
+			return m.serviceTask(func() error {
+				if screen == "profile-new" {
+					_, err := m.service.CreateProfile(profileCreateRequest{Name: name, Kind: profileIsolated})
+					return err
+				}
+				return m.service.RenameProfile(b, name)
+			}, func(n *harborModel, err error) tea.Cmd {
+				if err != nil {
+					n.notice = err.Error()
+					return nil
+				}
+				n.screen = "profile-list"
+				n.notice = "Profile saved"
+				return n.loadProfiles()
+			})
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
@@ -274,23 +285,20 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			if m.profileDefaultCursor > 0 {
 				id = m.profileInstances[m.profileDefaultCursor-1].ID
 			}
-			if err == nil {
-				err = m.service.SetProfileDefaultInstance(b, id)
-			}
 			if err != nil {
 				m.notice = err.Error()
-			} else {
-				m.screen = "profile-list"
-				m.notice = "Default saved; existing sessions unchanged."
-				return m, m.loadProfiles(), true
+				return m, nil, true
 			}
+			return m.saveProfileDefault(b, id)
 		}
 		return m, nil, true
 	}
 	switch k {
 	case "up", "k":
+		m.uiFocus = ""
 		m.profileCursor = max(0, m.profileCursor-1)
 	case "down", "j":
+		m.uiFocus = ""
 		m.profileCursor = min(max(0, len(m.profiles)-1), m.profileCursor+1)
 	case "n":
 		m.screen = "profile-new"
@@ -308,51 +316,76 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	case "enter":
 		if m.profileCursor < len(m.profiles) {
 			b, err := bindingOf(m.profiles[m.profileCursor], "codex")
-			if err == nil {
-				err = m.service.SelectProfile(b)
-			}
 			if err != nil {
 				m.notice = err.Error()
-			} else {
-				m.activeProfile = &b
-				m.accountProfile = &b
-				m.accountSnapshot = nil
-				m.accountGeneration++
-				m.generation++
-				m.screen = "sessions"
-				m.notice = "Profile selected: " + m.activeProfileLabel()
-				if m.profileReturn != "" {
-					m.screen, m.scroll, m.uiFocus = m.profileReturn, m.profileReturnScroll, ""
-					m.profileReturn = ""
-					return m, m.inspectAccounts(b), true
-				}
+				return m, nil, true
 			}
+			return m.serviceTask(func() error { return m.service.SelectProfile(b) }, func(n *harborModel, err error) tea.Cmd {
+				if err != nil {
+					n.notice = err.Error()
+					return nil
+				}
+				n.activeProfile = &b
+				n.accountProfile = &b
+				n.accountSnapshot = nil
+				n.accountGeneration++
+				n.generation++
+				n.screen = "sessions"
+				n.uiFocus = "list"
+				n.notice = "Profile selected: " + n.activeProfileLabel()
+				if n.profileReturn != "" {
+					n.screen, n.scroll, n.uiFocus = n.profileReturn, n.profileReturnScroll, ""
+					n.profileReturn = ""
+					return n.inspectAccounts(b)
+				}
+				return n.load()
+			})
 		}
 	case "d":
-		instances, err := m.service.Instances()
-		if err != nil {
-			m.notice = err.Error()
-		} else {
-			m.profileInstances = instances
-			m.screen = "profile-default"
-		}
+		var instances []magpieInstance
+		return m.serviceTask(func() error { var err error; instances, err = m.service.Instances(); return err }, func(n *harborModel, err error) tea.Cmd {
+			if err != nil {
+				n.notice = err.Error()
+				return nil
+			}
+			n.profileInstances = instances
+			n.uiFocus = ""
+			n.profileDefaultCursor = 0
+			if n.profileCursor < len(n.profiles) {
+				for i, instance := range instances {
+					if instance.ID == n.profiles[n.profileCursor].DefaultInstanceID {
+						n.profileDefaultCursor = i + 1
+					}
+				}
+			}
+			n.screen = "profile-default"
+			return nil
+		})
 	case "b":
 		if s, ok := m.selected(); ok && !s.External && s.Profile == nil && m.profileCursor < len(m.profiles) {
 			b, err := bindingOf(m.profiles[m.profileCursor], s.CLI)
-			var e profileClientEnvironment
-			if err == nil {
-				e, err = m.service.ResolveProfileClient(profileClientRequest{Binding: b})
-			}
 			if err != nil {
 				m.notice = err.Error()
-			} else if e.Kind != profileExisting {
-				m.notice = "Choose the original existing environment; moving a Conversation into an isolated Profile is unsupported."
-			} else {
-				m.profileReview = &profileReviewState{Session: s.session, Environment: e}
-				m.screen = "profile-bind"
-				m.uiFocus = "profile:esc"
-				m.notice = ""
+				return m, nil, true
 			}
+			var e profileClientEnvironment
+			return m.serviceTask(func() error {
+				var err error
+				e, err = m.service.ResolveProfileClient(profileClientRequest{Binding: b})
+				return err
+			}, func(n *harborModel, err error) tea.Cmd {
+				if err != nil {
+					n.notice = err.Error()
+				} else if e.Kind != profileExisting {
+					n.notice = "Choose the original existing environment; moving a Conversation into an isolated Profile is unsupported."
+				} else {
+					n.profileReview = &profileReviewState{Session: s.session, Environment: e}
+					n.screen = "profile-bind"
+					n.uiFocus = "profile:esc"
+					n.notice = ""
+				}
+				return nil
+			})
 		}
 	}
 	return m, nil, true
@@ -383,4 +416,16 @@ func (m harborModel) profileDisplayLabel(b *profileBinding) string {
 		}
 	}
 	return "Profile " + b.ProfileID
+}
+
+func (m harborModel) saveProfileDefault(b profileBinding, id string) (tea.Model, tea.Cmd, bool) {
+	return m.serviceTask(func() error { return m.service.SetProfileDefaultInstance(b, id) }, func(n *harborModel, err error) tea.Cmd {
+		if err != nil {
+			n.notice = err.Error()
+			return nil
+		}
+		n.screen = "profile-list"
+		n.notice = "Default saved; existing sessions keep their recorded instance."
+		return n.loadProfiles()
+	})
 }

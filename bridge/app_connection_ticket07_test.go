@@ -84,7 +84,14 @@ func TestConnectionTicket07KeyboardReachabilityAndSearch(t *testing.T) {
 				}
 			}
 		}
-		for _, id := range []string{"conn:s", "conn:x", "conn:w", "conn:u", "conn:enter", "search"} {
+		for _, key := range []string{"s", "x", "w", "u", "enter"} {
+			direct := connectionFixture()
+			n, _, _ := direct.connectionPageInput(uiKey(key))
+			if n.(harborModel).screen != "magpie-confirm" {
+				t.Fatalf("direct %s did not open confirmation", key)
+			}
+		}
+		for _, id := range []string{"search"} {
 			if !found[id] {
 				t.Fatalf("%v cannot reach %s", size, id)
 			}

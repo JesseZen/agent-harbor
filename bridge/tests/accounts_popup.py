@@ -63,7 +63,7 @@ try:
   tm('send-keys','-t','app:0.0','-l',f'\x1b[<0;{x};{y+1}M'+f'\x1b[<0;{x};{y+1}m');time.sleep(.4)
  def save(name):
   (root/(name+'.ansi')).write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
- keys('C-b');keys('a');wait('HARBOR')
+ keys('C-b');keys('a');wait('Search sessions')
  for cols,rows in [(160,45),(100,30),(60,20)]:
   tm('resize-window','-t','app:0','-x',str(cols),'-y',str(rows));time.sleep(.5)
   keys('a');wait('Select saved login');save('accounts-'+str(cols))

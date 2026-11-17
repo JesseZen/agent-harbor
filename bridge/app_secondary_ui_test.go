@@ -83,30 +83,28 @@ func TestSecondaryRenameOwnsTextAndLateResult(t *testing.T) {
 		t.Fatal("late result stole page")
 	}
 }
-func TestSecondaryOnboardingMouseReview(t *testing.T) {
-	m := onboardingModel{service: &fakeOnboardingService{}, width: 60, height: 20, report: onboardingReport{Ready: true}}
-	p := m.secondaryPage()
-	for _, hit := range p.Hits {
-		if hit.ID == "onboard:down" {
-			next, _ := m.Update(tea.MouseMsg{X: hit.X, Y: hit.Y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
-			m = next.(onboardingModel)
+func TestSecondaryDependencyMouseRefresh(t *testing.T) {
+	f := &fakeOnboardingService{report: onboardingReport{Ready: true}}
+	m := onboardingModel{service: f, width: 60, height: 20}
+	for _, hit := range m.secondaryPage().Hits {
+		if hit.ID == "onboard:r" {
+			next := appKeyMouseRefresh(m, hit.X, hit.Y)
+			if !next.done {
+				t.Fatal("refresh did not continue")
+			}
+			return
 		}
 	}
-	if m.cursor != 1 {
-		t.Fatal("choice mouse failed")
-	}
-	p = m.secondaryPage()
-	for _, hit := range p.Hits {
-		if hit.ID == "onboard:enter" {
-			m.report.Magpie = "magpie fixture"
-			next, _ := m.Update(tea.MouseMsg{X: hit.X, Y: hit.Y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
-			m = next.(onboardingModel)
-		}
-	}
-	if !m.review || m.busy {
-		t.Fatal("review must not start")
-	}
+	t.Fatal("missing refresh action")
 }
+func appKeyMouseRefresh(m onboardingModel, x, y int) onboardingModel {
+	next, cmd := m.Update(tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if cmd != nil {
+		next, _ = next.Update(cmd())
+	}
+	return next.(onboardingModel)
+}
+
 func TestSecondaryVisualEvidence(t *testing.T) {
 	dir := os.Getenv("HARBOR_SECONDARY_ANSI_DIR")
 	if dir == "" {

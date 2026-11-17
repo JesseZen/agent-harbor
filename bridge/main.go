@@ -164,8 +164,9 @@ func run(args []string) error {
 		fmt.Println(`
 First use:
   Install Codex on PATH, then run agent-harbor with no arguments.
-  Review dependency checks and choose local configuration and login,
-  a Harbor-managed Magpie, or a detected external gateway.
+  Dependency checks open the workspace directly when ready.
+  Choose native configuration or Magpie separately for each new session.
+  In Connections, start a managed Magpie or bind an external gateway when needed.
   Managed Magpie has its own configuration and keeps running until stopped.
   External processes remain under your control.
 

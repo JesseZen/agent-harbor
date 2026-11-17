@@ -432,7 +432,7 @@ func TestHelpExplainsFirstUseAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, hint := range []string{"Install Codex on PATH", "Ctrl+B a", "Ctrl+B m", "local configuration", "explicit confirmation"} {
+	for _, hint := range []string{"Install Codex on PATH", "Ctrl+B a", "Ctrl+B m", "native configuration", "explicit confirmation"} {
 		if !strings.Contains(out, hint) {
 			t.Fatalf("missing %q: %s", hint, out)
 		}

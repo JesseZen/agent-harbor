@@ -113,7 +113,7 @@ try:
  launcher.write_text('#!/bin/sh\n'+''.join('export '+k+'='+shlex.quote(v)+'\n' for k,v in env.items())+'cd '+shlex.quote(str(root/'project'))+'\nagent-harbor\nread answer\n')
  launcher.chmod(0o700)
  tm('new-session','-d','-s','app','-x','160','-y','45',str(launcher))
- wait('First run');wait('codex-cli 0.167.0');key('Enter');wait('Review: local');key('Enter');wait('Harbor ^B a')
+ wait('Harbor ^B a')
  managed=root/'h/herdr/bin/herdr'
  panes=json.loads(run([managed,'pane','list']).stdout)['result']['panes']
  script=root/'create.sh';script.write_text('#!/bin/sh\n'+shlex.quote(str(root/'bin/agent-harbor'))+' create --dir '+shlex.quote(str(root/'project'))+' --client claude\n');script.chmod(0o700)

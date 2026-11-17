@@ -1,5 +1,12 @@
 # UI 实机走查 — 2026-11-17
 
+## 启动检测修正（2026-11-18）
+
+main 移除首次启动的 Local/Magpie 二选一与确认页。依赖齐全直接进入工作区；缺依赖时仅显示 Dependency checks，r 重查成功后继续。不会创建 Session、启动或绑定 Magpie。每个 Session 的连接选择和 Connections 的显式初始化继续使用现有流程。官方 npm Codex 解析到同一安装的原生 payload，版本、启动和 Profile 账号管理复用解析；未知包装器仍拒绝。
+
+Linux amd64 与 macOS arm64 隔离真实 Herdr 0.9.5 / Codex 0.169.0，160×45、100×30、80×24、60×24 已验证缺 Codex、Help、安装 npm payload 后刷新进入、Sessions、新建表单、Connections 与取消 Start gateway；没有创建会话或启动网关。窄屏 Herdr 顶栏隐藏 Harbor 提示，验证使用实际工作区及 popup。ANSI 经 Unicode 15 渲染检查；这是终端重渲染，非原生像素截图。全量隔离 Go 测试及 go vet 通过。本轮未重跑真实账号、模型回合或 Conversation 恢复；历史验收范围不扩展。
+
+
 视觉结构的逐页对照与统一方案见 [ui-visual-review.md](ui-visual-review.md)。
 
 ## 底栏直按快捷键（2026-11-17 最新规则）

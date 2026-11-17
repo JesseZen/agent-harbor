@@ -120,3 +120,9 @@ and package executables while retaining client data, ownership metadata, license
 and user-added files. Homebrew owns its own installation lifecycle. The bundled
 Herdr and Magpie remain patched development candidates; distribution does not
 change their upstream acceptance or runtime evidence.
+
+Startup checks Herdr and Codex dependencies, then opens the workspace directly.
+It does not require a connection choice or start/bind Magpie. Each new Session
+chooses its own native or Magpie connection; optional gateways are set up through
+Connections when needed. Codex discovery supports native executables and the
+native payload in the official npm package without running unknown wrappers.

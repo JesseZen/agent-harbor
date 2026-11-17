@@ -175,12 +175,7 @@ def main():
             launcher.write_text('#!/bin/sh\n'+''.join('export '+k+'='+shlex.quote(v)+'\n' for k,v in env.items())+'cd '+shlex.quote(str(root/'project'))+'\nagent-harbor\nread answer\n')
         versions={name:run([root/'bin'/name,'--version']).stdout.strip() for name in ('codex','herdr','magpie')}
         print('fixture versions',versions,flush=True)
-        open_workspace();screen('First run');screen(versions['codex']);screen(versions['herdr'])
-        if a.onboarding=='managed':screen(versions['magpie'])
-        if a.onboarding=='managed':key('Down')
-        elif a.onboarding=='external':key('Down','Down')
-        key('Enter');screen('Review: '+a.onboarding);key('Enter');screen('Harbor ^B a')
-        if a.onboarding=='managed':started=True
+        open_workspace();screen('Harbor ^B a')
         # Gateway configuration is a fixture prerequisite. Daily session creation
         # and recovery below are driven through Harbor's actual popup.
         if not started:run([binary,'magpie','start','--port',port(),'--web-port',port()]);started=True

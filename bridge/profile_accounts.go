@@ -291,9 +291,9 @@ func profileAccountCodex(env profileClientEnvironment) (string, error) {
 			continue
 		}
 		path := filepath.Join(dir, "codex")
-		resolved, err := filepath.EvalSymlinks(path)
-		if err == nil && nativeExecutable(resolved) {
-			return path, nil
+		resolved, err := resolveNativeCodex(path)
+		if err == nil {
+			return resolved, nil
 		}
 	}
 	return "", errors.New("native Codex is unavailable in this Profile's tool environment")

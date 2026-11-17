@@ -66,8 +66,7 @@ try:
  launcher.write_text('#!/bin/sh\n'+''.join('export '+key+'='+shlex.quote(value)+'\n' for key,value in env.items())+'cd '+shlex.quote(str(root/'project'))+'\nagent-harbor\nread answer\n')
  launcher.chmod(0o700)
  tm('new-session','-d','-s','app','-x','160','-y','45',str(launcher))
- wait('First run');wait(codex_version);wait(herdr_version)
- key('Enter');wait('Review: local');key('Enter');wait('Harbor ^B a')
+ wait('Harbor ^B a')
  key('C-b','a');wait('Search sessions');key('n');wait('New session')
  key('C-s')
  if not a.preinstalled:

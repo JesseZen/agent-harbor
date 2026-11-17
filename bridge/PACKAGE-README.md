@@ -147,7 +147,7 @@ Manage conversation history with the client’s own tools. Harbor no longer dele
 
 Optional PATH entry: append `--link` to the install command to create `~/.local/bin/agent-harbor`. An existing entry is never overwritten. Uninstall removes that link only while it still points at this installation. Add `~/.local/bin` to PATH yourself if needed.
 
-For first use, run `agent-harbor`, review the dependency checks, choose Local only, create a managed Magpie, or bind a verified external gateway. Managed Magpie has its own home, configuration, Codex home and ports; it does not import subscription accounts from your native CLI. Set up providers in `Ctrl+B m`. To stop its background gateway explicitly, run `agent-harbor magpie stop`. Uninstall does not stop services: stop sessions and owned services first.
+For first use, run `agent-harbor`; dependency checks open the workspace directly when ready. Native and official npm Codex installations are supported. Choose native configuration or Magpie per Session. When needed, use Connections to start a managed Magpie or bind a verified external gateway. Managed Magpie has its own home, configuration, Codex home and ports; it does not import subscription accounts from your native CLI. Set up providers in `Ctrl+B m`. To stop its background gateway explicitly, run `agent-harbor magpie stop`. Uninstall does not stop services: stop sessions and owned services first.
 
 - Directory missing or moved: restore the original directory and resolved path.
 - Gateway offline: start the owned gateway explicitly, or ask the external instance's owner to restore it.

@@ -14,7 +14,7 @@ for its scope and the separate validation requirements.
 
 Native packages are published on [GitHub Releases](https://github.com/JesseZen/agent-harbor/releases)
 for macOS and Linux, arm64 and amd64. These are development candidates, including
-patched Herdr and Magpie plus codex-auth. Install the native Codex CLI separately.
+patched Herdr and Magpie plus codex-auth. Install the Codex CLI separately (native or official npm installation).
 Linux requires glibc 2.39+ (for example Ubuntu 24.04); Alpine/musl is not supported
 by these packages. macOS packages are not Apple notarized.
 

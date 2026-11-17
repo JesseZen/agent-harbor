@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,17 +14,14 @@ import (
 	"github.com/charmbracelet/x/term"
 )
 
-// Onboarding is completed only after an explicit choice, and stores only
-// Harbor-owned preferences. Probing never binds or starts an instance.
+// Startup checks dependencies only. Connections are chosen per Session;
+// probing never binds or starts a Magpie instance.
 type onboardingReport struct {
 	Herdr, Codex, Magpie string
 	Ready, Completed     bool
-	Instances            []gatewayProbe
-	Warnings             []string
 }
 type onboardingChoice struct {
-	Kind  string
-	Probe gatewayProbe
+	Kind string
 }
 
 var onboardingAppService onboardingService = harborService{}
@@ -81,41 +76,15 @@ func (harborService) Onboarding() (onboardingReport, error) {
 		}
 		cancel()
 	}
-	if !r.Ready || r.Completed {
-		return r, nil
-	}
-	addresses, warnings := onboardingAddresses()
-	r.Warnings = append(r.Warnings, warnings...)
-	for _, address := range addresses {
-		r.Instances = append(r.Instances, probeGateway(address))
-	}
 	return r, nil
 }
+
 func (h harborService) FinishOnboarding(c onboardingChoice) error {
-	switch c.Kind {
-	case "local":
-	case "managed":
-		if err := h.Magpie("start", managedInstanceID); err != nil {
-			return err
-		}
-		if _, err := useMagpieInstance(managedInstanceID); err != nil {
-			return err
-		}
-	case "external":
-		p := probeGateway(c.Probe.Address)
-		if c.Probe.State != gatewayVerified || p.State != gatewayVerified || p.ConfigDir != c.Probe.ConfigDir || p.Executable != c.Probe.Executable {
-			return errors.New("Magpie identity is unknown or changed; refresh and review it again")
-		}
-		i, err := bindExternalMagpie(p)
-		if err != nil {
-			return err
-		}
-		if _, err = useMagpieInstance(i.ID); err != nil {
-			return err
-		}
-	default:
-		return errors.New("choose local, managed, or a verified running instance")
+	// Only remote setup still records an explicit native-environment choice.
+	if c.Kind != "local" {
+		return errors.New("remote setup requires an explicit native configuration choice")
 	}
+
 	root, err := bridgeHome()
 	if err != nil {
 		return err
@@ -126,7 +95,6 @@ func (h harborService) FinishOnboarding(c onboardingChoice) error {
 	return writeStateFile(filepath.Join(root, "onboarding.done"), []byte("v1\n"))
 }
 
-type onboardingResult struct{ err error }
 type onboardingRefreshed struct {
 	report onboardingReport
 	err    error
@@ -137,21 +105,13 @@ type onboardingModel struct {
 	focus      string
 	helpScroll int
 
-	service            onboardingService
-	report             onboardingReport
-	cursor             int
-	review, busy, done bool
-	notice             string
-	width, height      int
+	service       onboardingService
+	report        onboardingReport
+	busy, done    bool
+	notice        string
+	width, height int
 }
 
-func (m onboardingModel) choices() []onboardingChoice {
-	out := []onboardingChoice{{Kind: "local"}, {Kind: "managed"}}
-	for _, p := range m.report.Instances {
-		out = append(out, onboardingChoice{Kind: "external", Probe: p})
-	}
-	return out
-}
 func (m onboardingModel) Init() tea.Cmd { return nil }
 func (m onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok && key.Type == tea.KeyCtrlZ {
@@ -171,18 +131,12 @@ func (m onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = msg.err.Error()
 		} else {
 			m.report = msg.report
-			m.cursor = min(m.cursor, len(m.choices())-1)
+			if m.report.Ready {
+				m.done = true
+				return m, tea.Quit
+			}
 			m.notice = "Checks refreshed"
 			m.scroll = 0
-		}
-	case onboardingResult:
-		m.busy = false
-		if msg.err != nil {
-			m.notice = msg.err.Error()
-			m.review = false
-		} else {
-			m.done = true
-			return m, tea.Quit
 		}
 	case tea.KeyMsg:
 		if m.busy {
@@ -206,9 +160,6 @@ func (m onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scroll = 0
 			return m, nil
 		case "r":
-			if m.review {
-				return m, nil
-			}
 			m.busy = true
 			return m, func() tea.Msg { r, e := m.service.Onboarding(); return onboardingRefreshed{r, e} }
 		case "ctrl+d":
@@ -220,59 +171,18 @@ func (m onboardingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "esc":
-			if m.review {
-				m.review = false
-			} else {
+			return m, tea.Quit
+		case "enter":
+			if m.report.Ready {
+				m.done = true
 				return m, tea.Quit
 			}
-		case "j", "down":
-			if !m.review {
-				m.scroll = 0
-				m.cursor = min(m.cursor+1, len(m.choices())-1)
-			}
-		case "k", "up":
-			if !m.review {
-				m.scroll = 0
-				m.cursor = max(0, m.cursor-1)
-			}
-		case "enter":
-			if !m.report.Ready {
-				m.notice = "Install the required Herdr and native Codex, then run Agent Harbor again."
-				return m, nil
-			}
-			c := m.choices()[m.cursor]
-			if c.Kind == "managed" && !strings.HasPrefix(m.report.Magpie, "magpie ") {
-				m.notice = "Install the bundled Magpie candidate, then refresh; Local Codex remains available."
-				return m, nil
-			}
-			if c.Kind == "external" && c.Probe.State != gatewayVerified {
-				m.notice = "Configuration identity is unknown or gateway is offline. Choose local only or a verified instance."
-				return m, nil
-			}
-			if !m.review {
-				m.review = true
-				return m, nil
-			}
-			m.busy = true
-			if c.Kind != "managed" {
-				return m, func() tea.Msg { return onboardingResult{m.service.FinishOnboarding(c)} }
-			}
-			// The managed start emits diagnostics; release the terminal for it.
-			return m, tea.Exec(onboardingExec{m.service, c}, func(e error) tea.Msg { return onboardingResult{e} })
+			m.notice = "Fix the dependency reported above, then refresh."
 		}
+
 	}
 	return m, nil
 }
-func (onboardingExec) SetStdin(io.Reader)  {}
-func (onboardingExec) SetStdout(io.Writer) {}
-func (onboardingExec) SetStderr(io.Writer) {}
-
-type onboardingExec struct {
-	service onboardingService
-	choice  onboardingChoice
-}
-
-func (e onboardingExec) Run() error    { return e.service.FinishOnboarding(e.choice) }
 func (m onboardingModel) View() string { return m.secondaryPage().view() }
 
 func ensureOnboarding(s onboardingService) error {
@@ -280,80 +190,18 @@ func ensureOnboarding(s onboardingService) error {
 	if err != nil {
 		return err
 	}
-	if r.Completed && r.Ready {
+	if r.Ready {
 		return nil
 	}
 	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
-		return fmt.Errorf("first-run checks require an interactive terminal\nHerdr: %s\nCodex: %s\nMagpie: %s", r.Herdr, r.Codex, r.Magpie)
+		return fmt.Errorf("dependency checks require an interactive terminal\nHerdr: %s\nCodex: %s\nMagpie: %s", r.Herdr, r.Codex, r.Magpie)
 	}
 	model, err := tea.NewProgram(onboardingModel{service: s, report: r}, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	if err != nil {
-		return fmt.Errorf("onboarding needs an interactive terminal: %w", err)
+		return fmt.Errorf("dependency checks need an interactive terminal: %w", err)
 	}
 	if !model.(onboardingModel).done {
-		return errors.New("onboarding cancelled; no workspace was opened")
+		return errors.New("dependency checks cancelled; no workspace was opened")
 	}
 	return nil
-}
-
-// Every source is a proposal, independently of the currently selected default.
-// Canonicalize before probing to avoid duplicate requests and reject secrets.
-func onboardingAddresses() ([]string, []string) {
-	proposals := []string{}
-	warnings := []string{}
-	env, err := userEnvironment()
-	if err != nil {
-		return nil, []string{err.Error()}
-	}
-	values := map[string]string{}
-	for _, pair := range env {
-		key, value, _ := strings.Cut(pair, "=")
-		switch key {
-		case "HOME", "XDG_CONFIG_HOME", "MAGPIE_ADDR":
-			values[key] = value
-		}
-	}
-	if values["MAGPIE_ADDR"] != "" {
-		proposals = append(proposals, values["MAGPIE_ADDR"])
-	}
-	config := values["XDG_CONFIG_HOME"]
-	if config == "" {
-		config = filepath.Join(values["HOME"], ".config")
-	}
-	data, err := os.ReadFile(filepath.Join(config, "magpie", "settings.json"))
-	if err == nil {
-		var settings struct {
-			Port int `json:"port"`
-		}
-		if json.Unmarshal(data, &settings) != nil || settings.Port < 0 || settings.Port > 65535 {
-			warnings = append(warnings, "Magpie settings could not supply a valid port; check settings.json.")
-		} else if settings.Port > 0 {
-			proposals = append(proposals, fmt.Sprintf("http://127.0.0.1:%d", settings.Port))
-		}
-	} else if !os.IsNotExist(err) {
-		warnings = append(warnings, "Magpie settings could not be read; check its file permissions.")
-	}
-	registry, err := loadMagpieRegistry()
-	if err != nil {
-		warnings = append(warnings, "Harbor's Magpie registry could not be read; check it before selecting an instance.")
-	} else {
-		for _, i := range registry.Instances {
-			proposals = append(proposals, i.Address)
-		}
-	}
-	proposals = append(proposals, "http://127.0.0.1:3425")
-	addresses := []string{}
-	seen := map[string]bool{}
-	for _, proposal := range proposals {
-		address, err := parseGatewayAddress(proposal)
-		if err != nil {
-			warnings = append(warnings, "A proposed Magpie address was rejected: "+err.Error())
-			continue
-		}
-		if !seen[address] {
-			addresses = append(addresses, address)
-			seen[address] = true
-		}
-	}
-	return addresses, warnings
 }

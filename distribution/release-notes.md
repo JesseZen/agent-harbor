@@ -1,6 +1,12 @@
+Fixes in v0.1.0-dev.4:
+
+- Recognize official npm Codex installations by resolving their native executable, including Profile account management.
+- Open the workspace directly after dependency checks. Choose native or Magpie connections per Session and set up optional gateways in Connections.
+- Show dependency failures without incorrectly asking users to reinstall bundled Herdr.
+
 Native development candidate for macOS and Linux, arm64 and amd64.
 
-Includes Agent Harbor, patched Herdr 0.9.5, patched Magpie 0.1.3528 and upstream codex-auth 0.4.0. Install the native Codex CLI separately. Local dependency patches are not upstream releases.
+Includes Agent Harbor, patched Herdr 0.9.5, patched Magpie 0.1.3528 and upstream codex-auth 0.4.0. Install the Codex CLI separately; native and official npm installations are supported. Local dependency patches are not upstream releases.
 
 Install (no sudo):
 

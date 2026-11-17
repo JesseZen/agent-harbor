@@ -214,15 +214,7 @@ func (m onboardingModel) secondaryActions() []uiAction {
 	if m.help {
 		return []uiAction{{ID: "onboard:esc", Label: "Back", Key: "esc"}}
 	}
-	label := "Review choice"
-	if m.review {
-		label = "Confirm choice"
-	}
-	actions := []uiAction{{ID: "onboard:enter", Label: label, Key: "enter", Primary: true}, {ID: "onboard:esc", Label: "Cancel", Key: "esc"}, {ID: "onboard:r", Label: "Refresh", Key: "r"}, {ID: "onboard:?", Label: "Help", Key: "?"}}
-	if !m.review {
-		actions = append([]uiAction{{ID: "onboard:up", Label: "Previous", Key: "↑"}, {ID: "onboard:down", Label: "Next", Key: "↓"}}, actions...)
-	}
-	return actions
+	return []uiAction{{ID: "onboard:r", Label: "Refresh", Key: "r"}, {ID: "onboard:esc", Label: "Cancel", Key: "esc"}, {ID: "onboard:?", Label: "Help", Key: "?"}}
 }
 func (m onboardingModel) secondaryPage() uiPage {
 	w, h := m.width, m.height
@@ -232,42 +224,21 @@ func (m onboardingModel) secondaryPage() uiPage {
 	if h == 0 {
 		h = 24
 	}
-	title := "First run"
-	body := "Herdr: " + m.report.Herdr + "\nCodex: " + m.report.Codex + "\nMagpie: " + m.report.Magpie + "\n\nChoose how new sessions connect.\n"
-	if m.review {
-		c := m.choices()[m.cursor]
-		title = "Review: " + c.Kind
-		body = "Local uses your client settings and login.\nHarbor-managed Magpie has a separate home and keeps running until explicitly stopped.\nExternal instances remain user-managed."
-		if c.Kind == "external" {
-			body += "\nAddress: " + c.Probe.Address + "\nVerified config: " + c.Probe.ConfigDir + "\nExecutable: " + c.Probe.Executable
-		}
-	} else {
-		choices := m.choices()
-		start := max(0, m.cursor-2)
-		for i := start; i < min(len(choices), start+4); i++ {
-			c := choices[i]
-			mark := "  "
-			if i == m.cursor {
-				mark = "› "
-			}
-			body += "\n" + mark + map[string]string{"local": "Local Codex only for now", "managed": "Create Harbor-managed Magpie", "external": "Running Magpie " + c.Probe.Address}[c.Kind]
-		}
-	}
+	title := "Dependency checks"
+	body := "Herdr: " + m.report.Herdr + "\nCodex: " + m.report.Codex + "\nMagpie: " + m.report.Magpie
 	if m.help {
 		title = "Keyboard help"
-		body = renderHelp(w, []helpSection{{"Navigation", []helpRow{{"↑/k ↓/j", "Choose a connection"}, {"Enter", "Review, then confirm"}, {"Esc", "Cancel review or exit"}, {"r", "Refresh checks"}, {"^D / ^U", "Scroll"}, {"q", "Cancel onboarding"}}}, {"Connection", []helpRow{{"Enter", "Nothing attaches to Herdr until a choice succeeds"}}}})
+		body = renderHelp(w, []helpSection{{"Dependencies", []helpRow{{"r", "Refresh checks and open the workspace when ready"}, {"Esc / q", "Exit"}, {"^D / ^U", "Scroll"}}}})
 	}
 	if m.busy {
-		body += "\n\nWorking… " + m.choices()[m.cursor].Kind + " · waiting for the service. Repeated actions are disabled."
-	}
-	for _, warning := range m.report.Warnings {
-		body += "\n⚠ " + warning
+		body += "\n\nChecking dependencies…"
 	}
 	if m.notice != "" {
 		body += "\n⚠ " + m.notice
 	}
 	return secondaryDocument(w, h, title, body, m.secondaryActions(), m.focus, m.scroll)
 }
+
 func (m onboardingModel) secondaryInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	key := ""
 	switch v := msg.(type) {
@@ -292,7 +263,7 @@ func (m onboardingModel) secondaryInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 		}
 		key = strings.TrimPrefix(id, "onboard:")
 	case tea.KeyMsg:
-		if (m.help || m.review) && (v.String() == "down" || v.String() == "up" || v.String() == "j" || v.String() == "k") {
+		if v.String() == "down" || v.String() == "up" || v.String() == "j" || v.String() == "k" {
 			if v.String() == "down" || v.String() == "j" {
 				m.scroll++
 			} else {

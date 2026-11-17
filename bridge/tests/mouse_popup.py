@@ -41,11 +41,6 @@ try:
  launcher.write_text('#!/bin/sh\n'+''.join('export '+key+'='+shlex.quote(value)+'\n' for key,value in env.items())+'agent-harbor\nprintf \"exit %s\\n\" \"$?\"\nread answer\n')
  launcher.chmod(0o700)
  tm('new-session','-d','-s','app','-x','160','-y','45',str(launcher))
- wait('First run')
- wait('codex-cli 0.167.0')
- out=wait('herdr 0.9.5');(root/'onboarding.txt').write_text(out)
- tm('send-keys','-t','app:0.0','Enter');wait('Review: local')
- tm('send-keys','-t','app:0.0','Enter')
  out=wait('Harbor ^B a')
  import json
  records=[]

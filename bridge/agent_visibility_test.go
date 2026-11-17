@@ -179,6 +179,12 @@ func visibilityTestRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(root) })
+	// Darwin aliases /tmp to /private/tmp. Profile identity intentionally requires
+	// canonical roots, so the fixture must use the real directory too.
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("AGENT_HARBOR_BRIDGE_HOME", root)
 	if err := ensureHome(root); err != nil {
 		t.Fatal(err)

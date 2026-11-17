@@ -4,6 +4,7 @@ set -eu
 target=$1
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 work=${RUNNER_TEMP:?}/harbor-dependencies
+if [ ! -f "$work/assets/.complete" ]; then
 mkdir -p "$work/assets/herdr" "$work/assets/magpie" "$work/assets/codex-auth"
 git clone https://github.com/herdrdev/herdr.git "$work/herdr"
 git -C "$work/herdr" checkout ee5bfb5041bb3e4a49d591c72308aae3c81ecdde
@@ -25,4 +26,6 @@ shasum -a 256 "$root/docs/magpie-profile-isolation.patch" | cut -d ' ' -f 1 > "$
 shasum -a 256 "$magpie" | cut -d ' ' -f 1 > "$magpie.sha256"
 auth=$(awk -v target="$target" '$1 == target {print $2}' "$root/bridge/codex-auth-assets.txt")
 curl -fL --retry 3 "https://github.com/Loongphy/codex-auth/releases/download/v0.4.0/$auth" -o "$work/assets/codex-auth/$auth"
+touch "$work/assets/.complete"
+fi
 AGENT_HARBOR_DEVELOPMENT_CANDIDATE=1 AGENT_HARBOR_DEPENDENCIES_DIR="$work/assets" AGENT_HARBOR_CANDIDATE_TARGETS="$target" sh "$root/bridge/package.sh" "$root/dist"

@@ -63,8 +63,14 @@ func TestInlineSearchOwnershipAndActions(t *testing.T) {
 			t.Fatal("zero result acted", m.screen)
 		}
 		m = keySearch(m, "esc")
-		if m.searchQuery() != "" || m.searchFocus != "" {
+		if m.searchQuery() != "" {
 			t.Fatal("clear failed")
+		}
+		if m.searchFocus != "" || m.uiFocus == "selector-search" {
+			m = keySearch(m, "esc")
+		}
+		if m.searchFocus != "" {
+			t.Fatal("second escape did not leave search")
 		}
 		m = keySearch(m, "/")
 		m = keySearch(m, "日本")
@@ -154,7 +160,7 @@ func TestInlineSearchVisual(t *testing.T) {
 					t.Fatal("width", line)
 				}
 			}
-			if !strings.Contains(ansi.Strip(view), "tab list") {
+			if !strings.Contains(ansi.Strip(view), "⇥ list") && !strings.Contains(ansi.Strip(view), "↵ list") {
 				t.Fatal("lost focus hints")
 			}
 			if dir := os.Getenv("HARBOR_SEARCH_VISUAL"); dir != "" {

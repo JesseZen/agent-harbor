@@ -371,13 +371,13 @@ func (m harborModel) directoryPage() uiPage {
 	d := m.picker
 	rows := d.matches()
 	p.line(paint(fg("brand"), "📂 Choose project"))
-	p.search(d.query.Value(), "Search known projects or enter /path/", m.uiFocus == "search")
+	p.search(d.query.Value(), "Search known projects or enter /path/", m.uiFocus == "search", d.query)
 	scope := "Known projects · search only known paths"
 	if d.scope != "known sources" {
 		scope = "Browse: " + d.scope + " · " + cleanUI(d.root)
 	}
 	p.line(paint(fg("muted"), scope))
-	status := "↑↓ select · Tab controls · Enter use · Esc cancel"
+	status := ""
 	if d.searching {
 		status = "Searching… Ctrl+X stop"
 	} else if d.err != nil {
@@ -387,15 +387,18 @@ func (m harborModel) directoryPage() uiPage {
 	} else if len(rows) == 0 {
 		status = "No matching directories; change search or browse"
 	}
-	p.line(status)
-	// Keep actions above the variable-height list so even short popups can return.
+	if status != "" {
+		p.line(status)
+	}
+	p.Hint = "↑↓ select · Tab focus"
+	// Reserve the fixed shortcut bar before sizing the directory list.
 	disabled := ""
 	if len(rows) == 0 || d.searching {
 		disabled = "Select a directory first"
 	}
-	p.buttons([]uiAction{{ID: "dir-use", Label: "Use this folder", Key: "enter", Primary: true, Disabled: disabled}, {ID: "dir-cancel", Label: "Cancel", Key: "esc"}}, m.uiFocus)
-	p.buttons([]uiAction{{ID: "dir-browse", Label: "Browse", Key: "ctrl+b"}, {ID: "dir-recursive", Label: "Recursive", Key: "ctrl+r"}, {ID: "dir-known", Label: "Known", Key: "ctrl+k"}}, m.uiFocus)
-	p.buttons([]uiAction{{ID: "dir-retry", Label: "Retry", Key: "ctrl+t"}, {ID: "dir-details", Label: "Full path / preview", Key: "ctrl+p"}}, m.uiFocus)
+	p.shortcuts([]uiAction{{ID: "dir-use", Label: "Use this folder", Key: "enter", Primary: true, Disabled: disabled}, {ID: "dir-cancel", Label: "Cancel", Key: "esc"}}, m.uiFocus)
+	p.shortcuts([]uiAction{{ID: "dir-browse", Label: "Browse", Key: "ctrl+b"}, {ID: "dir-recursive", Label: "Recursive", Key: "ctrl+r"}, {ID: "dir-known", Label: "Known", Key: "ctrl+k"}}, m.uiFocus)
+	p.shortcuts([]uiAction{{ID: "dir-retry", Label: "Retry", Key: "ctrl+t"}, {ID: "dir-details", Label: "Preview", Key: "ctrl+p"}}, m.uiFocus)
 	if d.details {
 		selected := d.root
 		if len(rows) > 0 {
@@ -406,15 +409,16 @@ func (m harborModel) directoryPage() uiPage {
 			text += "\nError: " + cleanUI(d.err.Error())
 		}
 		lines := strings.Split(ansi.Wrap(text, max(1, p.Width-4), ""), "\n")
-		p.line("↑↓ scroll path · Esc back to results")
-		available := max(0, p.Height-len(p.Lines))
+		p.Hint = "↑↓ scroll path · Esc back to results"
+		available := max(0, p.Height-len(p.Lines)-len(p.shortcutBar().Lines))
 		offset := min(d.detailScroll, max(0, len(lines)-available))
 		for _, line := range lines[offset:min(len(lines), offset+available)] {
 			p.line(line)
 		}
-		return p
+		return p.finish(0)
 	}
-	remaining := max(0, p.Height-len(p.Lines))
+	remaining := max(0, p.Height-len(p.Lines)-len(p.shortcutBar().Lines))
+	listTop := len(p.Lines)
 	count := remaining / 2
 	start := max(0, d.cursor-count+1)
 	for i := start; i < min(len(rows), start+count); i++ {
@@ -432,23 +436,9 @@ func (m harborModel) directoryPage() uiPage {
 		p.line(paint(fg("value"), "    "+cleanUI(e.path)))
 		p.hit("dir-path:"+e.path, 1, y, p.Width-2, 2)
 	}
-	if len(rows) > 0 {
-		selected := rows[min(d.cursor, len(rows)-1)].path
-		// Wrap the complete selected path by terminal cells for long Unicode paths.
-		path := cleanUI(selected)
-		if p.Height-len(p.Lines) > 2 {
-			for _, line := range strings.Split(ansi.Wrap(path, max(1, p.Width-4), ""), "\n") {
-				if len(p.Lines) >= p.Height-1 {
-					break
-				}
-				p.line(line)
-			}
-		}
-		if len(p.Lines) < p.Height {
-			p.line(paint(fg("muted"), d.preview))
-		}
-	}
-	return p
+
+	p.scrollRail(listTop, len(p.Lines)-listTop, len(rows)*2, start*2)
+	return p.finish(0)
 }
 func (m harborModel) directoryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	activate := func(id string) (tea.Model, tea.Cmd, bool) {

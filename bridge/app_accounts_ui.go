@@ -10,10 +10,10 @@ func (m harborModel) accountActions() []uiAction {
 	if m.screen == "accounts-busy" {
 		return nil
 	}
-	if m.screen == "accounts-result" {
+	if m.screen == "accounts-result" || m.screen == "accounts-detail" {
 		return []uiAction{{ID: "account:back", Label: "Back to accounts", Key: "esc"}}
 	}
-	return []uiAction{{ID: "account:s", Label: "Select saved login", Key: "s", Primary: true}, {ID: "account:l", Label: "Add login", Key: "l"}, {ID: "account:o", Label: "Not signed in", Key: "o"}, {ID: "account:p", Label: "Choose Profile", Key: "p"}, {ID: "account:r", Label: "Refresh", Key: "r"}, {ID: "account:back", Label: "Back", Key: "esc"}}
+	return []uiAction{{ID: "account:,", Label: "Settings", Key: ","}, {ID: "account:i", Label: "Details", Key: "i"}, {ID: "account:?", Label: "Help", Key: "?"}, {ID: "account:s", Label: "Select saved login", Key: "s", Primary: true}, {ID: "account:l", Label: "Add login", Key: "l"}, {ID: "account:o", Label: "Not signed in", Key: "o"}, {ID: "account:p", Label: "Choose Profile", Key: "p"}, {ID: "account:r", Label: "Refresh", Key: "r"}, {ID: "account:back", Label: "Back", Key: "esc"}}
 }
 
 func (m harborModel) accountContent() uiPage {
@@ -28,27 +28,40 @@ func (m harborModel) accountContent() uiPage {
 	p.line(paint(fg("brand"), "👤 Harbor · Accounts"))
 	if m.screen == "accounts" {
 		p.tabs("accounts", m.uiHover, m.uiFocus, true)
+		p.field("", "", "Profile", m.profileDisplayLabel(m.accountProfile), false, false)
 		if m.accountProfile == nil {
-			wrap("Unknown · select a Profile with p. Account actions require its explicit client environment.")
-		} else if m.accountSnapshot != nil {
-			wrap(accountResultText(*m.accountSnapshot))
-			for _, a := range m.accountSnapshot.Accounts {
+			wrap("Unknown · choose a Profile with p to check its login.")
+		} else if m.accountSnapshot == nil {
+			p.field("", "", "Login", "Checking…", false, false)
+		} else {
+			snapshot := m.accountSnapshot
+			p.field("", "", "Login", orUnknown(snapshot.State), false, false)
+			p.line(paint(fg("section"), "Saved logins"))
+			if len(snapshot.Accounts) == 0 {
+				p.emptyState("No saved logins")
+			}
+			for _, a := range snapshot.Accounts {
 				label := a.Alias
 				if label == "" {
 					label = a.Email
 				}
+				status := ""
 				if a.Active {
-					label += " · saved selection"
+					status = "saved selection"
 				}
-				wrap(label)
+				p.field("", "", cleanUI(label), status, a.Active, false)
 			}
-		} else {
-			wrap("Profile: " + m.accountProfile.ProfileID + " · status not checked")
 		}
-		wrap("Select a saved login, add one through official Codex login, or choose Not signed in. Saved accounts are retained.")
-		wrap("Switch between replies. Active or unknown activity blocks changes. Running sessions report any required handoff; basic management does not restart processes.")
+
+	} else if m.screen == "accounts-detail" {
+		p.line(paint(fg("section"), "Account details"))
+		if m.accountSnapshot != nil {
+			wrap(accountResultText(*m.accountSnapshot))
+
+		}
+		wrap("Switch between replies. Active or unknown activity blocks changes.")
 		if experimentalCodexAccounts() {
-			wrap("Experimental running-server refresh uses an undocumented side effect. Each identity must be confirmed.")
+			wrap("Experimental running-server refresh is undocumented.")
 		}
 
 	} else if m.screen == "accounts-busy" {
@@ -65,23 +78,28 @@ func (m harborModel) accountContent() uiPage {
 }
 
 func (m harborModel) accountsPage() (uiPage, bool) {
-	if m.screen != "accounts" && m.screen != "accounts-result" && m.screen != "accounts-busy" {
+	if m.screen != "accounts" && m.screen != "accounts-result" && m.screen != "accounts-busy" && m.screen != "accounts-detail" {
 		return uiPage{}, false
 	}
 	content := m.accountContent()
 	footer := newUIPage(m.width, 10000)
 	actions := m.accountActions()
-	footer.buttons(actions, m.uiFocus)
-	if len(actions) > 0 {
-		footer.line(note(actionHints(actions)))
-	}
-	footer.line(note("↑↓ / PgUp/PgDown scroll · Tab controls"))
+	footer.shortcuts(actions, m.uiFocus)
+	footer.Hint = "↑↓ / PgUp/PgDown scroll · Tab focus"
 	return content.withFooter(footer, m.height, m.scroll), true
 }
 
 func (m harborModel) accountActivate(id string) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(id, "nav:") {
 		return m.activateSessions(id)
+	}
+	if id == "account:i" {
+		m.screen = "accounts-detail"
+		m.scroll = 0
+		return m, nil
+	}
+	if id == "account:?" {
+		return m.Update(uiKey("?"))
 	}
 	if id == "account:back" {
 		m.scroll = 0

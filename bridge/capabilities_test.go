@@ -19,7 +19,7 @@ func TestClientPickerDoesNotPromoteIntegrationFixtureToLifecycleSupport(t *testi
 	m.environment.Clients = []clientCapability{{Target: "future-kind", Label: "Future client", Integration: "current"}}
 	m.clientCursor = 1
 	view := m.View()
-	for _, want := range []string{"Future client", "subset", "Native start: unknown", "Identity: unknown", "Recovery: unknown", "Magpie: unavailable"} {
+	for _, want := range []string{"Future client", "Native start: unknown", "Identity: unknown", "Recovery: unknown", "Magpie: unavailable"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in %s", want, view)
 		}
@@ -55,7 +55,7 @@ func TestNeutralRecoveryUsesSingleExplicitConfirmation(t *testing.T) {
 	m.screen = "sessions"
 	m.sessions = []sessionView{{session: session{ID: "neutral", CLI: "future-kind", Started: true, Conversation: &conversationEvidence{Reference: herdrIdentity{Agent: "future-kind", Kind: "path", Value: "/opaque/conversation"}}}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}}}
 	m = appKey(m, "enter").(harborModel)
-	if !strings.Contains(m.View(), "Resume this saved conversation") {
+	if !strings.Contains(m.View(), "Resume conversation") {
 		t.Fatal(m.View())
 	}
 	m.reviewOpenedAt = time.Time{}

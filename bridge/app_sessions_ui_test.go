@@ -69,6 +69,12 @@ func TestSessionsSearchButtonDoesNotTypeShortcut(t *testing.T) {
 	f.Sessions = append([]sessionView(nil), m.sessions...)
 	m = keySearch(m, "/")
 	m = keySearch(m, "Harbor")
+	for _, hit := range m.sessionsLayout().Hits {
+		if hit.ID == "action:i" {
+			t.Fatal("global action shown while search owns input")
+		}
+	}
+	m = keySearch(m, "enter")
 	m = sessionsClick(t, m, "action:i")
 	if m.screen != "detail" || m.filter != "Harbor" {
 		t.Fatal(m.screen, m.filter)

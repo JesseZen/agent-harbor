@@ -30,10 +30,10 @@ async function main() {
   let failed = false;
   try {
     for (const name of fs.readdirSync(input).filter(n => n.endsWith('.ansi')).sort()) {
-      const match = name.match(/-(60|100|160)\.ansi$/);
+      const match = name.match(/-(60|80|100|160)\.ansi$/);
       if (!match) continue;
       const cols = Number(match[1]);
-      const rows = { 60: 20, 100: 30, 160: 45 }[cols];
+      const rows = Number(option("--rows")) || { 60: 20, 80: 24, 100: 30, 160: 45 }[cols];
       const data = fs.readFileSync(path.join(input, name), 'utf8').replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
       // A directory or session name must never terminate the script element.
       const encoded = JSON.stringify(data).replace(/</g, '\\u003c');

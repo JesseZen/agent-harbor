@@ -23,7 +23,30 @@ func (m harborModel) editingText() bool {
 	return false
 }
 
+// Normalize page boundaries even when a specialized input handler returns early.
 func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "?" && m.settings == nil && !m.editingText() && (strings.HasPrefix(m.screen, "profile-") || m.screen == "accounts" || m.screen == "accounts-result") {
+		return m.update(key)
+	}
+	next, cmd := m.updateFrame(msg)
+	n := next.(harborModel)
+	if n.screen != m.screen {
+		if n.screen == "sessions" {
+			n.uiFocus = "list"
+			n.scroll = 0
+		}
+		if n.notice == m.notice && (m.noticeTransient || ordinaryNotice(m.notice)) {
+			n.notice = ""
+			n.noticeTransient = false
+			n.noticeID++
+		}
+	}
+	if page, ok := n.additionalPage(); ok && n.settings == nil {
+		n.scroll = max(0, min(n.scroll, page.MaxScroll))
+	}
+	return n, cmd
+}
+func (m harborModel) updateFrame(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.settings != nil && !isRuntimeRefresh(msg) {
 		return m.update(msg)
 	}
@@ -130,7 +153,7 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !strings.HasPrefix(n.notice, "Cannot open management.") {
 			n.noticeCanStart = false
 		}
-		n.noticeTransient = n.notice == "Action completed" || n.notice == "Magpie action completed" || n.notice == "Directory ready. Enter continues."
+		n.noticeTransient = ordinaryNotice(n.notice)
 		if n.noticeTransient {
 			id := n.noticeID
 			cmd = tea.Batch(cmd, tea.Tick(3*time.Second, func(time.Time) tea.Msg { return appNoticeExpired{id} }))
@@ -157,4 +180,8 @@ func (m harborModel) feedbackLine() string {
 		hint = "ctrl+g dismiss · ⚠ "
 	}
 	return hint + strings.TrimSpace(m.notice)
+}
+
+func ordinaryNotice(s string) bool {
+	return s == "Action completed" || s == "Magpie action completed" || s == "Directory ready. Enter continues." || s == "Profile saved" || strings.HasPrefix(s, "Profile selected:") || strings.HasPrefix(s, "Default saved;")
 }

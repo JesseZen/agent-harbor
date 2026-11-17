@@ -96,7 +96,11 @@ func TestTicket06CompactDisclosureAndPinnedActions(t *testing.T) {
 		for scroll := 0; scroll < 20; scroll++ {
 			m.scroll = scroll
 			p, _ := m.connectionSelectorPage()
-			document.WriteString(strings.Join(p.Lines, "\n"))
+			for _, line := range p.Lines {
+				// The rightmost cell is viewport chrome, not part of the disclosure text.
+				line = strings.TrimSuffix(strings.TrimSuffix(cleanUI(line), "█"), "│")
+				document.WriteString(line + "\n")
+			}
 			document.WriteByte('\n')
 			for _, id := range []string{"selector-apply", "selector-cancel"} {
 				found := false

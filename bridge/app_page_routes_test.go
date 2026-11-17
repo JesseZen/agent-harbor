@@ -5,6 +5,8 @@ import "testing"
 func TestHelpRestoresParentScroll(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	m.screen = "detail"
+	m.height = 8
+	m.sessions = []sessionView{{session: session{ID: "one", Name: "One", CLI: "codex", Mode: "local"}}}
 	m.scroll = 7
 	n, _ := m.Update(uiKey("?"))
 	m = n.(harborModel)

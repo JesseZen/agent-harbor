@@ -17,6 +17,10 @@ If `AGENTS.local.md` exists at the repository root, read it for machine-specific
 - Match tests to the changed behavior. For runtime, packaging or acceptance work, follow [bridge/tests/README.md](bridge/tests/README.md) and use isolated homes, configuration, state, ports and processes. Do not disturb existing user-managed services.
 - Report what was actually tested and any missing platform, real-client or upstream evidence. Keep secrets, local state, build artifacts and private planning material out of commits.
 
+## TUI changes
+
+Before adding a screen or changing TUI layout, controls or interaction, read [the TUI consistency contract](docs/agents/tui.md) and the current implementation tables in [the flow audit](docs/ui-flow-audit.md) and [visual review](docs/ui-visual-review.md). Reuse the shared controls and regress existing pages when adding features; completion requires the documented scope and actual runtime evidence, not only passing tests.
+
 ## Agent skills
 
 ### Issue tracker

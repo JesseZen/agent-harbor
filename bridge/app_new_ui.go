@@ -64,7 +64,7 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 		for i := range values {
 			p.field("new-field:"+labels[i], icons[i], labels[i], values[i], m.formFocus == i, i != 3 || m.draft.Connection == "magpie")
 		}
-		actions := []uiAction{{ID: "new-create", Label: "Create", Key: "enter", Primary: true}, {ID: "new-cancel", Label: "Cancel", Key: "esc"}}
+		actions := []uiAction{{ID: "new-create", Label: "Create", Key: "ctrl+s", Primary: true}, {ID: "new-cancel", Label: "Cancel", Key: "esc"}}
 		if m.creating {
 			actions[0].Disabled = "Creating…"
 		}
@@ -75,18 +75,21 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 		if m.formFocus == 6 {
 			focus = "new-cancel"
 		}
-		p.buttons(actions, focus)
+		p.shortcuts(actions, focus)
+		p.Hint = "Tab fields · Enter open"
 		if m.notice != "" {
 			p.line(cleanUI(m.notice))
-			p.button(uiAction{ID: "new-details", Label: "Details", Key: "!"}, false)
-		} else {
-			p.line(paint(fg("muted"), "Tab move · Enter open · Esc cancel"))
+			p.shortcut(uiAction{ID: "new-details", Label: "Details", Key: "!"}, false)
 		}
 	case "new-cli":
 		p.line("🤖 Choose client")
 		query := m.input.Value()
-		p.search(query, "Filter clients", m.uiFocus == "new-client-search")
+		p.search(query, "Filter clients", m.uiFocus == "new-client-search", m.input)
 		rows := m.visibleCreationClients()
+		if len(rows) == 0 {
+			p.emptyState("No matching clients")
+		}
+		listTop := len(p.Lines)
 		count := max(1, p.Height-12)
 		start := max(0, m.clientCursor-count+1)
 		for i := start; i < min(len(rows), start+count); i++ {
@@ -103,6 +106,11 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 			}
 			p.field("new-client:"+c.Target, "🤖", label, status, i == m.clientCursor, false)
 		}
+		p.scrollRail(listTop, len(p.Lines)-listTop, len(rows), start)
+		p.Hint = "↑↓ select · / search"
+		if m.uiFocus == "new-client-search" {
+			p.Hint = "Type to search · ⎋ clear / leave search"
+		}
 		rows = m.visibleCreationClients()
 		if len(rows) > 0 {
 			c := rows[min(max(0, m.clientCursor), len(rows)-1)]
@@ -111,33 +119,36 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 				p.line("Magpie: unavailable · isolation unproven")
 			}
 		}
-		p.buttons([]uiAction{{ID: "new-client-select", Label: "Select", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
+		selectAction := uiAction{ID: "new-client-select", Label: "Select", Key: "enter", Primary: true}
+		if len(rows) == 0 {
+			selectAction.Disabled = "No matching clients; Esc clears search"
+		}
+		p.shortcuts([]uiAction{selectAction, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
 		if m.notice != "" {
 			p.line(cleanUI(m.notice))
-		} else {
-			p.line(paint(fg("muted"), "Hook discovery is a subset, not proof of launch support."))
 		}
 	case "new-name":
 		p.line("🏷 Session name")
-		p.line(m.input.View())
+		placeholder := "Project and connection (optional)"
 		if m.selectedClient() == "codex" {
-			p.line("Leave empty to copy the first Codex conversation title once.")
-		} else {
-			p.line("Leave empty to use the project and connection.")
+			placeholder = "First Codex title (optional)"
 		}
-		p.buttons([]uiAction{{ID: "new-name-save", Label: "Apply", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
+		for _, line := range strings.Split(textEntry(m.input, m.width, placeholder), "\n") {
+			p.line(line)
+		}
+		p.shortcuts([]uiAction{{ID: "new-name-save", Label: "Apply", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
 	case "new-connection":
 		p.line("🔌 Connection")
 		p.field("new-native", selectorMark(m.formSaved.Connection == "local"), "Native", m.selectedClient()+" settings and login", m.connectionCursor == 0, false)
 		p.field("new-magpie", selectorMark(m.formSaved.Connection == "magpie"), "Magpie", "Choose instance and model", m.connectionCursor == 1, false)
-		p.buttons([]uiAction{{ID: "new-connection-select", Label: "Select", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
+		p.shortcuts([]uiAction{{ID: "new-connection-select", Label: "Select", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
 		if m.notice != "" {
 			p.line(cleanUI(m.notice))
 		}
 	default:
 		return uiPage{}, false
 	}
-	return p, true
+	return p.finish(0), true
 }
 func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	if m.formActive {
@@ -182,6 +193,7 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		case id == "new-client-select":
 			rows := m.visibleCreationClients()
 			if m.clientCursor < 0 || m.clientCursor >= len(rows) {
+				m.notice = ""
 				return m, nil, true
 			}
 			c := rows[m.clientCursor]
@@ -246,16 +258,13 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 	if !ok {
 		return m, nil, false
 	}
+	if m.screen == "new-form" && key.String() == "ctrl+s" {
+		return activate("new-create")
+	}
 	if m.screen == "new-name" {
 		k := key.String()
 		if k == "tab" || k == "shift+tab" {
-			if m.uiFocus == "new-name-save" {
-				m.uiFocus = "new-back"
-			} else if m.uiFocus == "new-back" {
-				m.uiFocus = ""
-			} else {
-				m.uiFocus = "new-name-save"
-			}
+			m.uiFocus = uiCycle(m.uiFocus, []string{"", "new-name-save", "new-back"}, k == "shift+tab")
 			return m, nil, true
 		}
 		if k == "enter" && m.uiFocus == "new-back" {
@@ -269,6 +278,11 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 	if m.screen == "new-cli" {
 		k := key.String()
 		if m.uiFocus == "new-client-search" {
+			if k == "esc" && m.input.Value() != "" {
+				m.input.SetValue("")
+				m.clientCursor = 0
+				return m, nil, true
+			}
 			if k == "esc" || k == "enter" || k == "tab" {
 				m.uiFocus = ""
 				m.clientCursor = 0

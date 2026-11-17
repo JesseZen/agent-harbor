@@ -259,7 +259,7 @@ func TestNativeRecoveryReviewShowsRouteUncertaintyAndNavigation(t *testing.T) {
 		model.scroll = model.scrollLimit()
 		model = appKey(model, "esc").(harborModel)
 		model = appKey(model, "enter").(harborModel)
-		if model.scroll != 0 || !strings.Contains(cleanUI(model.View()), "Resume this saved conversation") {
+		if model.scroll != 0 || !strings.Contains(cleanUI(model.View()), "Resume conversation") {
 			t.Fatalf("%v reused the previous review's scroll position", size)
 		}
 		model.action = "review-reference"

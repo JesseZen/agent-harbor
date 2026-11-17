@@ -44,7 +44,7 @@ func (m harborModel) reviewEvidence() []string {
 }
 func (m harborModel) reviewLayout() uiPage {
 	p := newUIPage(m.width, m.height)
-	p.line(paint(fg("brand"), "⚓ Harbor · Review "+m.action))
+	p.line(paint(fg("brand"), "⚓ Harbor › "+reviewActionLabel(m.action)))
 	if m.screen == "confirm-evidence" {
 		lines := m.reviewEvidence()
 		count := max(1, m.height-3)
@@ -52,12 +52,13 @@ func (m harborModel) reviewLayout() uiPage {
 		for _, line := range lines[start:min(len(lines), start+count)] {
 			p.line(line)
 		}
+		p.scrollRail(1, min(count, len(p.Lines)-1), len(lines), start)
 		for len(p.Lines) < m.height-2 {
 			p.line("")
 		}
-		p.button(uiAction{ID: "review-back", Label: "Back to decision", Key: "esc"}, true)
-		p.line(paintKeys("↑↓ scroll  Esc back"))
-		return p
+		p.shortcut(uiAction{ID: "review-back", Label: "Back to decision", Key: "esc"}, true)
+		p.Hint = "↑↓ scroll"
+		return p.finish(0)
 	}
 	p.line(paint(fg("text"), cleanUI(m.reviewed.Name)))
 	p.field("", "📂", "Project", cleanUI(m.reviewed.WorkingDirectory), false, false)
@@ -76,9 +77,11 @@ func (m harborModel) reviewLayout() uiPage {
 	if m.action != "start" {
 		p.field("", "💬", "Conversation", orUnknown(conversation), false, false)
 	}
-	impact := map[string]string{"start": "Start this client with the recorded connection.", "stop": "The conversation stays resumable.", "remove": "Codex history is kept. Remove only the Harbor record.", "review-reference": "Save this review only. This does not resume the conversation.", "query-resume": "Resume this saved conversation with its recorded Profile and connection.", "resume": "Resume this conversation with its recorded connection.", "close-previous": "Close only the inspected idle shell; keep conversation and record."}[m.action]
+	impact := map[string]string{"start": "", "stop": "The conversation stays resumable.", "remove": "Codex history is kept. Remove only the Harbor record.", "review-reference": "Save this review only. This does not resume the conversation.", "query-resume": "", "resume": "", "close-previous": "Close only the inspected idle shell; keep conversation and record."}[m.action]
 	for _, line := range strings.Split(ansi.Wrap(impact, max(1, m.width-2), ""), "\n") {
-		p.line(line)
+		if line != "" {
+			p.line(paint(fg("muted"), line))
+		}
 	}
 	if m.action == "review-reference" && m.reviewed.Conversation != nil {
 		p.line(paint(fg("warn"), "Saved evidence: "+m.reviewed.Conversation.Status+" · choose explicitly"))
@@ -91,18 +94,9 @@ func (m harborModel) reviewLayout() uiPage {
 	}
 
 	actions := m.reviewActions()
-	// Reserve actions first; short popups fold the object summary above them.
-	actionRows := len(actions)
-	bodyLimit := max(1, m.height-actionRows-1)
-	if len(p.Lines) > bodyLimit {
-		p.Lines = p.Lines[:bodyLimit]
-		p.Hits = nil
-	}
-	for _, a := range actions {
-		p.button(a, m.uiFocus == a.ID)
-	}
-	p.line(paintKeys("Tab focus  Enter action  i evidence  Esc Cancel"))
-	return p
+	p.shortcuts(actions, m.uiFocus)
+	p.Hint = "Tab / ↑↓ focus"
+	return p.finish(0)
 }
 func (m harborModel) activateReview(id string) (tea.Model, tea.Cmd) {
 	m.uiFocus = ""
@@ -193,4 +187,12 @@ func (m harborModel) updateReviewUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return next, cmd, true
 	}
 	return m, nil, false
+}
+
+func reviewActionLabel(action string) string {
+	label := map[string]string{"start": "Start session", "stop": "Stop process", "remove": "Remove record", "resume": "Resume conversation", "query-resume": "Resume conversation", "review-reference": "Review saved conversation", "close-previous": "Close inspected shell", "rename": "Rename session"}[action]
+	if label == "" {
+		return "Review session"
+	}
+	return label
 }

@@ -43,14 +43,22 @@ type appAccountDone struct {
 
 func (m harborModel) updateAccounts(key string) (tea.Model, tea.Cmd) {
 	if key == "esc" || key == "q" {
-		if m.screen == "accounts-result" {
+		if m.screen == "accounts-result" || m.screen == "accounts-detail" {
 			m.screen = "accounts"
 		} else {
 			m.screen = "sessions"
 		}
 		return m, nil
 	}
+	if m.screen == "accounts" && key == "," {
+		settings := newSettingsModel()
+		settings.width, settings.height = m.width, m.height
+		m.settings = &settings
+		return m, nil
+	}
 	if m.screen == "accounts" && key == "p" {
+		m.profileReturn, m.profileReturnScroll = "accounts", m.scroll
+		m.scroll = 0
 		m.screen = "profile-list"
 		m.notice = ""
 		return m, m.loadProfiles()
@@ -73,6 +81,11 @@ func (m harborModel) updateAccounts(key string) (tea.Model, tea.Cmd) {
 	if key == "r" {
 		m.accountGeneration++
 		return m, m.inspectAccounts(*m.accountProfile)
+	}
+	if key == "s" && m.accountSnapshot != nil && len(m.accountSnapshot.Accounts) == 0 {
+		m.accountResult = "No saved logins. Return and press l to add a login."
+		m.screen = "accounts-result"
+		return m, nil
 	}
 	action := "switch"
 	if key == "l" {

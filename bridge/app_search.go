@@ -123,7 +123,12 @@ func (m harborModel) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	}
 	if k == "esc" && (m.searchFocus == m.screen || m.searchQuery() != "") {
 		id := m.searchSelectedID()
-		m.setSearchQuery("")
+		if m.searchQuery() != "" {
+			m.setSearchQuery("")
+			m.input.SetValue("")
+			m.restoreSearchSelection(id)
+			return m, nil, true
+		}
 		m.searchFocus = ""
 		m.input.Blur()
 		m.restoreSearchSelection(id)

@@ -44,53 +44,67 @@ func (m harborModel) profilePage() (uiPage, bool) {
 			original = "Unknown — independently verify the original environment before binding"
 		}
 		body := fmt.Sprintf("Session: %s\nRecorded original client home: %s\n\nSelected existing environment: %s\nClient home: %s\nSQLite: %s\n\nConfirm only after checking this is the Conversation's original environment. No history or credentials will be moved. External clients may share this environment.\n%s", r.Session.Name, original, r.Environment.ProfileName, r.Environment.Home, r.Environment.SQLite, m.notice)
-		return secondaryDocument(m.width, m.height, "Review original environment", body, []uiAction{{ID: "profile:confirm-bind", Label: "Bind original environment"}, {ID: "profile:esc", Label: "Cancel", Key: "esc"}}, m.uiFocus, m.scroll), true
+		return secondaryDocument(m.width, m.height, "Review original environment", body, []uiAction{{ID: "profile:confirm-bind", Label: "Bind original environment", Key: "ctrl+y"}, {ID: "profile:esc", Label: "Cancel", Key: "esc"}}, m.uiFocus, m.scroll), true
 	}
 	if m.screen == "profile-new" || m.screen == "profile-rename" {
 		title := "Create isolated Profile"
 		if m.screen == "profile-rename" {
 			title = "Rename Profile"
 		}
-		return secondaryDocument(m.width, m.height, title, m.input.View()+"\n"+m.notice, []uiAction{{ID: "profile:enter", Label: "Save", Key: "enter", Primary: true}, {ID: "profile:esc", Label: "Cancel", Key: "esc"}}, m.uiFocus, m.scroll), true
+		return secondaryDocument(m.width, m.height, title, textEntry(m.input, m.width, "Profile name")+"\n"+m.notice, []uiAction{{ID: "profile:enter", Label: "Save", Key: "enter", Primary: true}, {ID: "profile:esc", Label: "Cancel", Key: "esc"}}, m.uiFocus, m.scroll), true
 	}
 	p := newUIPage(m.width, m.height)
 	p.line(paint(fg("brand"), "Harbor · Profiles"))
 	p.tabs("profiles", m.uiHover, m.uiFocus, true)
-	p.line("Current: " + cleanUI(m.activeProfileLabel()))
-	p.line("Profiles share project files. Use separate worktrees for separate code changes.")
-	start := m.listStart(m.profileCursor, max(1, m.height-11))
-	for i := start; i < min(len(m.profiles), start+max(1, m.height-11)); i++ {
+	p.field("", "", "Current", cleanUI(m.activeProfileLabel()), false, false)
+	p.line(paint(fg("section"), "Profiles"))
+	actions := []uiAction{{ID: "profile:enter", Label: "Select", Key: "enter", Primary: true}, {ID: "profile:n", Label: "Create", Key: "n"}, {ID: "profile:r", Label: "Rename", Key: "r"}, {ID: "profile:d", Label: "Magpie default", Key: "d"}, {ID: "profile:esc", Label: "Back", Key: "esc"}}
+	if s, ok := m.selected(); ok && !s.External && s.Profile == nil {
+		actions = append(actions, uiAction{ID: "profile:b", Label: "Bind reviewed original environment", Key: "b"})
+	}
+	p.shortcuts(actions, m.uiFocus)
+	p.Hint = "↑↓ choose · Tab focus"
+	listTop := len(p.Lines)
+	count := max(1, m.height-len(p.Lines)-len(p.shortcutBar().Lines))
+	if m.notice != "" {
+		count = max(1, count-1)
+	}
+	start := m.listStart(m.profileCursor, count)
+	for i := start; i < min(len(m.profiles), start+count); i++ {
 		row := m.profiles[i]
 		label := row.Name + " · " + string(row.Kind)
 		if m.activeProfile != nil && row.ID == m.activeProfile.ProfileID {
 			label += " · selected"
 		}
-		mark := "  "
-		if i == m.profileCursor {
-			mark = "› "
-		}
 		y := len(p.Lines)
-		p.line(mark + cleanUI(label))
+		p.field("", "", cleanUI(label), "", i == m.profileCursor, false)
 		p.hit("profile-row:"+row.ID, 1, y, max(1, p.Width-2), 1)
 	}
-	actions := []uiAction{{ID: "profile:enter", Label: "Select", Key: "enter", Primary: true}, {ID: "profile:n", Label: "Create", Key: "n"}, {ID: "profile:r", Label: "Rename", Key: "r"}, {ID: "profile:d", Label: "Magpie default", Key: "d"}, {ID: "profile:esc", Label: "Back", Key: "esc"}}
-	if s, ok := m.selected(); ok && !s.External && s.Profile == nil {
-		actions = append(actions, uiAction{ID: "profile:b", Label: "Bind reviewed original environment", Key: "b"})
-	}
-	p.buttons(actions, m.uiFocus)
+	p.scrollRail(listTop, len(p.Lines)-listTop, len(m.profiles), start)
+
 	if m.screen == "profile-default" {
-		p.line("Choose a verified instance for this Profile's future sessions:")
-		p.button(uiAction{ID: "profile-instance:", Label: "Shared workspace default"}, m.profileDefaultCursor == 0)
-		for index, i := range m.profileInstances {
-			p.button(uiAction{ID: "profile-instance:" + i.ID, Label: i.Name + " · " + i.ID}, m.profileDefaultCursor == index+1)
+		p = newUIPage(m.width, m.height)
+		p.line(paint(fg("brand"), "Harbor › Profile Magpie default"))
+		p.line("For future sessions only; existing sessions keep their instance.")
+		count := max(1, m.height-7)
+		start := max(0, m.profileDefaultCursor-count+1)
+		listTop := len(p.Lines)
+		for i := start; i < min(len(m.profileInstances)+1, start+count); i++ {
+			id, label := "", "Shared workspace default"
+			if i > 0 {
+				id, label = m.profileInstances[i-1].ID, m.profileInstances[i-1].Name+" · "+m.profileInstances[i-1].ID
+			}
+			p.field("profile-instance:"+id, "", label, "", m.profileDefaultCursor == i, false)
 		}
+		p.scrollRail(listTop, len(p.Lines)-listTop, len(m.profileInstances)+1, start)
+		p.shortcuts([]uiAction{{ID: "profile:enter", Label: "Save default", Key: "enter"}, {ID: "profile:esc", Label: "Cancel", Key: "esc"}}, "")
 	}
 	if m.notice != "" {
 		p.line(cleanUI(m.notice))
 	}
-	p.line("Existing environments may be shared with clients outside Harbor.")
-	p.line("↑↓ choose · Enter select · n create · r rename · d default · Esc back")
-	return p, true
+
+	p.Hint = "↑↓ choose · Tab focus"
+	return p.finish(0), true
 }
 func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	if result, ok := msg.(appProfilesLoaded); ok {
@@ -165,9 +179,25 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			}
 		}
 		m.uiFocus = uiCycle(m.uiFocus, ids, k == "shift+tab")
+		if strings.HasPrefix(m.uiFocus, "profile-instance:") {
+			m.profileDefaultCursor = 0
+			for i, instance := range m.profileInstances {
+				if m.uiFocus == "profile-instance:"+instance.ID {
+					m.profileDefaultCursor = i + 1
+				}
+			}
+		}
 		return m, nil, true
 	}
 	if k == "enter" && m.uiFocus != "" {
+		if strings.HasPrefix(m.uiFocus, "profile-instance:") {
+			m.profileDefaultCursor = 0
+			for i, instance := range m.profileInstances {
+				if m.uiFocus == "profile-instance:"+instance.ID {
+					m.profileDefaultCursor = i + 1
+				}
+			}
+		}
 		if strings.HasPrefix(m.uiFocus, "nav:") {
 			n, c := m.activateSessions(m.uiFocus)
 			return n, c, true
@@ -181,13 +211,17 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		m.uiFocus = ""
 		if m.screen == "profile-list" {
 			m.screen = "sessions"
+			if m.profileReturn != "" {
+				m.screen, m.scroll, m.uiFocus = m.profileReturn, m.profileReturnScroll, ""
+				m.profileReturn = ""
+			}
 		} else {
 			m.screen = "profile-list"
 		}
 		return m, nil, true
 	}
 	if m.screen == "profile-bind" {
-		if k == "confirm-bind" && m.profileReview != nil {
+		if (k == "confirm-bind" || k == "ctrl+y") && m.profileReview != nil {
 			r := m.profileReview
 			if err := m.service.ReviewSessionProfile(sessionApproval{Session: r.Session, Confirmed: true}, r.Environment.Binding); err != nil {
 				m.notice = err.Error()
@@ -227,9 +261,11 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	}
 	if m.screen == "profile-default" {
 		if k == "up" || k == "k" {
+			m.uiFocus = ""
 			m.profileDefaultCursor = max(0, m.profileDefaultCursor-1)
 		}
 		if k == "down" || k == "j" {
+			m.uiFocus = ""
 			m.profileDefaultCursor = min(len(m.profileInstances), m.profileDefaultCursor+1)
 		}
 		if k == "enter" && m.profileCursor < len(m.profiles) {
@@ -285,6 +321,11 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				m.generation++
 				m.screen = "sessions"
 				m.notice = "Profile selected: " + m.activeProfileLabel()
+				if m.profileReturn != "" {
+					m.screen, m.scroll, m.uiFocus = m.profileReturn, m.profileReturnScroll, ""
+					m.profileReturn = ""
+					return m, m.inspectAccounts(b), true
+				}
 			}
 		}
 	case "d":

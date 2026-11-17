@@ -29,13 +29,23 @@ be available. These packages are not bundled with Agent Harbor.
 node bridge/tests/render_terminal.cjs --input ANSI_DIR --output OUTPUT_DIR --modules NODE_MODULES --check-divider
 ```
 
-Fixture names end in `-60.ansi`, `-100.ansi`, or `-160.ansi` for the three practical
-sizes. The renderer waits for terminal writes, saves PNGs and `geometry.json`, and
+Fixture names end in `-60.ansi`, `-80.ansi`, `-100.ansi`, or `-160.ansi`.
+Default render sizes are 60×20, 80×24, 100×30 and 160×45. Use `--rows 24`
+for a directory of actual 60×24 captures; preserve the captured row count so
+rendering does not silently crop the footer. The renderer waits for terminal
+writes, saves PNGs and `geometry.json`, and
 checks single-divider rows by their actual terminal cell coordinates. For the
 reported emoji/CJK session fixture, `--legacy-unicode` reproduces the failure;
 normal rendering must pass. The Unicode addon is experimental: preview checks
 supplement actual isolated Herdr interaction, not replace it. Use only synthetic
 or explicitly sanitized data for shareable screenshots.
+
+Before accepting a rebuilt UI binary, verify that the fixture's executable matches
+the intended build. Herdr may retain an existing `_app` process when a popup is
+hidden and reopened; reentry alone does not prove that the new binary is running.
+Replace a fixture-owned executable atomically if it is still in use, restart only
+the fixture-owned popup process, and verify the running build before capturing
+results. Keep user-managed services and sessions untouched.
 
 Run `GOWORK=off go test ./...` in `bridge/` under a fresh isolated HOME/XDG/TMPDIR/Codex environment. This covers the process/application-service seams and UI model.
 

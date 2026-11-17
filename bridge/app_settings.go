@@ -3,7 +3,6 @@ package main
 import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"strconv"
 	"strings"
@@ -229,6 +228,13 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.cursor = m.nextControl(-1)
 			}
+		case "ctrl+s", "ctrl+r":
+			if key == "ctrl+s" {
+				m.cursor = 4
+			} else {
+				m.cursor = 3
+			}
+			return m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		case "enter":
 			if m.cursor < 3 {
 				m.editing = true
@@ -304,7 +310,7 @@ func (m settingsModel) actions() []uiAction {
 	if m.busy {
 		disabled = "Saving"
 	}
-	return []uiAction{{ID: "control:3", Label: "Restore defaults", Key: "Enter", Disabled: disabled}, {ID: "control:4", Label: "Save changes", Key: "Enter", Primary: true, Disabled: disabled}, {ID: "control:5", Label: "Cancel", Key: "Esc", Disabled: disabled}}
+	return []uiAction{{ID: "control:3", Label: "Restore defaults", Key: "Ctrl+R", Disabled: disabled}, {ID: "control:4", Label: "Save changes", Key: "Ctrl+S", Primary: true, Disabled: disabled}, {ID: "control:5", Label: "Cancel", Key: "Esc", Disabled: disabled}}
 }
 func (m settingsModel) layout() uiPage {
 	p := newUIPage(m.width, m.height)
@@ -320,8 +326,10 @@ func (m settingsModel) layout() uiPage {
 		for _, r := range rows[start:min(len(rows), start+count)] {
 			p.line(r)
 		}
-		p.button(uiAction{ID: "back", Label: "Back", Key: "Esc"}, true)
-		return p
+		p.scrollRail(1, min(count, len(p.Lines)-1), len(rows), start)
+		p.shortcut(uiAction{ID: "back", Label: "Back", Key: "Esc"}, true)
+		p.Hint = "↑↓ scroll"
+		return p.finish(0)
 	}
 	if p.Height >= 19 {
 		p.tabs("settings", m.hover, m.focusNav, true)
@@ -338,31 +346,25 @@ func (m settingsModel) layout() uiPage {
 			value = m.input.View()
 		}
 		p.field("control:"+strconv.Itoa(i), []string{"🚢", "⚙", "🐦"}[i], settingsLabels[i], value, m.cursor == i && !m.searching && m.focusNav == "", true)
-		if p.Height >= 28 {
-			p.line("")
-			p.line("")
-		}
+
 	}
 	if len(m.filtered()) == 0 {
 		p.line("No matching settings. Clear the search to return.")
 	}
 	if m.editing {
-		p.button(uiAction{ID: "accept", Label: "Accept field", Key: "Enter", Primary: true}, true)
-		p.button(uiAction{ID: "back", Label: "Cancel edit", Key: "Esc"}, false)
+		p.shortcut(uiAction{ID: "accept", Label: "Accept field", Key: "Enter", Primary: true}, true)
+		p.shortcut(uiAction{ID: "back", Label: "Cancel edit", Key: "Esc"}, false)
 	} else {
 		if p.Height >= 23 {
 			p.line("")
-			p.line(paint(fg("value"), "Shortcuts apply to this Harbor workspace."))
-			for len(p.Lines) < p.Height-6 {
-				p.line("")
-			}
+
 		}
 		actions := m.actions()
 		if p.Height >= 23 {
-			p.buttons([]uiAction{actions[0], actions[2], actions[1]}, "control:"+strconv.Itoa(m.cursor))
+			p.shortcuts([]uiAction{actions[0], actions[2], actions[1]}, "control:"+strconv.Itoa(m.cursor))
 		} else {
 			for i, a := range actions {
-				p.button(a, m.cursor == i+3)
+				p.shortcut(a, m.cursor == i+3)
 			}
 		}
 	}
@@ -371,28 +373,20 @@ func (m settingsModel) layout() uiPage {
 		notice = "Saving and reloading owned workspace…"
 	}
 	if notice == "" {
-		notice = "Workspace only. prefix = Ctrl+B; Herdr settings: prefix+s."
+		notice = ""
 	}
-	// Keep the full notice reachable by mouse even in the smallest popup.
-	if !m.editing && !m.searching && len(p.Lines) < p.Height-1 {
-		y := len(p.Lines)
-		label := " Details "
-		p.line(paint(fg("key").Background(lipgloss.Color(harborPalette["button"])), label) + " " + ansi.Truncate(cleanUI(notice), max(1, p.Width-12), "…"))
-		p.hit("details", 1, y, 9, 1)
-	}
-	hint := "Tab move  Enter edit  / search  i Details  Esc Cancel"
-	if m.cursor >= 3 && m.cursor <= 5 {
-		hint = "Tab move  " + actionHints([]uiAction{m.actions()[m.cursor-3]}) + "  i Details"
-	}
+	p.line(paint(fg("value"), cleanUI(notice)))
+	hint := "Tab / ↑↓ focus · Enter edit · / search · i Details"
+
 	if m.editing {
-		hint = "Enter Accept field  Esc Cancel edit"
+		hint = ""
 	}
 	if m.searching {
 		hint = "Type search  Tab controls  Esc clear/back"
 	}
-	p.line(paintKeys(ansi.Truncate(hint, max(1, p.Width-2), "…")))
+	p.Hint = hint
 
-	return p
+	return p.finish(0)
 }
 func (m settingsModel) View() string { return m.layout().view() }
 func runSettingsApp() error {

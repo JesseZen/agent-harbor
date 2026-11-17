@@ -49,7 +49,7 @@ func TestHarborSessionsAtPracticalSizes(t *testing.T) {
 		model, _ = model.Update(m.Init()())
 		text := model.View()
 		t.Logf("RENDER %dx%d\n%s\nEND RENDER", size[0], size[1], text)
-		for _, want := range []string{"Harbor API", "Needs attention", "gateway offline", "n new", "? help"} {
+		for _, want := range []string{"Harbor API", "Needs attention", "gateway offline", "n New session", "? help"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%v missing %q:\n%s", size, want, text)
 			}

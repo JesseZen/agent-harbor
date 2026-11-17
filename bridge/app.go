@@ -54,6 +54,8 @@ type appRoute struct {
 
 // harborModel owns interaction only. All product effects cross the service seam.
 type harborModel struct {
+	profileReturn        string
+	profileReturnScroll  int
 	profileReview        *profileReviewState
 	activeProfile        *profileBinding
 	profiles             []profile
@@ -614,7 +616,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen == "busy" || m.screen == "magpie-busy" || m.screen == "accounts-busy" {
 			return m, nil
 		}
-		if m.screen == "accounts" || m.screen == "accounts-result" {
+		if (m.screen == "accounts" || m.screen == "accounts-result") && key != "?" {
 			return m.updateAccounts(key)
 		}
 		if key == "ctrl+g" {

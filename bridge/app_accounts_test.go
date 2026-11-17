@@ -12,7 +12,12 @@ func TestExperimentalAccountEntryAndResult(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	m = next.(harborModel)
-	if m.screen != "accounts" || !strings.Contains(m.View(), "between replies") || !strings.Contains(m.View(), "undocumented") {
+	if m.screen != "accounts" {
+		t.Fatal(m.screen)
+	}
+	detail := m
+	detail.screen = "accounts-detail"
+	if !strings.Contains(detail.View(), "between replies") || !strings.Contains(detail.View(), "undocumented") {
 		t.Fatalf("account entry lacks switching guidance: %s", m.View())
 	}
 	m.screen = "accounts-busy"

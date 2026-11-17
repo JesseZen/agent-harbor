@@ -30,25 +30,25 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 	p := newUIPage(m.width, 10000)
 	p.line(paint(fg("brand"), "🐦 Harbor · Connections"))
 	p.tabs("magpie", m.uiHover, m.uiFocus, true)
-	p.line("Shared instance: provider settings and request logs affect all Profiles using it.")
+
 	if m.notice != "" {
 		for _, line := range strings.Split(ansi.Wrap(m.notice, max(1, m.width-2), ""), "\n") {
 			p.line(line)
 		}
 	}
-	p.search(m.instanceFilter, "Search gateways", m.searchFocus == "magpie")
+	p.search(m.instanceFilter, "Search gateways", m.searchFocus == "magpie", m.input)
 	if m.searchFocus == "magpie" {
-		p.line(note("Type search · tab list · Esc clear/back"))
+		p.Hint = "Type search · tab list · Esc clear/back"
 	}
 	a := m.connectionActions()
-	p.buttons(a[:2], m.uiFocus)
+	p.shortcuts(a[:2], m.uiFocus)
 	p.line(paint(fg("section"), "Magpie instances"))
 	rows := m.instanceRows()
 	for i, r := range rows {
 		p.field("instance:"+r.ID, "🐦", r.Name, r.Kind+" · "+r.Health, i == m.instanceCursor, false)
 	}
 	if len(rows) == 0 {
-		p.line("No recorded instances. Bind external or start Harbor-managed.")
+		p.emptyState("No recorded instances.")
 	}
 	if len(rows) > 0 {
 		r := rows[min(m.instanceCursor, len(rows)-1)]
@@ -59,28 +59,20 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 		if r.Detail != "" {
 			p.line(r.Detail)
 		}
-		p.buttons(a[2:len(a)-3], m.uiFocus)
-		for _, line := range strings.Split(ansi.Wrap("Default affects future new sessions only; existing connections stay unchanged.", max(1, m.width-2), ""), "\n") {
-			p.line(note(line))
-		}
+		p.shortcuts(a[2:len(a)-3], m.uiFocus)
+
 	}
 	p.line(paint(fg("section"), "Harbor-managed gateway · "+managedInstanceID))
-	p.line(note("Lifecycle targets Harbor ownership independently of selection."))
-	p.buttons(a[len(a)-3:], m.uiFocus)
-	p.line(note(actionHints(a)))
 
-	p.line(note("Tab controls · ↑↓ select · PgUp/PgDown scroll · Esc back"))
-	start := min(m.scroll, max(0, len(p.Lines)-m.height))
-	out := newUIPage(m.width, m.height)
-	out.Actions = p.Actions
-	out.Lines = append(out.Lines, p.Lines[start:min(len(p.Lines), start+m.height)]...)
-	for _, r := range p.Hits {
-		r.Y -= start
-		if r.Y >= 0 && r.Y+r.H <= m.height {
-			out.Hits = append(out.Hits, r)
-		}
+	p.shortcuts(a[len(a)-3:], m.uiFocus)
+	p.Height = m.height
+	if p.Hint == "" {
+		p.Hint = "/ search · Tab focus · ↑↓ select · PgUp/PgDown scroll · Esc back"
 	}
-	return out, true
+	if m.searchFocus == "magpie" {
+		p.Actions = nil
+	}
+	return p.finish(m.scroll), true
 }
 
 func (m harborModel) connectionDocument() uiPage {
@@ -88,7 +80,7 @@ func (m harborModel) connectionDocument() uiPage {
 	p.line(paint(fg("brand"), "🐦 Harbor · Connections"))
 	if m.screen == "magpie-bind" {
 		p.line("Bind an external running Magpie")
-		p.search(m.input.Value(), "Gateway address", true)
+		p.search(m.input.Value(), "Gateway address", true, m.input)
 		p.line(note("Harbor verifies identity and never starts or stops external gateways."))
 	} else {
 		for _, line := range strings.Split(m.magpieView(), "\n") {
@@ -108,8 +100,8 @@ func (m harborModel) connectionDocument() uiPage {
 			actions = append(actions, uiAction{ID: "conn:enter", Label: "Confirm", Key: "enter", Primary: true})
 		}
 	}
-	footer.buttons(actions, m.uiFocus)
-	footer.line(note("↑↓ / PgUp/PgDown scroll · " + actionHints(actions)))
+	footer.shortcuts(actions, m.uiFocus)
+	footer.Hint = "↑↓ / PgUp/PgDown scroll"
 	return p.withFooter(footer, m.height, m.scroll)
 }
 func (m harborModel) connectionActivate(id string) (tea.Model, tea.Cmd) {
@@ -284,11 +276,14 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 				}
 				m.searchFocus = ""
 				m.input.Blur()
+				if strings.HasPrefix(m.uiFocus, "conn:") {
+					return m, nil, true
+				}
 				if ids[i].Y < m.scroll {
 					m.scroll = ids[i].Y
 				}
-				if ids[i].Y >= m.scroll+m.height {
-					m.scroll = ids[i].Y - m.height + 1
+				if ids[i].Y >= m.scroll+max(1, m.height-m.connectionFooterHeight()) {
+					m.scroll = ids[i].Y - max(1, m.height-m.connectionFooterHeight()) + 1
 				}
 			}
 			return m, nil, true
@@ -342,10 +337,17 @@ func (m harborModel) connectionRevealSelected() harborModel {
 			if r.Y < m.scroll {
 				m.scroll = r.Y
 			}
-			if r.Y >= m.scroll+m.height {
-				m.scroll = r.Y - m.height + 1
+			if r.Y >= m.scroll+max(1, m.height-m.connectionFooterHeight()) {
+				m.scroll = r.Y - max(1, m.height-m.connectionFooterHeight()) + 1
 			}
 		}
 	}
 	return m
+}
+
+func (m harborModel) connectionFooterHeight() int {
+	p := newUIPage(m.width, m.height)
+	p.shortcuts(m.connectionActions(), m.uiFocus)
+	p.Hint = "/ search · Tab focus · ↑↓ select · PgUp/PgDown scroll · Esc back"
+	return len(p.shortcutBar().Lines)
 }

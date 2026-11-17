@@ -12,7 +12,7 @@ func TestContextHelpRestoresParentControlAfterMouseBack(t *testing.T) {
 	m.models = []catalogModel{{ID: "group/test"}}
 	m.draft.Instance = "fixture"
 	m.uiFocus = "selector-apply"
-	m.scroll = 2
+	m.scroll = 1
 	n, _ := m.Update(uiKey("?"))
 	m = n.(harborModel)
 	if m.screen != "help" {
@@ -26,7 +26,7 @@ func TestContextHelpRestoresParentControlAfterMouseBack(t *testing.T) {
 			break
 		}
 	}
-	if m.screen != "new-catalog" || m.uiFocus != "selector-apply" || m.scroll != 2 {
+	if m.screen != "new-catalog" || m.uiFocus != "selector-apply" || m.scroll != 1 {
 		t.Fatalf("parent state lost: %s %s %d", m.screen, m.uiFocus, m.scroll)
 	}
 }

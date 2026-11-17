@@ -26,8 +26,9 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 		p.line("Loading connection…")
 	case "new-instance":
 		p.line("🐦 Magpie · Choose instance")
-		p.search(m.instanceFilter, "Filter instances", m.uiFocus == "selector-search")
+		p.search(m.instanceFilter, "Filter instances", m.uiFocus == "selector-search", m.input)
 		rows := m.instanceRows()
+		listTop := len(p.Lines)
 		count := max(1, m.height-12)
 		start := max(0, m.instanceCursor-count+1)
 		for i := start; i < min(len(rows), start+count); i++ {
@@ -35,6 +36,7 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 			p.field("selector-instance:"+r.ID, selectorMark(m.formSaved.Connection == "magpie" && m.formSaved.Instance == r.ID), r.Name, r.ID+" · "+r.Health, i == m.instanceCursor, false)
 			p.Lines[len(p.Lines)-1] = highlightSearch(p.Lines[len(p.Lines)-1], m.instanceFilter)
 		}
+		p.scrollRail(listTop, len(p.Lines)-listTop, len(rows), start)
 		if len(rows) > 0 {
 			r := rows[min(max(0, m.instanceCursor), len(rows)-1)]
 			p.line(cleanUI(r.Address))
@@ -46,12 +48,13 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 				wrap(cleanUI(warning))
 			}
 		}
-		footer.button(uiAction{ID: "selector-select", Label: "Select instance", Key: "enter", Primary: true}, m.uiFocus == "selector-select")
+		footer.shortcut(uiAction{ID: "selector-select", Label: "Select instance", Key: "enter", Primary: true}, m.uiFocus == "selector-select")
 	case "new-catalog":
 		p.line("🐦 Magpie · Model or routing group")
 		p.line(cleanUI(m.catalogInstanceLabel()))
-		p.search(m.catalogFilter, "Filter models and groups", m.uiFocus == "selector-search")
+		p.search(m.catalogFilter, "Filter models and groups", m.uiFocus == "selector-search", m.input)
 		rows := m.filteredModels()
+		listTop := len(p.Lines)
 		count := max(1, m.height-15)
 		start := max(0, m.catalogCursor-count+1)
 		for i := start; i < min(len(rows), start+count); i++ {
@@ -66,6 +69,7 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 			p.field("selector-model:"+r.ID, selectorMark(m.formSaved.Connection == "magpie" && m.formSaved.Instance == m.draft.Instance && m.formSaved.Model == r.ID), r.ID, label, i == m.catalogCursor, false)
 			p.Lines[len(p.Lines)-1] = highlightSearch(p.Lines[len(p.Lines)-1], m.catalogFilter)
 		}
+		p.scrollRail(listTop, len(p.Lines)-listTop, len(rows), start)
 		wrap("Auxiliary requests may send conversation parts to other providers.")
 		wrap("Groups may switch members; an ID does not prove the destination.")
 		label := "Apply selection"
@@ -80,17 +84,17 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 		if len(rows) == 0 {
 			action.Disabled = "No matching models"
 		}
-		footer.button(action, m.uiFocus == "selector-apply")
-		footer.button(uiAction{ID: "selector-instances", Label: "Change instance", Key: "i"}, m.uiFocus == "selector-instances")
+		footer.shortcut(action, m.uiFocus == "selector-apply")
+		footer.shortcut(uiAction{ID: "selector-instances", Label: "Change instance", Key: "i"}, m.uiFocus == "selector-instances")
 	case "new-notice":
 		p.line("Magpie · " + m.draft.Instance)
 		wrap("Auxiliary requests may send conversation parts to other providers.")
 		wrap("Groups may switch members; an ID does not prove the destination.")
-		footer.button(uiAction{ID: "selector-ack", Label: "Acknowledge & apply", Key: "enter", Primary: true}, m.uiFocus == "selector-ack")
+		footer.shortcut(uiAction{ID: "selector-ack", Label: "Acknowledge & apply", Key: "enter", Primary: true}, m.uiFocus == "selector-ack")
 	default:
 		return p, false
 	}
-	footer.button(uiAction{ID: "selector-cancel", Label: "Cancel", Key: "esc"}, m.uiFocus == "selector-cancel")
+	footer.shortcut(uiAction{ID: "selector-cancel", Label: "Cancel", Key: "esc"}, m.uiFocus == "selector-cancel")
 	if m.notice != "" {
 		wrap(cleanUI(m.notice))
 	}
@@ -98,7 +102,7 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 	if m.uiFocus == "selector-search" {
 		hint = "Type search · tab list · Esc clear/back"
 	}
-	footer.line(paint(fg("key"), hint))
+	footer.Hint = hint
 	return p.withFooter(footer, m.height, m.scroll), true
 }
 func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {

@@ -34,7 +34,7 @@ func (m harborModel) secondaryContent() (string, string, []uiAction, bool) {
 			title = "Filter sessions"
 			label = "Search"
 		}
-		return title, label + " (editing)\n│ " + m.input.View() + " │\n" + m.notice + "\nEnter applies this edit. Esc cancels.", []uiAction{{ID: "secondary:enter", Label: "Apply", Key: "enter", Primary: true}, {ID: "secondary:esc", Label: "Cancel", Key: "esc"}}, true
+		return title, textEntry(m.input, m.width, label) + "\n" + m.notice, []uiAction{{ID: "secondary:enter", Label: "Apply", Key: "enter", Primary: true}, {ID: "secondary:esc", Label: "Cancel", Key: "esc"}}, true
 	case "error":
 		actions := []uiAction{back, {ID: "secondary:r", Label: "Refresh", Key: "r", Primary: true}}
 		if m.errorReturn == "magpie" && m.noticeCanStart {
@@ -49,7 +49,7 @@ func (m harborModel) secondaryContent() (string, string, []uiAction, bool) {
 		if target == "" {
 			target = "selected session"
 		}
-		action := m.action
+		action := reviewActionLabel(m.action)
 		if action == "" {
 			action = "Inspect or open"
 		}
@@ -61,24 +61,18 @@ func (m harborModel) secondaryContent() (string, string, []uiAction, bool) {
 	return "", "", nil, false
 }
 
-// Keep the action row outside the scrollable document, including short windows.
+// Keep shortcuts below the scrollable document, including short windows.
 func secondaryDocument(w, h int, title, body string, actions []uiAction, focus string, scroll int) uiPage {
 	p := newUIPage(w, h)
 	p.line(paint(fg("title").Bold(true), "⚓ HARBOR › "+cleanUI(title)))
-	controls := newUIPage(w, h)
-	controls.buttons(actions, focus)
-	budget := max(1, h-2-len(controls.Lines))
-	wrapped := strings.Split(ansi.Wrap(body, max(1, w-2), ""), "\n")
-	start := min(max(0, scroll), max(0, len(wrapped)-budget))
-	for _, line := range wrapped[start:min(len(wrapped), start+budget)] {
+	for _, line := range strings.Split(ansi.Wrap(body, max(1, w-2), ""), "\n") {
 		p.line(line)
 	}
-	for len(p.Lines) < h-1-len(controls.Lines) {
-		p.line("")
+	p.shortcuts(actions, focus)
+	if len(p.Lines) > h-1 && title != "First run" {
+		p.Hint = "↑↓ / PgUp/PgDown scroll"
 	}
-	p.line(paint(fg("muted"), "↑↓ scroll · "+actionHints(actions)))
-	p.buttons(actions, focus)
-	return p
+	return p.finish(scroll)
 }
 func (m harborModel) secondaryPage() (uiPage, bool) {
 	title, body, actions, ok := m.secondaryContent()
@@ -158,10 +152,14 @@ func (m harborModel) secondaryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 		key = strings.TrimPrefix(m.uiFocus, "secondary:")
 	}
 	if key == "down" || key == "j" || key == "up" || key == "k" || key == "pgdown" || key == "pgup" {
-		_, body, _, _ := m.secondaryContent()
+		title, body, _, _ := m.secondaryContent()
 		controls := newUIPage(m.width, m.height)
-		controls.buttons(actions, m.uiFocus)
-		budget := max(1, m.height-2-len(controls.Lines))
+		controls.shortcuts(actions, m.uiFocus)
+		bodyRows := len(strings.Split(ansi.Wrap(body, max(1, m.width-2), ""), "\n"))
+		if bodyRows+1 > m.height-1 && title != "First run" {
+			controls.Hint = "↑↓ / PgUp/PgDown scroll"
+		}
+		budget := max(1, m.height-1-len(controls.shortcutBar().Lines))
 		limit := max(0, len(strings.Split(ansi.Wrap(body, max(1, m.width-2), ""), "\n"))-budget)
 		delta := 1
 		if key == "up" || key == "k" {

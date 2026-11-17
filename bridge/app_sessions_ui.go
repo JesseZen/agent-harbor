@@ -61,26 +61,21 @@ func (m harborModel) sessionsHeader() uiPage {
 	p := newUIPage(m.width, m.height)
 	p.line(paint(fg("brand"), "⚓ HARBOR · Profile: "+m.activeProfileLabel()))
 	p.tabs("sessions", m.uiHover, m.uiFocus, true)
-	p.buttons([]uiAction{{ID: "action:n", Label: "New session", Key: "n", Primary: true}, {ID: "action:r", Label: "Refresh", Key: "r"}}, m.uiFocus)
-	p.search(m.searchQuery(), "Search sessions, projects or connections", m.searchFocus == "sessions")
+	p.shortcuts([]uiAction{{ID: "action:n", Label: "New session", Key: "n", Primary: true}, {ID: "action:r", Label: "Refresh", Key: "r"}}, m.uiFocus)
+	p.search(m.searchQuery(), "Search sessions, projects or connections", m.searchFocus == "sessions", m.input)
 	return p
 }
 func (m harborModel) sessionsBodyHeight() int {
-	actions := m.sessionActions(false)
-	if _, ok := m.selected(); ok {
-		actions = actions[:3]
-	} else {
-		actions = nil
+	return max(1, m.height-len(m.sessionsHeader().Lines)-m.sessionsFooterHeight())
+}
+func (m harborModel) sessionsFooterHeight() int {
+	p := newUIPage(m.width, m.height)
+	p.shortcuts(m.sessionActions(false), m.uiFocus)
+	p.Hint = m.sessionsHint()
+	if m.searchFocus == "sessions" {
+		p.Actions = nil
 	}
-	rows := 1
-	needed := 0
-	for _, a := range actions {
-		needed += ansi.StringWidth(a.Label) + 6
-	}
-	if needed > m.width-2 {
-		rows = len(actions)
-	}
-	return max(1, m.height-len(m.sessionsHeader().Lines)-rows-2)
+	return len(p.shortcutBar().Lines) + 1
 }
 func (m harborModel) sessionsCount() int { return max(1, m.sessionsBodyHeight()/3) }
 func (m harborModel) sessionsLayout() uiPage {
@@ -92,10 +87,10 @@ func (m harborModel) sessionsLayout() uiPage {
 			p.line("Actions for " + cleanUI(s.Name))
 		}
 		for _, a := range m.sessionActions(true) {
-			p.button(a, m.uiFocus == a.ID)
+			p.shortcut(a, m.uiFocus == a.ID)
 		}
-		p.line(paintKeys(actionHints(m.sessionActions(true))))
-		return p
+		p.Hint = "Tab focus · ? help"
+		return p.finish(0)
 	}
 	p = m.sessionsHeader()
 	rows := m.visible()
@@ -109,8 +104,7 @@ func (m harborModel) sessionsLayout() uiPage {
 	}
 	left := newUIPage(leftW, bodyH)
 	if len(rows) == 0 {
-		left.line("No matching sessions")
-		left.line("Clear search or choose New session.")
+		left.emptyState("No matching sessions")
 	}
 	for i := start; i < min(len(rows), start+m.sessionsCount()); i++ {
 		s := rows[i]
@@ -144,6 +138,7 @@ func (m harborModel) sessionsLayout() uiPage {
 		left.line(paint(fg("warn"), ansi.Truncate(cleanUI(reason), leftW-2, "…")))
 		left.hit("session:"+s.ID, 1, y, leftW-2, min(3, bodyH-y))
 	}
+	left.scrollRail(0, min(bodyH, len(left.Lines)), len(rows)*3, start*3)
 	for _, r := range left.Hits {
 		p.hit(r.ID, r.X, r.Y+top, r.W, r.H)
 	}
@@ -194,21 +189,22 @@ func (m harborModel) sessionsLayout() uiPage {
 	} else {
 		actions = nil
 	}
-	p.buttons(actions, m.uiFocus)
+	if m.searchFocus == "sessions" {
+		p.Actions = nil
+		actions = nil
+	}
+	p.shortcuts(actions, m.uiFocus)
 	notice := m.notice
 	if notice == "" {
 		notice = m.discoveryNotice
 	}
 	if notice == "" {
-		notice = "n new  p Profiles  , settings  m Connections  ? help"
+		notice = ""
 	}
 	p.line(paint(fg("value"), ansi.Truncate(cleanUI(notice), max(1, p.Width-2), "…")))
-	hint := "↑↓ select  Enter open  / search  Tab focus  ? help"
-	if m.searchFocus == "sessions" {
-		hint = "Type search  tab list  Esc clear/back"
-	}
-	p.line(paintKeys(hint))
-	return p
+	hint := m.sessionsHint()
+	p.Hint = hint
+	return p.finish(0)
 }
 func (m harborModel) sessionsFocusIDs() []string {
 	p := m.sessionsLayout()
@@ -229,6 +225,13 @@ func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 	}
 	if strings.HasPrefix(id, "nav:") {
 		nav := strings.TrimPrefix(id, "nav:")
+		m.profileReturn = ""
+		if nav == "settings" {
+			settings := newSettingsModel()
+			settings.width, settings.height = m.width, m.height
+			m.settings = &settings
+			return m, nil
+		}
 		if nav == "sessions" {
 			m.screen = "sessions"
 			return m, nil
@@ -247,6 +250,7 @@ func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 	}
 	if id == "more" {
 		m.screen = "sessions-more"
+		m.uiFocus = m.sessionActions(true)[0].ID
 		return m, nil
 	}
 	if id == "back" {
@@ -276,6 +280,14 @@ func (m harborModel) updateSessionsUIAt(msg tea.Msg, now time.Time) (tea.Model, 
 	}
 	if key, ok := msg.(tea.KeyMsg); ok {
 		k := key.String()
+		if m.screen == "sessions-more" && (k == "down" || k == "j" || k == "up" || k == "k" || k == "tab" || k == "shift+tab") {
+			ids := []string{}
+			for _, a := range m.sessionActions(true) {
+				ids = append(ids, a.ID)
+			}
+			m.uiFocus = uiCycle(m.uiFocus, ids, k == "up" || k == "k" || k == "shift+tab")
+			return m, nil, true
+		}
 		if k == "tab" || k == "shift+tab" {
 			ids := m.sessionsFocusIDs()
 			current := m.uiFocus
@@ -403,5 +415,12 @@ func (m harborModel) sessionsHelp() string {
 		}
 		lines = append(lines, kv(a.Key, label))
 	}
-	return strings.Join(append(lines, "", "Single click selects. Buttons execute the selected action.", "External sessions remain client-managed; unknown connections stay unknown."), "\n")
+	return strings.Join(append(lines, "", "Single click selects. Use the shortcuts in the bottom bar to act.", "External sessions remain client-managed; unknown connections stay unknown."), "\n")
+}
+
+func (m harborModel) sessionsHint() string {
+	if m.searchFocus == "sessions" {
+		return "Type search · ↵ list · Tab focus · Esc clear/back"
+	}
+	return "↑↓ select · / search · Tab focus · ? help"
 }

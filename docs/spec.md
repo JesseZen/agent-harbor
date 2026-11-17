@@ -110,3 +110,13 @@ existing Sessions retain their recorded instance and caller identity. Isolated
 use requires the local discovery/write isolation candidate as well as caller-only
 forwarding. See [the service contract](profile-contract.md) for implementation and
 acceptance boundaries; real-account and platform verification remain separate.
+
+Distribution uses versioned native GitHub release archives for macOS/Linux on
+arm64 and amd64. Script installations expose `ah` and `agent-harbor`, validate
+SHA-256 before switching the active package, and support explicit `update` and
+`uninstall`. Updates keep old executables for running workspaces and never restart
+client processes or migrate their configuration. Uninstall removes owned commands
+and package executables while retaining client data, ownership metadata, licenses
+and user-added files. Homebrew owns its own installation lifecycle. The bundled
+Herdr and Magpie remain patched development candidates; distribution does not
+change their upstream acceptance or runtime evidence.

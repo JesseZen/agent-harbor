@@ -3,7 +3,7 @@
 import os,pathlib,subprocess,sys,tarfile,tempfile
 root=pathlib.Path(tempfile.mkdtemp(prefix='harbor03-install-')).resolve();stage=root/'archive';stage.mkdir()
 with tarfile.open(sys.argv[1]) as archive:
-    assert all(n in ('agent-harbor','herdr','magpie','codex-auth','README.md','install.sh','licenses') or n.startswith('licenses/') for n in archive.getnames()), 'unexpected archive contents'
+    assert all(n in ('agent-harbor','herdr','magpie','codex-auth','README.md','install.sh','manage.sh','licenses') or n.startswith('licenses/') for n in archive.getnames()), 'unexpected archive contents'
     archive.extractall(stage,filter='data')
 env=os.environ.copy()
 for key in ('HOME','XDG_CONFIG_HOME','XDG_DATA_HOME','XDG_STATE_HOME','XDG_CACHE_HOME','XDG_RUNTIME_DIR','TMPDIR','CODEX_HOME','CODEX_SQLITE_HOME'):

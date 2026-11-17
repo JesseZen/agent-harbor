@@ -163,7 +163,7 @@ func openPaneOptions(s session, action launchKind, override string, selection *c
 			return errors.New("session opened, but its pane name could not be set")
 		}
 	}
-	bin, err := os.Executable()
+	bin, err := resolvedExecutable()
 	if err != nil {
 		return err
 	}

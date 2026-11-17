@@ -10,6 +10,46 @@ The integrated #19/#20 candidate passed maintainer-reported manual acceptance on
 macOS on 2026-11-16. See the [acceptance record](docs/issues-19-20-acceptance.md)
 for its scope and the separate validation requirements.
 
+## Install and update
+
+Native packages are published on [GitHub Releases](https://github.com/JesseZen/agent-harbor/releases)
+for macOS and Linux, arm64 and amd64. These are development candidates, including
+patched Herdr and Magpie plus codex-auth. Install the native Codex CLI separately.
+Linux requires glibc 2.39+ (for example Ubuntu 24.04); Alpine/musl is not supported
+by these packages. macOS packages are not Apple notarized.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/JesseZen/agent-harbor/main/distribution/install.sh -o /tmp/install-agent-harbor.sh
+sh /tmp/install-agent-harbor.sh
+export PATH="$HOME/.local/bin:$PATH"
+ah
+# agent-harbor is the same command
+ah update
+# ah uninstall
+```
+
+Add the PATH setting to your shell profile for future terminals. The installer
+needs curl and tar; it does not need Go, Rust, Node or sudo. It supports
+`--version TAG`, `--prefix ABSOLUTE_PATH` and `--bin-dir ABSOLUTE_PATH`.
+Both command names must be free on first install. The default prefix is
+`~/.local/share/agent-harbor`; commands go in `~/.local/bin`.
+Updates retain previous executables; restart existing workspaces explicitly when
+ready. Uninstall keeps accounts, conversations, configuration, package ownership
+metadata, licenses and added files. Reinstall uses the same retained client data.
+
+Homebrew (macOS or Linux):
+
+```sh
+brew tap jessezen/agent-harbor https://github.com/JesseZen/agent-harbor
+brew install jessezen/agent-harbor/agent-harbor
+brew upgrade agent-harbor
+# brew uninstall agent-harbor
+```
+
+Use one installation method per machine. Homebrew manages its own updates and
+uninstall; script lifecycle commands only manage script installations. npm is
+not required or published. See [release maintenance](distribution/README.md).
+
 ## Code and testing
 
 The active Go module is in `bridge/`. Go 1.26 is required. Run `GOWORK=off go test ./...` from that directory using isolated HOME, XDG, temporary directories and client homes. Product runtime and packaging require Herdr, Magpie and a supported native client.

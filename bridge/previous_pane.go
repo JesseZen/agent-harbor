@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -221,7 +220,7 @@ func closeFinishedRunner(s session) error {
 	if err != nil {
 		return err
 	}
-	executable, err := os.Executable()
+	executable, err := resolvedExecutable()
 	if err != nil {
 		return err
 	}

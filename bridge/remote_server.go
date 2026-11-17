@@ -157,7 +157,7 @@ func prepareRemoteWorkspace(root string, native bool) (remoteWorkspace, error) {
 	if err := writePrivate(remoteContextPath(root), encoded); err != nil {
 		return w, err
 	}
-	binary, err := os.Executable()
+	binary, err := resolvedExecutable()
 	if err != nil {
 		return w, err
 	}

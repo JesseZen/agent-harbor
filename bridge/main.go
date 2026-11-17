@@ -26,6 +26,8 @@ func run(args []string) error {
 		return openHerdr()
 	}
 	switch args[0] {
+	case "update", "uninstall":
+		return distributionCommand(args)
 	case "profiles":
 		return profileCommand(args[1:])
 	case "remote":
@@ -155,6 +157,7 @@ func run(args []string) error {
 		}
 		return appService.Start(sessionApproval{Session: s, Observation: &view.Runtime, Confirmed: true})
 	case "help", "--help", "-h":
+		fmt.Println("  update [--version TAG] | uninstall  manage a script installation (ah is an alias)")
 		fmt.Println("agent-harbor-bridge: open, stop, settings, settings-recover, create, start, sessions, show, bind, verify, reassociate, resume, stop-session, rename, remove, focus, route, new, models, magpie, profiles")
 		fmt.Println("  magpie status|bind|start|stop|manage|web|use  verified Magpie instances")
 		fmt.Println("  profiles list|new|existing|select|rename|default|review  client environments")

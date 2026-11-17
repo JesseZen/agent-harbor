@@ -66,7 +66,7 @@ func openHerdrMode(attach bool) error {
 }
 
 func prepareHerdr(root string, env []string, snapshot string) error {
-	bin, err := os.Executable()
+	bin, err := resolvedExecutable()
 	if err != nil {
 		return err
 	}
@@ -168,7 +168,7 @@ func writeHerdrWrapper(root string, env []string) error {
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 	var script strings.Builder
 	script.WriteString("#!/bin/sh\n")
-	executable, err := os.Executable()
+	executable, err := resolvedExecutable()
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func herdrCommand(env []string, args ...string) *exec.Cmd {
 	name := "herdr"
 	if override := os.Getenv("AGENT_HARBOR_HERDR_BIN"); override != "" {
 		name = override
-	} else if executable, err := os.Executable(); err == nil {
+	} else if executable, err := resolvedExecutable(); err == nil {
 		bundled := filepath.Join(filepath.Dir(executable), "herdr")
 		if _, err := os.Lstat(bundled); err == nil || !os.IsNotExist(err) {
 			name = bundled

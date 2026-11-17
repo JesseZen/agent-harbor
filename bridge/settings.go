@@ -127,7 +127,7 @@ func saveShortcuts(p shortcutPreferences) error {
 	if out, e := herdrCommand(env, "--version").Output(); e != nil || strings.TrimSpace(string(out)) != "herdr 0.9.5" {
 		return errors.New("Herdr 0.9.5 is required to save shortcuts")
 	}
-	bin, err := os.Executable()
+	bin, err := resolvedExecutable()
 	if err != nil {
 		return err
 	}

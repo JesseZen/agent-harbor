@@ -12,7 +12,7 @@ func findCodexAuth(override string) (string, error) {
 	if override != "" {
 		return exec.LookPath(override)
 	}
-	executable, err := os.Executable()
+	executable, err := resolvedExecutable()
 	if err != nil {
 		return "", err
 	}

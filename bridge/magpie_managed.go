@@ -81,7 +81,7 @@ func bundledMagpiePath() (string, error) {
 		}
 		return override, nil
 	}
-	executable, err := os.Executable()
+	executable, err := resolvedExecutable()
 	if err != nil {
 		return "", err
 	}

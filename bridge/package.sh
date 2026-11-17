@@ -5,15 +5,15 @@ if [ "${AGENT_HARBOR_DEVELOPMENT_CANDIDATE:-}" != 1 ]; then
   printf '%s\n' 'This experimental contraction cannot produce a supported package. Use the preserved pre-contraction source for supported packaging; explicitly select development-candidate packaging for this branch.' >&2
   exit 1
 fi
-bridge_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-version=${AGENT_HARBOR_BRIDGE_VERSION:-dev}-development-candidate
+bridge_root=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+version=${AGENT_HARBOR_BRIDGE_VERSION:-dev-development-candidate}
 case "$version" in
   ''|*[!a-zA-Z0-9._-]*) printf '%s\n' 'Invalid bridge version' >&2; exit 1 ;;
 esac
 output=${1:-"$bridge_root/dist"}
 deps=${AGENT_HARBOR_DEPENDENCIES_DIR:?Set AGENT_HARBOR_DEPENDENCIES_DIR to the directory containing the Herdr and Magpie candidate assets}
 mkdir -p "$output"
-output=$(CDPATH= cd -- "$output" && pwd)
+output=$(CDPATH='' cd -- "$output" && pwd)
 
 # Every candidate target requires its independently built patched Herdr and digest.
 # Stock release binaries lack the query and cannot be substituted.
@@ -78,12 +78,13 @@ for target in ${AGENT_HARBOR_CANDIDATE_TARGETS:-linux-amd64}; do
   # Leave extraction artifacts in the output directory for build inspection.
   printf '%s\n' 'codex-auth v0.4.0; unmodified upstream release; MIT' "Source: https://github.com/Loongphy/codex-auth/releases/tag/v0.4.0" "Archive: $auth_archive; SHA256: $auth_sha" >> "$stage/README.md"
   install -m 755 "$bridge_root/install.sh" "$stage/install.sh"
+  install -m 755 "$bridge_root/../distribution/install.sh" "$stage/manage.sh"
   cp "$bridge_root/PACKAGE-README.md" "$stage/README.md"
   printf '%s\n' 'EXPERIMENTAL DEVELOPMENT CANDIDATE: Herdr query and Magpie caller-only patches are not accepted or released. Do not replace a supported installation.' 'Herdr source: 60a5316204b0c538229defb2628e50660a469b85; base ee5bfb5041bb3e4a49d591c72308aae3c81ecdde' "Herdr SHA256: $herdr_sha" 'Magpie base: 5426c43cca9b90be809d51edebc5c926929e9f6c with caller-only patch' "Magpie SHA256: $magpie_sha" >> "$stage/README.md"
   printf '%s\n' "Herdr remote-executable patch SHA256: $remote_patch_sha (local candidate, not upstream)" >> "$stage/README.md"
   printf '%s\n' "Magpie Profile isolation patch SHA256: $profiles_patch_sha (local candidate, not upstream)" >> "$stage/README.md"
   cp "$bridge_root"/licenses/* "$stage/licenses/"
-  COPYFILE_DISABLE=1 tar -C "$stage" -czf "$output/agent-harbor-$version-$target.tar.gz.partial" agent-harbor herdr magpie codex-auth README.md install.sh licenses
+  COPYFILE_DISABLE=1 tar -C "$stage" -czf "$output/agent-harbor-$version-$target.tar.gz.partial" agent-harbor herdr magpie codex-auth README.md install.sh manage.sh licenses
   mv "$output/agent-harbor-$version-$target.tar.gz.partial" "$output/agent-harbor-$version-$target.tar.gz"
   printf '%s\n' "$output/agent-harbor-$version-$target.tar.gz"
 done

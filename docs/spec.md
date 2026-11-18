@@ -72,8 +72,10 @@ session activity. Each affected session reports its outcome; ordinary account
 management does not restart processes or depend on experimental refresh.
 Opening Accounts loads saved Codex logins for the selected Profile and
 automatically refreshes 5-hour and weekly availability and reset cards
-through bundled codex-auth. The last displayed values for that Profile stay
-visible while refreshing. Each account has its own detail view and
+through bundled codex-auth. Previously displayed API quota stays visible while
+refreshing. On a fresh popup, Harbor can display the saved quota snapshot from
+codex-auth during that wait. A window without a snapshot shows a loading
+placeholder until its result arrives. Each account has its own detail view and
 lookup result. An explicit confirmation in Details redeems one card for
 that saved account through codex-auth, which selects the card. Harbor
 refreshes the account list after the operation.

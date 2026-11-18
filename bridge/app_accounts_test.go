@@ -294,3 +294,52 @@ func TestAccountClickMovesCursorBeforeOpening(t *testing.T) {
 	}
 	t.Fatal("missing account row")
 }
+
+func TestAccountsPaintsCodexAuthSnapshotsBeforeAPIRefresh(t *testing.T) {
+	for _, tc := range []struct {
+		name, source, status, want string
+		warm                       bool
+	}{
+		{"cold registry cache", "cache", "not_requested", "68%", false},
+		{"cold local snapshot", "local", "ok", "68%", false},
+		{"cold with no snapshot", "none", "no_data", "...", false},
+		{"warm keeps displayed API quota", "local", "ok", "81%", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			binding := profileBinding{ProfileID: "A", Client: "codex", EnvironmentID: "A-home"}
+			f := &walkthroughService{fakeApplicationService: &fakeApplicationService{}}
+			m := newHarborModel(f)
+			m.activeProfile, m.accountProfile, m.width = &binding, &binding, 120
+			status := walkthroughAccounts(binding)
+			status.Accounts = status.Accounts[:1]
+			if tc.warm {
+				previous := status
+				previous.Accounts = append([]savedCodexAccount(nil), status.Accounts...)
+				previous.Accounts[0].Usage = walkthroughUsage(19, 21)
+				m.cacheAccountSnapshot(previous)
+			}
+			status.Accounts[0].Usage = &savedAccountUsage{Source: tc.source}
+			if tc.source != "none" {
+				status.Accounts[0].Usage = walkthroughUsage(32, 13)
+				status.Accounts[0].Usage.Source = tc.source
+			}
+			status.Accounts[0].Usage.Refresh.Status = tc.status
+			next, _ := m.Update(uiKey("a"))
+			m = next.(harborModel)
+			next, usage := m.Update(appAccountStatus{generation: m.accountGeneration, profile: binding, result: status})
+			m = next.(harborModel)
+			if usage == nil || !m.accountUsagePending {
+				t.Fatal("API refresh was not started")
+			}
+			for _, line := range strings.Split(ansi.Strip(m.View()), "\n") {
+				if strings.Contains(line, "work@example.test") {
+					if !strings.Contains(line, tc.want) || strings.Contains(line, "N/A") {
+						t.Fatalf("pending quota: %q, want %q", line, tc.want)
+					}
+					return
+				}
+			}
+			t.Fatal("missing saved account row")
+		})
+	}
+}

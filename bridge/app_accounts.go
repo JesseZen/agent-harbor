@@ -129,7 +129,8 @@ func (m *harborModel) cacheAccountSnapshot(snapshot profileAccountResult) {
 	m.accountSnapshot = &snapshot
 }
 
-// Roster reads return fresh identities and login state with no usage payload.
+// Roster reads also carry local or cached usage. Keep already displayed API
+// values for surviving accounts until the next API refresh completes.
 func (m *harborModel) setAccountRoster(snapshot profileAccountResult) {
 	cached := m.accountCache[*m.accountProfile]
 	usage := make(map[string]*savedAccountUsage, len(cached.Accounts))
@@ -141,8 +142,9 @@ func (m *harborModel) setAccountRoster(snapshot profileAccountResult) {
 	snapshot.Accounts = append([]savedCodexAccount(nil), snapshot.Accounts...)
 	for i := range snapshot.Accounts {
 		account := &snapshot.Accounts[i]
-		if account.Usage == nil {
-			account.Usage = usage[account.Key]
+		previous := usage[account.Key]
+		if account.Usage == nil || (previous.current() && !account.Usage.current()) {
+			account.Usage = previous
 		}
 	}
 	m.cacheAccountSnapshot(snapshot)

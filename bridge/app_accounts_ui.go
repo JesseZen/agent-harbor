@@ -141,7 +141,7 @@ func (m harborModel) accountDetail(p *uiPage, wrap func(string)) {
 	}
 	status := "Unavailable"
 	switch {
-	case m.accountUsagePending && a.Usage == nil:
+	case m.accountUsagePending && !a.Usage.current():
 		status = "Checking…"
 	case !a.Usage.current() || a.Usage.ResetCount == nil:
 	case *a.Usage.ResetCount <= 0:
@@ -313,31 +313,32 @@ func accountQuotaCell(usage *savedAccountUsage, pending bool, minutes, width int
 }
 
 func accountQuotaCellStyled(usage *savedAccountUsage, pending bool, minutes, width int, style func(string) lipgloss.Style) string {
-	if !usage.current() {
-		if pending && usage == nil {
-			return paint(style("value"), "...")
+	// The roster's registry or local snapshot can supply display-only quota
+	// while the API is in flight. Reset cards still require a live result.
+	if usage.current() || (pending && usage != nil && (usage.Source == "cache" || usage.Source == "local")) {
+		for _, window := range []*savedUsageWindow{usage.Primary, usage.Secondary} {
+			if window == nil || window.UsedPercent == nil || window.Minutes != minutes {
+				continue
+			}
+			remaining := int(math.Round(100 - min(100, max(0, *window.UsedPercent))))
+			role := quotaRemainingRole(remaining)
+			value := paint(style(role), fmt.Sprintf("%-4s", fmt.Sprint(remaining)+"%"))
+			resetFormat, quotaWidth := shortResetFormat, shortQuotaWidth
+			if minutes == 10080 {
+				resetFormat, quotaWidth = weeklyResetFormat, weeklyQuotaWidth
+			}
+			if window.ResetsAt > 0 && width >= quotaWidth {
+				reset := time.Unix(window.ResetsAt, 0).Local().Format(resetFormat)
+				value += paint(style("value"), " "+reset)
+			}
+			if cells := width - quotaWidth; cells >= 5 {
+				value = accountQuotaMeter(remaining, cells-1, role, style) + paint(style("value"), " ") + value
+			}
+			return value
 		}
-		return paint(style("value"), "N/A")
 	}
-	for _, window := range []*savedUsageWindow{usage.Primary, usage.Secondary} {
-		if window == nil || window.UsedPercent == nil || window.Minutes != minutes {
-			continue
-		}
-		remaining := int(math.Round(100 - min(100, max(0, *window.UsedPercent))))
-		role := quotaRemainingRole(remaining)
-		value := paint(style(role), fmt.Sprintf("%-4s", fmt.Sprint(remaining)+"%"))
-		resetFormat, quotaWidth := shortResetFormat, shortQuotaWidth
-		if minutes == 10080 {
-			resetFormat, quotaWidth = weeklyResetFormat, weeklyQuotaWidth
-		}
-		if window.ResetsAt > 0 && width >= quotaWidth {
-			reset := time.Unix(window.ResetsAt, 0).Local().Format(resetFormat)
-			value += paint(style("value"), " "+reset)
-		}
-		if cells := width - quotaWidth; cells >= 5 {
-			value = accountQuotaMeter(remaining, cells-1, role, style) + paint(style("value"), " ") + value
-		}
-		return value
+	if pending {
+		return paint(style("value"), "...")
 	}
 	return paint(style("value"), "N/A")
 }

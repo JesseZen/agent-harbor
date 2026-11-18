@@ -63,8 +63,6 @@ def main():
         (root / 'environment.json').write_text(json.dumps(env))
         # This initializes the owned state marker even before Herdr is reachable.
         run(root / 'bin/agent-harbor', 'sessions', '--json', check=False)
-        # Completed fixture onboarding prevents probing any user discovery service.
-        (root / 'harbor/onboarding.done').write_text('v1\n')
         with (root / 'provider.log').open('w') as log:
             subprocess.Popen([sys.executable, __file__, 'provider'], env=env,
                              stdout=log, stderr=subprocess.STDOUT, start_new_session=True)

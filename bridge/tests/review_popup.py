@@ -68,7 +68,7 @@ try:
  click('More');wait('Actions for');click('Remove record');wait('Remove record');click('Remove record');wait('Search sessions')
  assert len(json.loads((root/'harbor/sessions.json').read_text()))==2
  assert (root/'project-0').is_dir()
- keys('Up');keys('x');wait('Remove record');keys('Tab');keys('Enter');wait('Search sessions')
+ keys('Up');keys('x');wait('Remove record');keys('Enter');wait('Search sessions')
  assert len(json.loads((root/'harbor/sessions.json').read_text()))==1
  print('PASS contextual confirmation mouse/keyboard/cancel/evidence/remove preserves project',root)
 finally:

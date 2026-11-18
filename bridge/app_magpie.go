@@ -99,8 +99,8 @@ func (m harborModel) updateMagpie(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		m.generation++
 		return m, m.loadInstances()
-	case "s", "x", "u", "enter", "w":
-		action := map[string]string{"s": "start", "x": "stop", "u": "use", "enter": "manage", "w": "web"}[key]
+	case "s", "x", "enter", "w":
+		action := map[string]string{"s": "start", "x": "stop", "enter": "manage", "w": "web"}[key]
 		id := managedInstanceID
 		if action != "start" && action != "stop" && action != "web" {
 			if len(rows) == 0 {
@@ -122,7 +122,6 @@ func (m harborModel) updateMagpie(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scroll = 0
 		m.uiFocus = ""
 		m.uiFocus = "conn:esc"
-		m.mouse = mouseClick{}
 		m.reviewOpenedAt = time.Now()
 		m.screen = "magpie-confirm"
 	}
@@ -147,14 +146,12 @@ func (m harborModel) magpieView() string {
 		return "🔌 Bind an external running Magpie\n\n" + m.input.View() + "\n\n" + note("Harbor verifies its configuration identity.") + "\n" + note("It never starts or stops this external instance.")
 	}
 	if m.screen == "magpie-confirm" {
-		lines := []string{"Review connection · " + map[string]string{"start": "Start gateway", "stop": "Stop gateway", "use": "Set default", "web": "Open web management", "manage": "Manage providers"}[m.action], "", "Instance  " + m.instanceID, ""}
+		lines := []string{"Review connection · " + map[string]string{"start": "Start gateway", "stop": "Stop gateway", "web": "Open web management", "manage": "Manage providers"}[m.action], "", "Instance  " + m.instanceID, ""}
 		switch m.action {
 		case "start":
 			lines = append(lines, note("Creates a Harbor-owned configuration and home."), note("Keeps running after Harbor closes."), note("Only an explicit stop ends it."), note("Subscription accounts are not imported."))
 		case "stop":
 			lines = append(lines, note("Stops only Harbor's recorded managed process."), note("Sessions using it will lose their gateway."))
-		case "use":
-			lines = append(lines, note("Sets the default for future new sessions only."), note("Existing session connections stay unchanged."))
 		case "web":
 			lines = append(lines, note("Opens Harbor-managed Magpie in your browser. Return by closing or switching from the browser."))
 		case "manage":

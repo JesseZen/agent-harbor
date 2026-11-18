@@ -11,7 +11,7 @@ import (
 
 type appEnvironment struct {
 	Profile                            *profileBinding
-	DefaultInstance                    string
+	DefaultInstance, LastConnection    string
 	CodexVersion, LocalHome, Directory string
 	NativeConfig                       string
 	Projects                           []string
@@ -64,12 +64,17 @@ func (h harborService) ProfileEnvironment(binding profileBinding) (appEnvironmen
 		return result, err
 	}
 	seen := map[string]bool{}
+	var latest session
 	for _, s := range sessions {
+		if s.Profile != nil && *s.Profile == binding && (s.Mode == "local" || s.Mode == "magpie") && (latest.Mode == "" || !s.CreatedAt.Before(latest.CreatedAt)) {
+			latest = s
+		}
 		if !seen[s.WorkingDirectory] {
 			result.Projects = append(result.Projects, s.WorkingDirectory)
 			seen[s.WorkingDirectory] = true
 		}
 	}
+	result.LastConnection = latest.Mode
 	return result, nil
 }
 func (harborService) CompleteDirectory(path string) ([]string, error) {

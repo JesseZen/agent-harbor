@@ -121,7 +121,6 @@ func (m harborModel) reviewLayout() uiPage {
 }
 func (m harborModel) activateReview(id string) (tea.Model, tea.Cmd) {
 	m.uiFocus = ""
-	m.mouse = mouseClick{}
 	if id == "evidence" {
 		m.screen = "confirm-evidence"
 		m.scroll = 0

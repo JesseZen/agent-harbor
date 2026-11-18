@@ -28,8 +28,16 @@ func (m harborModel) editingText() bool {
 
 // Normalize page boundaries even when a specialized input handler returns early.
 func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok && key.Type == tea.KeyCtrlZ {
-		return m, tea.Suspend
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "ctrl+z":
+			return m, tea.Suspend
+		case "tab", "shift+tab":
+			return m, nil
+		}
+		if m.settings == nil && !m.editingText() {
+			msg = navigationKey(key)
+		}
 	}
 	if _, ok := msg.(tea.ResumeMsg); ok {
 		return m.requestRefresh()
@@ -73,9 +81,18 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateRowHover(m.previous, msg)
 		return m, nil
 	}
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.Type == tea.KeyUp || msg.Type == tea.KeyDown {
+			m.mouseListScreen = ""
+		}
+	case tea.WindowSizeMsg:
+		m.mouseListScreen = ""
+	}
 	next, cmd := m.updateFrame(msg)
 	n := next.(harborModel)
 	if n.screen != m.screen {
+		n.mouseListScreen = ""
 		if n.screen == "sessions" {
 			n.uiFocus = "list"
 			n.scroll = 0
@@ -107,6 +124,15 @@ func (m harborModel) updateFrame(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok && (key.Type == tea.KeyCtrlC || key.Type == tea.KeyCtrlG) {
 		return m.update(msg)
 	}
+	if key, ok := msg.(tea.KeyMsg); ok && !m.editingText() {
+		tab := m.screen
+		if tab == "profile-list" {
+			tab = "profiles"
+		}
+		if next := adjacentTab(tab, key.String()); next != "" {
+			return m.activateSessions("nav:" + next)
+		}
+	}
 	if next, cmd, handled := m.additionalPageInput(msg); handled {
 		return next, cmd
 	}
@@ -116,16 +142,8 @@ func (m harborModel) updateFrame(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if next, cmd, handled := m.updateSessionsUI(msg); handled {
 		return next, cmd
 	}
-	if mouse, ok := msg.(tea.MouseMsg); ok {
-		return m.updateMouse(mouse, time.Now())
-	}
-	// Any keyboard or asynchronous change that alters geometry invalidates clicks.
-	beforeMouseLayout := m.mouseLayoutKey()
-	if _, ok := msg.(tea.KeyMsg); ok {
-		m.mouseListScreen = ""
-	}
-	if _, ok := msg.(tea.WindowSizeMsg); ok {
-		m.mouseListScreen = ""
+	if _, ok := msg.(tea.MouseMsg); ok {
+		return m, nil
 	}
 	deferReset := func(next tea.Model, cmd tea.Cmd) (tea.Model, tea.Cmd) {
 		n := next.(harborModel)
@@ -141,12 +159,6 @@ func (m harborModel) updateFrame(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if n.screen != m.screen || n.searchQuery() != m.searchQuery() {
 			n.mouseListScreen = ""
-		}
-		if n.mouseLayoutKey() != beforeMouseLayout {
-			n.mouse = mouseClick{}
-		}
-		if _, ok := msg.(tea.WindowSizeMsg); ok {
-			n.mouse = mouseClick{}
 		}
 		return n, cmd
 	}

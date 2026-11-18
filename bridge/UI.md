@@ -45,7 +45,7 @@ requests for those modules rather than editing shared entry points concurrently.
 
 | Entry / state | Shared page owner |
 | --- | --- |
-| First run, readiness, choice review, onboarding help / waiting | Secondary pages (09) |
+| Dependency checks, help and waiting | Secondary pages (09) |
 | Sessions, empty/search states, contextual More menu | Sessions (02) |
 | Settings, shortcut editor, search, help, diagnostics | Settings (01) |
 | Object confirmation, recovery/reference review, evidence | Review (03) |

@@ -17,10 +17,10 @@ func TestBridgeProcess(t *testing.T) {
 		return
 	}
 	// Existing process fixtures exercise Herdr/session behavior with a
-	// completed, dependency-ready preflight. Dedicated onboarding tests use
+	// dependency-ready preflight. Dedicated onboarding tests use
 	// the real service against the same isolated fixture environment.
 	if os.Getenv("BRIDGE_TEST_ONBOARDING") != "1" {
-		onboardingAppService = &fakeOnboardingService{report: onboardingReport{Ready: true, Completed: true}}
+		onboardingAppService = &fakeOnboardingService{report: onboardingReport{Ready: true}}
 	}
 	os.Exit(main1(os.Args[3:]))
 }

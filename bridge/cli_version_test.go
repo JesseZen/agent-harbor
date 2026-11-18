@@ -84,8 +84,4 @@ func TestReadyDependenciesSkipFirstRunChoice(t *testing.T) {
 	if err := ensureOnboarding(f); err != nil {
 		t.Fatalf("ready first run blocked: %v", err)
 	}
-	// Opening Harbor must not start or bind a Magpie instance.
-	if len(f.calls) != 0 {
-		t.Fatal(f.calls)
-	}
 }

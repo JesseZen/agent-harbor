@@ -29,9 +29,9 @@ func (m harborModel) accountActions() []uiAction {
 	return []uiAction{
 		{ID: "account:i", Label: "Details", Key: "enter"},
 		{ID: "account:s", Label: "Select saved login", Key: "s", Primary: true},
+		{ID: "account:" + accountLoginKey, Label: "Add login", Key: accountLoginKey},
 		{ID: "account:?", Label: "Help", Key: "?"},
 		{ID: "account:p", Label: "Choose Profile", Key: "p"},
-		{ID: "account:l", Label: "Add login", Key: "l"},
 		{ID: "account:back", Label: "Back", Key: "esc"},
 		{ID: "account:r", Label: "Refresh", Key: "r"},
 		{ID: "account:o", Label: "Not signed in", Key: "o"},
@@ -50,7 +50,7 @@ func (m harborModel) accountContent() uiPage {
 	}
 	p.line(paint(fg("brand"), "👤 Harbor · Accounts"))
 	if m.screen == "accounts" {
-		p.tabs("accounts", m.uiHover, m.uiFocus, true)
+		p.tabs("accounts", m.uiHover, m.uiFocus)
 		m.accountOverview(&p)
 
 	} else if m.screen == "accounts-detail" || m.screen == "accounts-reset-confirm" || m.screen == "accounts-resetting" {
@@ -141,7 +141,7 @@ func (m harborModel) accountDetail(p *uiPage, wrap func(string)) {
 	}
 	status := "Unavailable"
 	switch {
-	case m.accountUsagePending:
+	case m.accountUsagePending && a.Usage == nil:
 		status = "Checking…"
 	case !a.Usage.current() || a.Usage.ResetCount == nil:
 	case *a.Usage.ResetCount <= 0:
@@ -150,7 +150,7 @@ func (m harborModel) accountDetail(p *uiPage, wrap func(string)) {
 		status = fmt.Sprintf("%d available", *a.Usage.ResetCount)
 	}
 	field("Reset cards", status)
-	if !m.accountUsagePending && a.Usage.current() && a.Usage.ResetCount != nil && *a.Usage.ResetCount > 0 {
+	if a.Usage.current() && a.Usage.ResetCount != nil && *a.Usage.ResetCount > 0 {
 		label := "Expires"
 		for _, card := range a.Usage.ResetCredits {
 			if expiry := card.expiration(); card.Status == "available" && !expiry.IsZero() {
@@ -266,7 +266,7 @@ func (m harborModel) appendCodexAccountTable(p *uiPage) {
 			if row.selected {
 				selected = "✓"
 			}
-			if !m.accountUsagePending && usage.current() && usage.ResetCount != nil && *usage.ResetCount > 0 {
+			if usage.current() && usage.ResetCount != nil && *usage.ResetCount > 0 {
 				reset = "↻"
 			}
 			if asciiUI() {
@@ -313,10 +313,10 @@ func accountQuotaCell(usage *savedAccountUsage, pending bool, minutes, width int
 }
 
 func accountQuotaCellStyled(usage *savedAccountUsage, pending bool, minutes, width int, style func(string) lipgloss.Style) string {
-	if pending {
-		return paint(style("value"), "...")
-	}
 	if !usage.current() {
+		if pending && usage == nil {
+			return paint(style("value"), "...")
+		}
 		return paint(style("value"), "N/A")
 	}
 	for _, window := range []*savedUsageWindow{usage.Primary, usage.Secondary} {
@@ -377,7 +377,7 @@ func (m harborModel) accountsPage() (uiPage, bool) {
 		footer.Hint = scrollHint
 	}
 	if m.screen == "accounts" {
-		footer.Hint = "↑↓ choose · PgUp/PgDn scroll"
+		footer.Hint = "↑↓/jk choose · " + tabHint + " · PgUp/PgDn scroll"
 	}
 	return content.withFooter(footer, m.height, m.scroll), true
 }
@@ -488,6 +488,7 @@ func (m *harborModel) applyAccountRead(read appAccountRead) tea.Cmd {
 		m.accountUsageError = ""
 		if read.err != nil {
 			m.accountUsageError = read.err.Error()
+			return nil
 		}
 		refreshed := make(map[string]savedCodexAccount, len(read.result.Accounts))
 		for _, a := range read.result.Accounts {
@@ -519,7 +520,7 @@ func (m *harborModel) applyAccountRead(read appAccountRead) tea.Cmd {
 		}
 		return m.loadAccountUsage()
 	}
-	m.accountSnapshot = &snapshot
+	m.cacheAccountSnapshot(snapshot)
 	return nil
 }
 
@@ -528,10 +529,16 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		if status.generation != m.accountGeneration || m.accountProfile == nil || status.profile != *m.accountProfile {
 			return m, nil, true
 		}
-		m.accountSnapshot = &status.result
 		if status.err != nil {
-			m.accountSnapshot.Detail = status.err.Error()
+			m.accountUsagePending = false
+			m.accountUsageError = status.err.Error()
+			if m.accountSnapshot == nil {
+				status.result.Detail = m.accountUsageError
+				m.accountSnapshot = &status.result
+			}
+			return m, nil, true
 		}
+		m.setAccountRoster(status.result)
 		if m.screen == "accounts" {
 			m.reconcileAccountRow()
 		}
@@ -546,8 +553,8 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		if done.profile != nil && (m.accountProfile == nil || *done.profile != *m.accountProfile) {
 			return m, nil, true
 		}
-		if done.snapshot != nil {
-			m.accountSnapshot = done.snapshot
+		if done.snapshot != nil && m.accountProfile != nil && (done.err == nil || done.snapshot.ProfileName != "") {
+			m.setAccountRoster(*done.snapshot)
 		}
 		if m.screen != "accounts-busy" {
 			return m, nil, true
@@ -588,7 +595,11 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		if v.Action == tea.MouseActionPress && v.Button == tea.MouseButtonLeft {
-			m.uiFocus = id
+			if strings.HasPrefix(id, accountRowPrefix) && m.uiFocus != id {
+				m.accountRow = strings.TrimPrefix(id, accountRowPrefix)
+				m.uiFocus = id
+				return m, nil, true
+			}
 			n, c := m.accountActivate(id)
 			return n, c, true
 		}
@@ -611,18 +622,6 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			m.scroll += max(1, m.height/2)
 		case "pgup":
 			m.scroll = max(0, m.scroll-max(1, m.height/2))
-		case "tab", "shift+tab":
-			p, _ := m.accountsPage()
-			ids := []string{}
-			for _, r := range p.focusHits() {
-				if r.ID != "" {
-					ids = append(ids, r.ID)
-				}
-			}
-			m.uiFocus = uiCycle(m.uiFocus, ids, key == "shift+tab")
-			if strings.HasPrefix(m.uiFocus, accountRowPrefix) {
-				m.accountRow = strings.TrimPrefix(m.uiFocus, accountRowPrefix)
-			}
 		case "enter":
 			target := m.uiFocus
 			if m.screen == "accounts" && !strings.HasPrefix(target, "nav:") {

@@ -24,6 +24,7 @@ func (r uiRect) contains(x, y int) bool { return x >= r.X && x < r.X+r.W && y >=
 type uiPage struct {
 	Width, Height int
 	MaxScroll     int // derived from content and the actual wrapped footer
+	ListStart     int // first row of the rendered list window
 	Lines         []string
 	Hits          []uiRect
 	Actions       []uiAction
@@ -86,6 +87,7 @@ func (p uiPage) dockFooter(footer uiPage, height, scroll int) uiPage {
 	start := min(max(0, scroll), max(0, len(p.Lines)-available))
 	out := newUIPage(p.Width, height)
 	out.MaxScroll = max(0, len(p.Lines)-available)
+	out.ListStart = p.ListStart
 	out.Actions = append(append([]uiAction{}, p.Actions...), footer.Actions...)
 	out.Lines = append(out.Lines, p.Lines[start:min(len(p.Lines), start+available)]...)
 	for len(out.Lines) < available {
@@ -223,7 +225,10 @@ func (p uiPage) shortcutBar() uiPage {
 	return bar
 }
 
-const scrollHint = "↑↓ PgUp/PgDn scroll"
+const (
+	scrollHint = "↑↓/jk PgUp/PgDn scroll"
+	tabHint    = "←→/hl tabs"
+)
 
 // Hints and actions share one layout and the same bright-key/dim-description pair.
 func splitHint(hint string) (string, string) {
@@ -335,17 +340,38 @@ func (p *uiPage) search(value, placeholder string, focused bool, inputs ...texti
 	}
 	p.hit("search", 1, y, max(1, p.Width-2), 3)
 }
-func (p *uiPage) tabs(current, hover, focus string, accounts bool) {
-	tabs := []uiAction{{ID: "sessions", Label: "🚢 Sessions"}, {ID: "magpie", Label: "🐦 Connections"}}
-	if accounts {
-		tabs = append(tabs, uiAction{ID: "accounts", Label: "👤 Accounts"})
+
+var mainTabs = []uiAction{
+	{ID: "sessions", Label: "🚢 Sessions"},
+	{ID: "magpie", Label: "🐦 Connections"},
+	{ID: "accounts", Label: "👤 Accounts"},
+	{ID: "profiles", Label: "🗂 Profiles"},
+	{ID: "settings", Label: "⚙ Settings"},
+}
+
+func adjacentTab(current, key string) string {
+	offset := 0
+	switch key {
+	case "left":
+		offset = -1
+	case "right":
+		offset = 1
+	default:
+		return ""
 	}
-	tabs = append(tabs, uiAction{ID: "profiles", Label: "🗂 Profiles"})
-	tabs = append(tabs, uiAction{ID: "settings", Label: "⚙ Settings"})
+	for i, tab := range mainTabs {
+		if tab.ID == current && i+offset >= 0 && i+offset < len(mainTabs) {
+			return mainTabs[i+offset].ID
+		}
+	}
+	return ""
+}
+
+func (p *uiPage) tabs(current, hover, focus string) {
 	x := 1
 	y := len(p.Lines)
 	line := ""
-	for _, a := range tabs {
+	for _, a := range mainTabs {
 		label := a.Label
 		if p.Width < 76 {
 			if current != a.ID && focus != a.ID && focus != "nav:"+a.ID {
@@ -452,8 +478,11 @@ func symbolHints(s string) string {
 	if asciiUI() {
 		return s
 	}
-	s = controlKeyNotation(s)
-	return strings.NewReplacer("Shift+Tab", "⇧⇥", "shift+tab", "⇧⇥", "Enter", "↵", "enter", "↵", "Tab", "⇥", "tab", "⇥", "Esc", "⎋", "esc", "⎋").Replace(s)
+	words := strings.Fields(controlKeyNotation(s))
+	for i, word := range words {
+		words[i] = keyLabel(word)
+	}
+	return strings.Join(words, " ")
 }
 
 // A proportional one-cell rail, following omp ScrollView's muted track/accent thumb.

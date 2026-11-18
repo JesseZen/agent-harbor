@@ -41,7 +41,9 @@ func TestTicket04DynamicClientHits(t *testing.T) {
 		for _, r := range p.Hits {
 			if strings.HasPrefix(r.ID, "new-client:") {
 				n := creationClick(t, m, r.ID)
-				n = creationClick(t, n, "new-client-select")
+				if n.screen == "new-cli" {
+					n = creationClick(t, n, r.ID)
+				}
 				if n.draft.Client != strings.TrimPrefix(r.ID, "new-client:") {
 					t.Fatalf("stale hit %s -> %s", r.ID, n.draft.Client)
 				}
@@ -54,7 +56,9 @@ func TestTicket04DynamicClientHits(t *testing.T) {
 		m.input.SetValue("client-17")
 		m.clientCursor = 0
 		n := creationClick(t, m, "new-client:client-17")
-		n = creationClick(t, n, "new-client-select")
+		if n.screen == "new-cli" {
+			n = creationClick(t, n, "new-client:client-17")
+		}
 		if n.draft.Client != "client-17" {
 			t.Fatal(n.draft.Client)
 		}
@@ -66,6 +70,7 @@ func TestTicket04CancelAndReadonly(t *testing.T) {
 	m.height = 20
 	m.draft.Client = "pi"
 	m.draft.Name = "keep"
+	m.formFocus = 3
 	n := creationClick(t, m, "new-field:Model")
 	if !strings.Contains(n.notice, "pi") || n.screen != "new-form" {
 		t.Fatal(n.notice)
@@ -75,11 +80,13 @@ func TestTicket04CancelAndReadonly(t *testing.T) {
 		t.Fatal("readonly arrow")
 	}
 	n = creationClick(t, n, "new-field:Name")
+	n = creationClick(t, n, "new-field:Name")
 	n.input.SetValue("discard")
 	n = creationClick(t, n, "new-back")
 	if n.draft.Name != "keep" || n.formFocus != 4 {
 		t.Fatal(n.draft)
 	}
+	n = creationClick(t, n, "new-field:Client")
 	n = creationClick(t, n, "new-field:Client")
 	n = creationClick(t, n, "new-back")
 	if n.draft.Client != "pi" {

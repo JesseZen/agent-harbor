@@ -21,7 +21,6 @@ type settingsModel struct {
 	searching             bool
 	hover                 string
 	nav                   string
-	focusNav              string
 	saved                 shortcutPreferences
 }
 
@@ -40,8 +39,16 @@ func newSettingsModel() settingsModel {
 }
 func (m settingsModel) Init() tea.Cmd { return nil }
 func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok && key.Type == tea.KeyCtrlZ {
-		return m, tea.Suspend
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "ctrl+z":
+			return m, tea.Suspend
+		case "tab", "shift+tab":
+			return m, nil
+		}
+		if !m.searching && !m.editing {
+			msg = navigationKey(key)
+		}
 	}
 
 	next, cmd := m.update(msg)
@@ -86,11 +93,9 @@ func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if target == "search" && !m.editing {
 			m.searching = true
-			m.focusNav = ""
 			return m, nil
 		}
 		if target == "details" {
-			m.focusNav = ""
 			m.searching = false
 			m.details = true
 			m.scroll = 0
@@ -104,9 +109,12 @@ func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if strings.HasPrefix(target, "control:") && !m.editing {
 			i, _ := strconv.Atoi(strings.TrimPrefix(target, "control:"))
+			focused := m.cursor == i && !m.searching
 			m.cursor = i
-			m.focusNav = ""
 			m.searching = false
+			if i < 3 && !focused {
+				return m, nil
+			}
 			return m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		}
 		return m, nil
@@ -124,36 +132,6 @@ func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scroll = 0
 			return m, nil
 		}
-		if m.focusNav != "" && !m.details && !m.help {
-			tabs := m.navIDs()
-			at := 0
-			for i, id := range tabs {
-				if id == m.focusNav {
-					at = i
-				}
-			}
-			switch key {
-			case "tab":
-				if at+1 < len(tabs) {
-					m.focusNav = tabs[at+1]
-				} else {
-					m.focusNav = ""
-					m.searching = true
-				}
-			case "shift+tab":
-				if at > 0 {
-					m.focusNav = tabs[at-1]
-				} else {
-					m.focusNav = ""
-					m.cursor = 2
-				}
-			case "enter":
-				return m.navigate(m.focusNav)
-			case "esc":
-				m.focusNav = ""
-			}
-			return m, nil
-		}
 		if m.searching {
 			switch key {
 			case "esc":
@@ -162,20 +140,12 @@ func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.searching = false
 				}
-			case "shift+tab":
-				m.searching = false
-				if m.height >= 19 {
-					tabs := m.navIDs()
-					m.focusNav = tabs[len(tabs)-1]
-				} else {
-					m.cursor = 2
-				}
-			case "enter", "tab":
+			case "enter", "up", "down":
 				m.searching = false
 				if rows := m.filtered(); len(rows) > 0 {
 					m.cursor = rows[0]
 				} else {
-					m.cursor = 3
+					m.cursor = -1
 				}
 			case "backspace":
 				r := []rune(m.query)
@@ -239,23 +209,14 @@ func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc", "q", "ctrl+c":
 			m.closed = true
 			return m, tea.Quit
-		case "tab", "down", "j":
-			if key == "tab" && (len(m.filtered()) == 0 || m.cursor == m.filtered()[len(m.filtered())-1]) {
-				if m.height >= 19 {
-					m.focusNav = "sessions"
-				} else {
-					m.searching = true
-				}
-			} else {
-				m.cursor = m.nextControl(1)
+		case "left", "right":
+			if tab := adjacentTab("settings", key); tab != "" {
+				return m.navigate(tab)
 			}
-		case "shift+tab", "up", "k":
-			rows := m.filtered()
-			if key == "shift+tab" && len(rows) > 0 && m.cursor == rows[0] {
-				m.searching = true
-			} else {
-				m.cursor = m.nextControl(-1)
-			}
+		case "down":
+			m.cursor = m.nextControl(1)
+		case "up":
+			m.cursor = m.nextControl(-1)
 		case "ctrl+s", "ctrl+r":
 			if key == "ctrl+s" {
 				m.cursor = 4
@@ -264,6 +225,9 @@ func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		case "enter":
+			if m.cursor < 0 || (m.cursor < 3 && len(m.filtered()) == 0) {
+				return m, nil
+			}
 			if m.cursor < 3 {
 				m.editing = true
 				m.input.SetValue(m.values.values()[m.cursor])
@@ -293,14 +257,8 @@ func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-func (m settingsModel) navIDs() []string {
-	ids := []string{"sessions", "magpie"}
-	ids = append(ids, "accounts")
-	return append(ids, "profiles", "settings")
-}
 func (m settingsModel) navigate(nav string) (tea.Model, tea.Cmd) {
 	if nav == "settings" {
-		m.focusNav = ""
 		return m, nil
 	}
 	if m.values != m.saved {
@@ -353,7 +311,7 @@ func (m settingsModel) layout() uiPage {
 	if m.details {
 		text := m.notice
 		if m.help {
-			text = "Tab / Shift+Tab or arrows select fields. Enter edits a field; Enter accepts the draft, Esc cancels the edit.\n\nCtrl+S saves all changes. Ctrl+R restores defaults in the draft. Esc returns without saving. Unsaved changes block navigation to another tab.\n\n/ searches settings. Esc clears search before leaving it. i shows details for the current message.\n\nCtrl+Z suspends on supported terminals; resume keeps the draft.\n\nShortcuts apply only to this Harbor workspace. prefix is Ctrl+B; native Herdr settings remain prefix+s."
+			text = "↑↓ / k j select fields. ←→ / h l switch main tabs. Enter edits a field; Enter accepts the draft, Esc cancels the edit.\n\nCtrl+S saves all changes. Ctrl+R restores defaults in the draft. Esc returns without saving. Unsaved changes block navigation to another tab.\n\n/ searches settings. Esc clears search before leaving it. i shows details for the current message.\n\nCtrl+Z suspends on supported terminals; resume keeps the draft.\n\nShortcuts apply only to this Harbor workspace. prefix is Ctrl+B; native Herdr settings remain prefix+s."
 		}
 		if text == "" {
 			text = actionHints(m.actions()) + "\n\n" + "Shortcuts affect only this owned Harbor workspace. prefix is Ctrl+B. Native Herdr settings remain prefix+s. Direct Ctrl keys intercept input before the CLI and may conflict with terminal encodings or Emacs bindings. Only unoccupied supported chords are accepted."
@@ -365,7 +323,7 @@ func (m settingsModel) layout() uiPage {
 		return secondaryDocument(m.width, m.height, title, text, []uiAction{{ID: "back", Label: "Back", Key: "esc"}}, "back", m.scroll)
 	}
 	if p.Height >= 19 {
-		p.tabs("settings", m.hover, m.focusNav, true)
+		p.tabs("settings", m.hover, "")
 	}
 	p.search(m.query, "Search settings", m.searching)
 	if p.Height >= 23 {
@@ -378,8 +336,7 @@ func (m settingsModel) layout() uiPage {
 		if m.editing && m.cursor == i {
 			value = m.input.View()
 		}
-		p.field("control:"+strconv.Itoa(i), []string{"🚢", "⚙", "🐦"}[i], settingsLabels[i], value, m.cursor == i && !m.searching && m.focusNav == "", true)
-
+		p.field("control:"+strconv.Itoa(i), []string{"🚢", "⚙", "🐦"}[i], settingsLabels[i], value, m.cursor == i && !m.searching, true)
 	}
 	if len(m.filtered()) == 0 {
 		p.line("No matching settings. Clear the search to return.")
@@ -409,13 +366,13 @@ func (m settingsModel) layout() uiPage {
 		notice = ""
 	}
 	p.line(paint(fg("value"), cleanUI(notice)))
-	hint := "Tab / ↑↓ focus · Enter edit · / search · i Details · ? help"
+	hint := "↑↓/jk fields · " + tabHint + " · Enter edit · / search · i Details · ? help"
 
 	if m.editing {
 		hint = ""
 	}
 	if m.searching {
-		hint = "Type search  Tab controls  Esc clear/back"
+		hint = "Type search · ↵ fields · Esc clear/back"
 	}
 	p.Hint = hint
 

@@ -55,7 +55,7 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
         missing['conversation']['status']='missing'
         record_file.write_text(json.dumps(altered))
         try:
-            popup();key('/');text(name);key('Tab');key('v');screen('Review saved conversation')
+            popup();key('/');text(name);key('Enter');key('v');screen('Review saved conversation')
             import time
             time.sleep(.25);key('i');screen('Details')
             assert next(r for r in records() if r['name']==name)['conversation']['status']=='missing', 'unapproved reference was changed'

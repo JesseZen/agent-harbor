@@ -50,22 +50,74 @@ func TestSecondaryBackReturnsFocusToSessionList(t *testing.T) {
 	}
 }
 
-func TestReverseFocusStartsAtLastControl(t *testing.T) {
-	if got := uiCycle("", []string{"first", "middle", "last"}, true); got != "last" {
-		t.Fatal(got)
-	}
+func TestTabLeavesSelectorFocusUnchanged(t *testing.T) {
 	m, _ := formFixture()
 	m.screen = "new-catalog"
 	m.draft.Instance = "fixture"
 	m.models = []catalogModel{{ID: "test"}}
-	n, _, _ := m.connectionSelectorInput(tea.KeyMsg{Type: tea.KeyShiftTab})
-	m = n.(harborModel)
-	if m.uiFocus != "selector-list" {
-		t.Fatal(m.uiFocus)
+	for _, key := range []tea.KeyType{tea.KeyTab, tea.KeyShiftTab} {
+		next, cmd := m.Update(tea.KeyMsg{Type: key})
+		if cmd != nil || next.(harborModel).uiFocus != m.uiFocus {
+			t.Fatal("Tab changed selector focus")
+		}
 	}
-	n, _, _ = m.connectionSelectorInput(tea.KeyMsg{Type: tea.KeyTab})
-	m = n.(harborModel)
-	if m.uiFocus != "selector-search" {
-		t.Fatal(m.uiFocus)
+}
+
+func TestMainTabNavigationAndTextOwnership(t *testing.T) {
+	m := newHarborModel(&fakeApplicationService{})
+	for _, step := range []struct{ key, screen string }{
+		{"tab", "sessions"}, {"l", "magpie"}, {"right", "accounts"},
+		{"l", "profile-list"}, {"right", "profile-list"},
+	} {
+		next, _ := m.Update(uiKey(step.key))
+		m = next.(harborModel)
+		if m.screen != step.screen {
+			t.Fatalf("%s selected %s, want %s", step.key, m.screen, step.screen)
+		}
+	}
+	if m.settings == nil {
+		t.Fatal("right from Profiles did not open Settings")
+	}
+	next, _ := m.Update(uiKey("h"))
+	m = next.(harborModel)
+	if m.settings != nil || m.screen != "profile-list" {
+		t.Fatal("h did not go back to Profiles")
+	}
+	for _, step := range []struct{ key, screen string }{
+		{"left", "accounts"}, {"h", "magpie"}, {"left", "sessions"},
+		{"/", "sessions"}, {"h", "sessions"}, {"l", "sessions"}, {"j", "sessions"}, {"k", "sessions"},
+	} {
+		next, _ := m.Update(uiKey(step.key))
+		m = next.(harborModel)
+		if m.screen != step.screen {
+			t.Fatalf("%s left %s", step.key, step.screen)
+		}
+	}
+	if m.filter != "hljk" {
+		t.Fatal("vim keys escaped the search field")
+	}
+}
+
+func TestNewFormRemembersOnlyItsProfileConnection(t *testing.T) {
+	m, _ := formFixture()
+	a := profileBinding{ProfileID: "A", Client: "codex"}
+	b := profileBinding{ProfileID: "B", Client: "codex"}
+	m.draft.Profile, m.draft.Connection = &a, "magpie"
+	m.rememberConnection()
+	for _, test := range []struct {
+		binding        *profileBinding
+		recorded, want string
+	}{
+		{&a, "local", "magpie"},
+		{&b, "", "local"},
+		{&b, "magpie", "magpie"},
+	} {
+		m.screen = "new-project-loading"
+		next, _ := m.Update(appNewReady{generation: m.generation, environment: appEnvironment{
+			Profile: test.binding, LastConnection: test.recorded,
+		}})
+		if draft := next.(harborModel).draft; draft.Connection != test.want || draft.Instance != "" || draft.Model != "" {
+			t.Fatal(draft)
+		}
 	}
 }

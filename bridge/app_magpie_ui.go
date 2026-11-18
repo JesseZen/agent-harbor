@@ -16,7 +16,7 @@ func (m harborModel) connectionActions() []uiAction {
 		if r.Health != instanceVerified {
 			reason = managementFailure(r)
 		}
-		a = append(a, uiAction{ID: "conn:enter", Label: "Manage selected providers", Key: "enter", Primary: true, Disabled: reason}, uiAction{ID: "conn:i", Label: "Details", Key: "i"}, uiAction{ID: "conn:u", Label: "Default for future sessions", Key: "u"})
+		a = append(a, uiAction{ID: "conn:enter", Label: "Manage selected providers", Key: "enter", Primary: true, Disabled: reason}, uiAction{ID: "conn:i", Label: "Details", Key: "i"})
 	}
 	return append(a, uiAction{ID: "conn:s", Label: "Start Harbor-managed", Key: "s"}, uiAction{ID: "conn:x", Label: "Stop Harbor-managed", Key: "x"}, uiAction{ID: "conn:w", Label: "Harbor-managed web", Key: "w"})
 }
@@ -29,7 +29,7 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 	}
 	p := newUIPage(m.width, 10000)
 	p.line(paint(fg("brand"), "🐦 Harbor · Connections"))
-	p.tabs("magpie", m.uiHover, m.uiFocus, true)
+	p.tabs("magpie", m.uiHover, m.uiFocus)
 
 	if m.notice != "" {
 		for _, line := range strings.Split(ansi.Wrap(m.notice, max(1, m.width-2), ""), "\n") {
@@ -38,7 +38,7 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 	}
 	p.search(m.instanceFilter, "Search gateways", m.searchFocus == "magpie", m.input)
 	if m.searchFocus == "magpie" {
-		p.Hint = "Type search · tab list · Esc clear/back"
+		p.Hint = "Type search · ↵ list · Esc clear/back"
 	}
 	a := m.connectionActions()
 	p.shortcuts(a[:2], m.uiFocus)
@@ -68,7 +68,7 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 	p.shortcuts(a[len(a)-3:], m.uiFocus)
 	p.Height = m.height
 	if p.Hint == "" {
-		p.Hint = "/ search · Tab focus · ↑↓ select · PgUp/PgDn scroll · Esc back"
+		p.Hint = "↑↓/jk select · " + tabHint + " · / search · PgUp/PgDn scroll"
 	}
 	if m.searchFocus == "magpie" {
 		p.Actions = nil
@@ -112,7 +112,12 @@ func (m harborModel) connectionActivate(id string) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(id, "instance:") {
 		for i, r := range m.instanceRows() {
 			if r.ID == strings.TrimPrefix(id, "instance:") {
+				if m.instanceCursor == i && m.searchFocus != "magpie" {
+					return m.connectionActivate("conn:enter")
+				}
 				m.instanceCursor = i
+				m.searchFocus = ""
+				m.input.Blur()
 				break
 			}
 		}
@@ -171,7 +176,6 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			return m, nil, true
 		}
 		if v.Action == tea.MouseActionPress && v.Button == tea.MouseButtonLeft && id != "" {
-			m.uiFocus = id
 			n, c := m.connectionActivate(id)
 			return n, c, true
 		}
@@ -199,7 +203,7 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		if m.screen == "magpie-busy" {
 			return m, nil, true
 		}
-		if m.screen == "magpie" && m.searchFocus == "magpie" && key != "tab" && key != "shift+tab" {
+		if m.screen == "magpie" && m.searchFocus == "magpie" {
 			if key == "enter" {
 				m.searchFocus = ""
 				m.input.Blur()
@@ -221,7 +225,7 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			m.input, cmd = m.input.Update(v)
 			return m, cmd, true
 		}
-		if (m.screen == "magpie-bind" || m.screen == "magpie-filter") && key != "tab" && key != "shift+tab" && key != "enter" && key != "esc" {
+		if (m.screen == "magpie-bind" || m.screen == "magpie-filter") && key != "enter" && key != "esc" {
 			m.uiFocus = "search"
 			n, c := m.updateMagpie(v)
 			return n, c, true
@@ -236,57 +240,6 @@ func (m harborModel) connectionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		}
 		if key == "pgup" {
 			m.scroll = max(0, m.scroll-max(1, m.height/2))
-			return m, nil, true
-		}
-		if key == "tab" || key == "shift+tab" {
-			if m.screen != "magpie" {
-				p, _ := m.connectionPage()
-				ids := []string{}
-				for _, r := range p.focusHits() {
-					if r.ID != "" {
-						ids = append(ids, r.ID)
-					}
-				}
-				m.uiFocus = uiCycle(m.uiFocus, ids, key == "shift+tab")
-				return m, nil, true
-			}
-			h, s := m.height, m.scroll
-			m.height = 10000
-			m.scroll = 0
-			p, _ := m.connectionPage()
-			m.height = h
-			m.scroll = s
-			ids := []uiRect{}
-			for _, r := range p.focusHits() {
-				if r.ID != "" {
-					ids = append(ids, r)
-				}
-			}
-			if len(ids) > 0 {
-				names := []string{}
-				for _, r := range ids {
-					names = append(names, r.ID)
-				}
-				m.uiFocus = uiCycle(m.uiFocus, names, key == "shift+tab")
-				i := 0
-				for j, r := range ids {
-					if r.ID == m.uiFocus {
-						i = j
-						break
-					}
-				}
-				m.searchFocus = ""
-				m.input.Blur()
-				if strings.HasPrefix(m.uiFocus, "conn:") {
-					return m, nil, true
-				}
-				if ids[i].Y < m.scroll {
-					m.scroll = ids[i].Y
-				}
-				if ids[i].Y >= m.scroll+max(1, m.height-m.connectionFooterHeight()) {
-					m.scroll = ids[i].Y - max(1, m.height-m.connectionFooterHeight()) + 1
-				}
-			}
 			return m, nil, true
 		}
 		if key == "enter" && m.screen == "magpie-bind" && m.uiFocus == "search" {
@@ -349,6 +302,6 @@ func (m harborModel) connectionRevealSelected() harborModel {
 func (m harborModel) connectionFooterHeight() int {
 	p := newUIPage(m.width, m.height)
 	p.shortcuts(m.connectionActions(), m.uiFocus)
-	p.Hint = "/ search · Tab focus · ↑↓ select · PgUp/PgDn scroll · Esc back"
+	p.Hint = "↑↓/jk select · " + tabHint + " · / search · PgUp/PgDn scroll"
 	return len(p.shortcutBar().Lines)
 }

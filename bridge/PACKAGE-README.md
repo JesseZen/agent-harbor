@@ -94,11 +94,12 @@ than replacing or stopping a user-managed service.
 
 The Accounts page (`a`) automatically refreshes Codex usage and reset-card
 availability for the selected Profile. `p` chooses a Profile and `r` reruns the
-lookup. Enter on a saved account opens Details. A ticket marks available
+lookup. Previously loaded quota stays visible until the refreshed values arrive.
+Enter on a saved account opens Details. A ticket marks available
 reset cards. In Details, `u` opens a confirmation and `y` redeems one card
 through bundled codex-auth, which chooses the card.
 
-`l` adds a login through official Codex, `s` selects a saved login, and `o`
+`n` adds a login through official Codex, `s` selects a saved login, and `o`
 selects Not signed in while retaining the saved list. Unknown or active
 session activity blocks login changes. Stop the named session explicitly
 before retrying when its activity cannot be inspected. Existing environments

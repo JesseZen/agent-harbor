@@ -8,65 +8,38 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
-func mouseAt(m harborModel, x, y int, at time.Time) harborModel {
+func mouseAt(m harborModel, x, y int) harborModel {
 	if f, ok := m.service.(*fakeApplicationService); ok && f.Sessions == nil {
 		f.Sessions = append([]sessionView{}, m.sessions...)
 	}
-	n, cmd := m.updateMouse(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, at)
+	n, cmd := m.Update(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
 	for cmd != nil {
 		n, cmd = n.Update(cmd())
 	}
 	return n.(harborModel)
 }
-func TestMouseDoubleClickSafety(t *testing.T) {
+func TestMouseCurrentRowActivatesAndConfirmationBlocksClickThrough(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	m.sessions = []sessionView{{session: session{ID: "a", Name: "中文 🚢", Mode: "local"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}
-	at := time.Now()
-	for _, tc := range []struct {
-		name    string
-		delay   time.Duration
-		dx      int
-		confirm bool
-	}{{"double", 100 * time.Millisecond, 0, true}, {"late", time.Second, 0, false}, {"different cell", 100 * time.Millisecond, 1, false}} {
-		t.Run(tc.name, func(t *testing.T) {
-			n := mouseAt(m, 2, 6, at)
-			if n.screen != "sessions" {
-				t.Fatal(n.screen)
-			}
-			release, _ := n.updateMouse(tea.MouseMsg{X: 2, Y: 6, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease}, at)
-			n = release.(harborModel)
-			n = mouseAt(n, 2+tc.dx, 6, at.Add(tc.delay))
-			if (n.screen == "confirm") != tc.confirm {
-				t.Fatal(n.screen)
-			}
-			if tc.confirm {
-				n = mouseAt(n, 2, 6, at.Add(150*time.Millisecond))
-				if n.screen != "confirm" {
-					t.Fatal("confirmation penetrated")
-				}
-			}
-		})
+	for _, hit := range m.sessionsLayout().Hits {
+		if hit.ID == "session:a" {
+			m = mouseAt(m, hit.X, hit.Y)
+			break
+		}
 	}
-	n := mouseAt(m, 2, 6, at)
-	n.sessions[0].ID = "replacement"
-	n = mouseAt(n, 2, 6, at.Add(time.Millisecond))
-	if n.screen != "sessions" {
-		t.Fatal("stale ID acted")
+	if m.screen != "confirm" || m.reviewed.ID != "a" {
+		t.Fatal("one click did not open the current row", m.screen)
 	}
-	n = mouseAt(m, 2, 6, at)
-	v, _ := n.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	n = mouseAt(v.(harborModel), 2, 6, at.Add(time.Millisecond))
-	if n.screen != "sessions" {
-		t.Fatal("resize retained click")
-	}
-	n = mouseAt(m, 2, 6, at)
-	n = appKey(n, "/").(harborModel)
-	n = appKey(n, "中").(harborModel)
-	if n.mouse.id != "" {
-		t.Fatal("query retained click")
+	for _, hit := range m.reviewLayout().Hits {
+		if hit.ID == "review:enter" {
+			next, cmd := m.Update(tea.MouseMsg{X: hit.X, Y: hit.Y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+			if next.(harborModel).screen != "confirm" || cmd != nil {
+				t.Fatal("confirmation accepted click-through")
+			}
+			break
+		}
 	}
 }
 func TestMouseFormAndBounds(t *testing.T) {
@@ -76,7 +49,11 @@ func TestMouseFormAndBounds(t *testing.T) {
 		p, _ := m.newSessionPage()
 		for _, r := range p.Hits {
 			if r.ID == "new-field:Name" {
-				m = mouseAt(m, r.X, r.Y, time.Now())
+				m = mouseAt(m, r.X, r.Y)
+				if m.screen != "new-form" || m.formFocus != 4 {
+					t.Fatal("first click should focus Name")
+				}
+				m = mouseAt(m, r.X, r.Y)
 				break
 			}
 		}
@@ -84,7 +61,7 @@ func TestMouseFormAndBounds(t *testing.T) {
 			t.Fatalf("%v %s %v", size, m.screen, f.Calls)
 		}
 		m = appKey(m, "esc").(harborModel)
-		m = mouseAt(m, 159, 6, time.Now())
+		m = mouseAt(m, 159, 6)
 		if m.screen != "new-form" {
 			t.Fatal("outside width activated")
 		}
@@ -92,13 +69,13 @@ func TestMouseFormAndBounds(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	m.width = 160
 	m.sessions = []sessionView{{session: session{ID: "a", Name: "one"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}
-	n, _ := m.updateMouse(tea.MouseMsg{X: 80, Y: 8, Button: tea.MouseButtonWheelDown}, time.Now())
+	n, _ := m.Update(tea.MouseMsg{X: 80, Y: 8, Button: tea.MouseButtonWheelDown})
 	if n.(harborModel).detailScroll != 1 || n.(harborModel).cursor != 0 {
 		t.Fatal("detail wheel scope")
 	}
 	m.screen = "delete-history"
 	m.reviewed = session{Name: "exact"}
-	m = mouseAt(m, 2, 6, time.Now())
+	m = mouseAt(m, 2, 6)
 	if m.screen != "delete-history" || m.input.Value() != "" {
 		t.Fatal("typed deletion bypass")
 	}
@@ -122,13 +99,13 @@ func TestMouseVisual(t *testing.T) {
 	for _, size := range [][2]int{{60, 20}, {100, 30}, {160, 45}} {
 		form, _ := formFixture()
 		form.width, form.height = size[0], size[1]
-		form = mouseAt(form, 3, 9, time.Now())
+		form = mouseAt(form, 3, 9)
 		form = appKey(form, "mouse draft").(harborModel)
 		form = appKey(form, "enter").(harborModel)
 		list := newHarborModel(&fakeApplicationService{})
 		list.width, list.height = size[0], size[1]
 		list.sessions = []sessionView{{session: session{ID: "a", Name: "Harbor API", CLI: "codex", Mode: "magpie", WorkingDirectory: "/projects/harbor", MagpieModel: "route-a"}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Stopped"}, {session: session{ID: "b", Name: "中文 🚢 Review", CLI: "codex", Mode: "local", WorkingDirectory: "/projects/docs"}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Stopped"}}
-		list = mouseAt(list, 3, 9, time.Now())
+		list = mouseAt(list, 3, 9)
 		for _, plain := range []bool{false, true} {
 			os.Unsetenv("NO_COLOR")
 			if plain {
@@ -141,10 +118,9 @@ func TestMouseVisual(t *testing.T) {
 	}
 }
 
-func TestMouseUnselectedAndRepaint(t *testing.T) {
+func TestMouseUnselectedThenCurrentRow(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	m.sessions = []sessionView{{session: session{ID: "first", Name: "First"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}, {session: session{ID: "second", Name: "Second 🚢"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}
-	at := time.Now()
 	lines := strings.Split(m.View(), "\n")
 	y := -1
 	for i, l := range lines {
@@ -156,19 +132,19 @@ func TestMouseUnselectedAndRepaint(t *testing.T) {
 	if y < 0 {
 		t.Fatal("missing rendered row")
 	}
-	m = mouseAt(m, 3, y, at)
+	m = mouseAt(m, 3, y)
 	if m.cursor != 1 || m.screen != "sessions" {
 		t.Fatal("single selection")
 	}
-	m = mouseAt(m, 3, y, at.Add(time.Millisecond))
+	m = mouseAt(m, 3, y)
 	if m.screen != "confirm" || m.reviewed.ID != "second" {
-		t.Fatal("double on newly selected row")
+		t.Fatal("click on newly selected row")
 	}
 	m = appKey(m, "esc").(harborModel)
-	m = mouseAt(m, 3, y, at)
+	m = mouseAt(m, 3, y)
 	next, _ := m.Update(appLoaded{sessions: []sessionView{{session: session{ID: "third", Name: "Replacement"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}})
-	if next.(harborModel).mouse.id != "" {
-		t.Fatal("async replacement retained history")
+	if !next.(harborModel).selectionMissing {
+		t.Fatal("async replacement armed a different row")
 	}
 }
 
@@ -176,7 +152,6 @@ func TestMouseShortPopupVisibleCells(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	m.width, m.height = 45, 12
 	m.sessions = []sessionView{{session: session{ID: "a", Name: "Visible"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}
-	at := time.Now()
 	rowY := -1
 	for i, line := range strings.Split(m.View(), "\n") {
 		if strings.Contains(line, "Visible") {
@@ -187,13 +162,13 @@ func TestMouseShortPopupVisibleCells(t *testing.T) {
 	if rowY < 0 {
 		t.Fatal("visible row was clipped")
 	}
-	m = mouseAt(m, 3, rowY, at)
-	if m.mouse.id != "a" {
-		t.Fatal("visible name inert")
-	}
-	m = mouseAt(m, 0, m.height-1, at.Add(time.Millisecond))
-	if m.mouse.id != "" || m.screen != "sessions" {
+	m = mouseAt(m, 0, m.height-1)
+	if m.screen != "sessions" {
 		t.Fatal("footer activated row")
+	}
+	m = mouseAt(m, 3, rowY)
+	if m.screen != "confirm" {
+		t.Fatal("visible name inert")
 	}
 }
 
@@ -218,7 +193,7 @@ func TestMousePickerRenderedGeometry(t *testing.T) {
 			if y < 0 {
 				t.Fatal(m.View())
 			}
-			m = mouseAt(m, 3, y, time.Now())
+			m = mouseAt(m, 3, y)
 			cursor := m.instanceCursor
 			if screen == "new-catalog" {
 				cursor = m.catalogCursor
@@ -229,10 +204,6 @@ func TestMousePickerRenderedGeometry(t *testing.T) {
 			if cursor != 1 {
 				t.Fatalf("%s cursor=%d at rendered y%d", screen, cursor, y)
 			}
-			n, _ := m.updateMouse(tea.MouseMsg{X: 3, Y: y, Button: tea.MouseButtonWheelUp}, time.Now())
-			if n.(harborModel).mouse.id != "" {
-				t.Fatal("wheel retained click")
-			}
 		})
 	}
 }
@@ -242,6 +213,7 @@ func TestMouseEveryFormControl(t *testing.T) {
 		for _, height := range []int{12, 24} {
 			m, _ := formFixture()
 			m.height = height
+			m.formFocus = 0
 			ids := []string{"new-field:Project", "new-field:Client", "new-field:Connection", "new-field:Model", "new-field:Name", "new-create", "new-cancel"}
 			p, _ := m.newSessionPage()
 			x, y := -1, -1
@@ -254,7 +226,13 @@ func TestMouseEveryFormControl(t *testing.T) {
 			if x < 0 {
 				t.Fatalf("missing control %s", ids[i])
 			}
-			n := mouseAt(m, x, y, time.Now())
+			n := mouseAt(m, x, y)
+			if i > 0 && i < 5 {
+				if n.screen != "new-form" || n.formFocus != i {
+					t.Fatalf("field %d first click did not only move focus", i)
+				}
+				n = mouseAt(n, x, y)
+			}
 			if n.screen != want {
 				t.Fatalf("field %d height%d: %s want %s", i, height, n.screen, want)
 			}
@@ -295,14 +273,13 @@ func TestMouseScrolledSelectionStaysUnderPointer(t *testing.T) {
 	if y < 0 {
 		t.Fatal("fixture")
 	}
-	at := time.Now()
-	m = mouseAt(m, 3, y, at)
+	m = mouseAt(m, 3, y)
 	if !strings.Contains(strings.Split(m.View(), "\n")[y], "Row 08") {
 		t.Fatal("clicked row shifted")
 	}
-	m = mouseAt(m, 3, y, at.Add(time.Millisecond))
+	m = mouseAt(m, 3, y)
 	if m.screen != "confirm" || m.reviewed.ID != "8" {
-		t.Fatal("scrolled double click failed")
+		t.Fatal("click on scrolled current row failed")
 	}
 }
 
@@ -322,7 +299,7 @@ func TestMouseDirectoryPreviewPreservesExplicitSelection(t *testing.T) {
 	if x < 0 {
 		t.Fatal("directory row missing")
 	}
-	m = mouseAt(m, x, y, time.Now())
+	m = mouseAt(m, x, y)
 	// Preview completion must preserve selection; only Use commits the edit.
 	next, _ := m.Update(directoryPreviewResult{generation: m.picker.previewGeneration, path: m.picker.previewPath, text: "synthetic preview"})
 	m = next.(harborModel)
@@ -332,7 +309,7 @@ func TestMouseDirectoryPreviewPreservesExplicitSelection(t *testing.T) {
 	p = m.directoryPage()
 	for _, r := range p.Hits {
 		if r.ID == "dir-use" {
-			m = mouseAt(m, r.X, r.Y, time.Now())
+			m = mouseAt(m, r.X, r.Y)
 			break
 		}
 	}

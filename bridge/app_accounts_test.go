@@ -229,3 +229,68 @@ func TestExperimentalAccountEntryAndResult(t *testing.T) {
 		t.Fatal("escape did not return to the account menu")
 	}
 }
+
+func TestAccountsKeepQuotaThroughInspectAndUsage(t *testing.T) {
+	f := &walkthroughService{fakeApplicationService: &fakeApplicationService{}}
+	m := newHarborModel(f)
+	binding := profileBinding{ProfileID: "A", EnvironmentID: "original"}
+	m.activeProfile, m.accountProfile = &binding, &binding
+	cached := walkthroughAccounts(binding)
+	cached.Accounts[0].Usage = walkthroughUsage(32, 13)
+	m.cacheAccountSnapshot(cached)
+	next, inspect := m.Update(uiKey("a"))
+	m = next.(harborModel)
+	for _, stage := range []string{"reentry", "after roster"} {
+		if !strings.Contains(ansi.Strip(m.View()), "68%") {
+			t.Fatalf("%s lost quota: %s", stage, m.View())
+		}
+		if stage == "reentry" {
+			result, usage := m.Update(inspect())
+			if usage == nil {
+				t.Fatal("missing background usage refresh")
+			}
+			m = result.(harborModel)
+		}
+	}
+	result := walkthroughAccounts(binding)
+	result.Accounts[0].Usage = walkthroughUsage(50, 24)
+	next, _ = m.Update(appAccountRead{generation: m.accountGeneration,
+		request: codexAccountRequest{Profile: binding, Action: "usage"}, result: result})
+	m = next.(harborModel)
+	if !strings.Contains(ansi.Strip(m.View()), "50%") {
+		t.Fatal("completed refresh did not replace the old quota")
+	}
+	other := binding
+	other.EnvironmentID = "replacement"
+	m.accountProfile = &other
+	m.beginAccountInspect()
+	if m.accountSnapshot != nil {
+		t.Fatal("usage leaked across environments")
+	}
+}
+
+func TestAccountClickMovesCursorBeforeOpening(t *testing.T) {
+	m := newHarborModel(&fakeApplicationService{})
+	m.screen = "accounts"
+	binding := profileBinding{ProfileID: "A"}
+	m.accountProfile = &binding
+	snapshot := walkthroughAccounts(binding)
+	m.cacheAccountSnapshot(snapshot)
+	m.reconcileAccountRow()
+	page, _ := m.accountsPage()
+	for _, row := range page.Hits {
+		if row.ID != accountRowPrefix+"backup" {
+			continue
+		}
+		m = mouseAt(m, row.X, row.Y)
+		if m.screen != "accounts" || m.accountRow != "backup" {
+			t.Fatal("first click did more than move the cursor")
+		}
+		m = mouseAt(m, row.X+1, row.Y)
+		if m.screen != "accounts-detail" || m.accountRow != "backup" {
+			t.Fatal("second click did not open details")
+		}
+		return
+	}
+	t.Fatal("missing account row")
+}

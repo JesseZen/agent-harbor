@@ -4,7 +4,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"strings"
-	"time"
 )
 
 func uiKey(key string) tea.KeyMsg {
@@ -13,9 +12,31 @@ func uiKey(key string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "up":
+		return tea.KeyMsg{Type: tea.KeyUp}
+	case "down":
+		return tea.KeyMsg{Type: tea.KeyDown}
+	case "left":
+		return tea.KeyMsg{Type: tea.KeyLeft}
+	case "right":
+		return tea.KeyMsg{Type: tea.KeyRight}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 }
+func navigationKey(key tea.KeyMsg) tea.KeyMsg {
+	switch key.String() {
+	case "h":
+		return uiKey("left")
+	case "j":
+		return uiKey("down")
+	case "k":
+		return uiKey("up")
+	case "l":
+		return uiKey("right")
+	}
+	return key
+}
+
 func (m harborModel) sessionActions(more bool) []uiAction {
 	actions := []uiAction{{ID: "action:n", Label: "New session", Key: "n", Primary: true}, {ID: "action:r", Label: "Refresh", Key: "r"}}
 	s, ok := m.selected()
@@ -59,7 +80,7 @@ func (m harborModel) sessionActions(more bool) []uiAction {
 func (m harborModel) sessionsHeader() uiPage {
 	p := newUIPage(m.width, m.height)
 	p.line(paint(fg("brand"), "⚓ Harbor · Profile: "+m.activeProfileLabel()))
-	p.tabs("sessions", m.uiHover, m.uiFocus, true)
+	p.tabs("sessions", m.uiHover, m.uiFocus)
 	p.shortcuts([]uiAction{{ID: "action:n", Label: "New session", Key: "n", Primary: true}, {ID: "action:r", Label: "Refresh", Key: "r"}}, m.uiFocus)
 	p.search(m.searchQuery(), "Search sessions, projects or connections", m.searchFocus == "sessions", m.input)
 	return p
@@ -114,7 +135,7 @@ func (m harborModel) sessionsCount() int { start, end := m.sessionsWindow(); ret
 func (m harborModel) sessionsLayout() uiPage {
 	p := newUIPage(m.width, m.height)
 	p.line(paint(fg("brand"), "⚓ Harbor · Profile: "+m.activeProfileLabel()))
-	p.tabs("sessions", m.uiHover, m.uiFocus, true)
+	p.tabs("sessions", m.uiHover, m.uiFocus)
 	if m.screen == "sessions-more" {
 		if s, ok := m.selected(); ok {
 			p.line("Actions for " + cleanUI(s.Name))
@@ -122,7 +143,7 @@ func (m harborModel) sessionsLayout() uiPage {
 		for _, a := range m.sessionActions(true) {
 			p.shortcut(a, m.uiFocus == a.ID)
 		}
-		p.Hint = "Tab focus · ? help"
+		p.Hint = "↑↓/jk actions · ? help"
 		return p.finish(0)
 	}
 	p = m.sessionsHeader()
@@ -143,7 +164,7 @@ func (m harborModel) sessionsLayout() uiPage {
 		s := rows[i]
 		y := len(left.Lines)
 		id := "session:" + s.ID
-		row := m.rowStyle(id, i == m.cursor && !m.selectionMissing && m.searchFocus != "sessions" && (m.uiFocus == "" || m.uiFocus == "list"), false)
+		row := m.rowStyle(id, m.sessionCursorAt(i), false)
 		name := row.marker() + cleanUI(s.Name)
 		status := statusDot(orUnknown(s.Status))
 		status = ansi.Truncate(status, max(1, leftW-7), "…")
@@ -243,19 +264,8 @@ func (m harborModel) sessionsLayout() uiPage {
 	p.Hint = hint
 	return p.finish(0)
 }
-func (m harborModel) sessionsFocusIDs() []string {
-	p := m.sessionsLayout()
-	ids := []string{"list"}
-	for _, r := range p.focusHits() {
-		if !strings.HasPrefix(r.ID, "session:") && r.ID != "" {
-			ids = append(ids, r.ID)
-		}
-	}
-	return ids
-}
 func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 	m.uiFocus = ""
-	m.mouse = mouseClick{}
 	if id != "search" {
 		m.searchFocus = ""
 		m.input.Blur()
@@ -263,6 +273,7 @@ func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(id, "nav:") {
 		nav := strings.TrimPrefix(id, "nav:")
 		m.profileReturn = ""
+		m.scroll = 0
 		if nav == "settings" {
 			settings := newSettingsModel()
 			settings.width, settings.height = m.width, m.height
@@ -309,45 +320,18 @@ func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
-	return m.updateSessionsUIAt(msg, time.Now())
-}
-func (m harborModel) updateSessionsUIAt(msg tea.Msg, now time.Time) (tea.Model, tea.Cmd, bool) {
+
 	if m.screen != "sessions" && m.screen != "sessions-more" {
 		return m, nil, false
 	}
 	if key, ok := msg.(tea.KeyMsg); ok {
 		k := key.String()
-		if m.screen == "sessions-more" && (k == "down" || k == "j" || k == "up" || k == "k" || k == "tab" || k == "shift+tab") {
+		if m.screen == "sessions-more" && (k == "down" || k == "j" || k == "up" || k == "k") {
 			ids := []string{}
 			for _, a := range m.sessionActions(true) {
 				ids = append(ids, a.ID)
 			}
-			m.uiFocus = uiCycle(m.uiFocus, ids, k == "up" || k == "k" || k == "shift+tab")
-			return m, nil, true
-		}
-		if k == "tab" || k == "shift+tab" {
-			ids := m.sessionsFocusIDs()
-			current := m.uiFocus
-			if m.searchFocus == "sessions" {
-				current = "search"
-				m.searchFocus = ""
-				m.input.Blur()
-			}
-			at := 0
-			for i, id := range ids {
-				if id == current {
-					at = i
-				}
-			}
-			delta := 1
-			if k == "shift+tab" {
-				delta = -1
-			}
-			m.uiFocus = ids[(at+delta+len(ids))%len(ids)]
-			if m.uiFocus == "search" {
-				next, cmd := m.activateSessions("search")
-				return next, cmd, true
-			}
+			m.uiFocus = uiCycle(m.uiFocus, ids, k == "up" || k == "k")
 			return m, nil, true
 		}
 		if k == "enter" && m.searchFocus == "sessions" {
@@ -393,7 +377,6 @@ func (m harborModel) updateSessionsUIAt(msg tea.Msg, now time.Time) (tea.Model, 
 		return m, nil, true
 	}
 	if mouse.Button == tea.MouseButtonWheelUp || mouse.Button == tea.MouseButtonWheelDown {
-		m.mouse = mouseClick{}
 		delta := 1
 		if mouse.Button == tea.MouseButtonWheelUp {
 			delta = -1
@@ -411,23 +394,22 @@ func (m harborModel) updateSessionsUIAt(msg tea.Msg, now time.Time) (tea.Model, 
 	}
 	if strings.HasPrefix(target, "session:") {
 		id := strings.TrimPrefix(target, "session:")
-		double := m.mouse.id == id && m.mouse.x == mouse.X && m.mouse.y == mouse.Y && !now.Before(m.mouse.at) && now.Sub(m.mouse.at) < 350*time.Millisecond
 		for i, s := range m.visible() {
 			if s.ID == id {
+				if m.sessionCursorAt(i) {
+					next, cmd := m.activateSessions("action:enter")
+					return next, cmd, true
+				}
 				m.mouseListStart, _ = m.sessionsWindow()
 				m.mouseListScreen = "sessions"
 				m.cursor = i
 				m.selectionMissing = false
+				m.searchFocus = ""
+				m.input.Blur()
+				m.uiFocus = "list"
+				m.detailScroll = 0
 				break
 			}
-		}
-		m.searchFocus = ""
-		m.uiFocus = "list"
-		m.detailScroll = 0
-		m.mouse = mouseClick{id, mouse.X, mouse.Y, now}
-		if double {
-			next, cmd := m.activateSessions("action:enter")
-			return next, cmd, true
 		}
 		return m, nil, true
 	}
@@ -435,8 +417,12 @@ func (m harborModel) updateSessionsUIAt(msg tea.Msg, now time.Time) (tea.Model, 
 	return next, cmd, true
 }
 
+func (m harborModel) sessionCursorAt(index int) bool {
+	return index == m.cursor && !m.selectionMissing && m.searchFocus != "sessions" && (m.uiFocus == "" || m.uiFocus == "list")
+}
+
 func (m harborModel) sessionsHelp() string {
-	lines := []string{"🚢 Sessions", "", "↑↓ select · Tab / Shift+Tab focus · / search", ""}
+	lines := []string{"🚢 Sessions", "", "↑↓/jk select · ←→/hl tabs · / search", ""}
 	seen := map[string]bool{}
 	actions := append(m.sessionActions(false), m.sessionActions(true)...)
 	actions = append(actions, uiAction{ID: "settings", Key: ",", Label: "Settings"}, uiAction{ID: "connections", Key: "m", Label: "Connections"})
@@ -452,12 +438,12 @@ func (m harborModel) sessionsHelp() string {
 		}
 		lines = append(lines, kv(a.Key, label))
 	}
-	return strings.Join(append(lines, "", "Single click selects. Use the shortcuts in the bottom bar to act.", "External sessions remain client-managed; unknown connections stay unknown.", "Ctrl+Z suspends on supported terminals; resume refreshes runtime state."), "\n")
+	return strings.Join(append(lines, "", "Click a row to move the cursor. Click the current row to open it.", "External sessions remain client-managed; unknown connections stay unknown.", "Ctrl+Z suspends on supported terminals; resume refreshes runtime state."), "\n")
 }
 
 func (m harborModel) sessionsHint() string {
 	if m.searchFocus == "sessions" {
-		return "Type search · ↵ list · Tab focus · Esc clear/back"
+		return "Type search · ↵ list · Esc clear/back"
 	}
-	return "↑↓ select · / search · Tab focus · ? help"
+	return "↑↓/jk select · " + tabHint + " · / search · ? help"
 }

@@ -69,7 +69,7 @@ func secondaryDocument(w, h int, title, body string, actions []uiAction, focus s
 		p.line(documentLine(line))
 	}
 	p.shortcuts(actions, focus)
-	if len(p.Lines) > h-1 && title != "First run" {
+	if len(p.Lines) > h-1 {
 		p.Hint = scrollHint
 	}
 	return p.finish(scroll)
@@ -147,11 +147,11 @@ func (m harborModel) secondaryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 		key = strings.TrimPrefix(m.uiFocus, "secondary:")
 	}
 	if key == "down" || key == "j" || key == "up" || key == "k" || key == "pgdown" || key == "pgup" {
-		title, body, _, _ := m.secondaryContent()
+		_, body, _, _ := m.secondaryContent()
 		controls := newUIPage(m.width, m.height)
 		controls.shortcuts(actions, m.uiFocus)
 		bodyRows := len(strings.Split(ansi.Wrap(body, max(1, m.width-2), ""), "\n"))
-		if bodyRows+1 > m.height-1 && title != "First run" {
+		if bodyRows+1 > m.height-1 {
 			controls.Hint = scrollHint
 		}
 		budget := max(1, m.height-1-len(controls.shortcutBar().Lines))

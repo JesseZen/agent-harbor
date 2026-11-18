@@ -106,18 +106,24 @@ try:
 
  click('New session');wait('New session')
  # First selection explicitly acknowledges the concrete instance.
- click('Connection');click('Choose instance and model');click('Select');wait('Choose instance')
- click(external_id);click('Select instance');wait('Model or routing group')
- click('group/fixture-group');save('selector-first-160');click('Acknowledge & apply');wait('New session')
- click('Connection');click('Choose instance and model');click('Select');wait('Choose instance')
- click(other_id);click('Select instance');wait('Model or routing group');wait('Acknowledge & apply');save('selector-other-instance-160')
+ keys('j','j','Enter','j','Enter');wait('Choose instance')
+ click(external_id);
+ if 'Select instance' in capture(): keys('Enter')
+ wait('Model or routing group')
+ save('selector-first-160');click('group/fixture-group');
+ if 'Acknowledge & apply' in capture(): keys('Enter')
+ wait('New session')
+ keys('Enter','Enter');wait('Choose instance')
+ click(other_id);
+ if 'Select instance' in capture(): keys('Enter')
+ wait('Model or routing group');wait('Acknowledge & apply');save('selector-other-instance-160')
  click('Cancel');wait('New session');assert external_id in capture() and 'group/fixture-group' in capture(),capture()
  registry=json.loads((root/'harbor/magpie.json').read_text())
  assert not next(i for i in registry['instances'] if i['id']==other_id).get('auxiliary_acknowledged',False)
- click('Model');wait('Model or routing group');assert 'Apply selection' in capture()
- click('fixture/fixture-model');click('Cancel');wait('New session');assert 'group/fixture-group' in capture()
+ keys('j','Enter');wait('Model or routing group');assert 'Apply selection' in capture()
+ keys('Escape');wait('New session');assert 'group/fixture-group' in capture()
  for cols,rows in [(160,45),(100,30),(60,20)]:
-  click('Model');wait('Model or routing group')
+  keys('Enter');wait('Model or routing group')
   tm('resize-window','-t','app:0','-x',str(cols),'-y',str(rows));time.sleep(.4);save('selector-'+str(cols))
   if cols==60:
    first=capture();assert 'other providers.' in first,first

@@ -30,7 +30,8 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 		rows := m.instanceRows()
 		listTop := len(p.Lines)
 		count := max(1, m.height-12)
-		start := max(0, m.instanceCursor-count+1)
+		start := m.listStart(m.instanceCursor, count)
+		p.ListStart = start
 		for i := start; i < min(len(rows), start+count); i++ {
 			r := rows[i]
 			id := "selector-instance:" + r.ID
@@ -60,7 +61,8 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 		rows := m.filteredModels()
 		listTop := len(p.Lines)
 		count := max(1, m.height-15)
-		start := max(0, m.catalogCursor-count+1)
+		start := m.listStart(m.catalogCursor, count)
+		p.ListStart = start
 		for i := start; i < min(len(rows), start+count); i++ {
 			r := rows[i]
 			label := r.MagpieLabel
@@ -98,9 +100,12 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 	if m.notice != "" {
 		wrap(cleanUI(m.notice))
 	}
-	hint := "PgUp/PgDn scroll · Tab controls"
+	hint := "↑↓/jk select · / search · PgUp/PgDn scroll"
+	if m.screen == "new-notice" || strings.HasSuffix(m.screen, "-loading") {
+		hint = ""
+	}
 	if m.uiFocus == "selector-search" {
-		hint = "Type search · tab list · Esc clear/back"
+		hint = "Type search · ↵ list · Esc clear/back"
 	}
 	footer.Hint = hint
 	return p.withFooter(footer, m.height, m.scroll), true
@@ -123,20 +128,6 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 			}
 			m.input.CursorEnd()
 			m.input.Focus()
-		case strings.HasPrefix(id, "selector-instance:"):
-			for i, r := range m.instanceRows() {
-				if id == "selector-instance:"+r.ID {
-					m.instanceCursor = i
-				}
-			}
-			m.uiFocus = ""
-		case strings.HasPrefix(id, "selector-model:"):
-			for i, r := range m.filteredModels() {
-				if id == "selector-model:"+r.ID {
-					m.catalogCursor = i
-				}
-			}
-			m.uiFocus = ""
 		case id == "selector-instances":
 			m.generation++
 			g := m.generation
@@ -163,6 +154,7 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 					return nil
 				}
 				n.draft.Model = model
+				n.rememberConnection()
 				n.screen = "new-form"
 				n.uiFocus = ""
 				n.notice = ""
@@ -184,7 +176,35 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 			return m, nil, true
 		}
 		if mouse.Action == tea.MouseActionPress && mouse.Button == tea.MouseButtonLeft {
-			return act(p.target(mouse.X, mouse.Y))
+			id := p.target(mouse.X, mouse.Y)
+			switch {
+			case strings.HasPrefix(id, "selector-instance:"):
+				for i, r := range m.instanceRows() {
+					if id == "selector-instance:"+r.ID {
+						if m.instanceCursor == i && m.uiFocus != "selector-search" {
+							return act("selector-select")
+						}
+						m.pinList(p.ListStart)
+						m.instanceCursor = i
+						break
+					}
+				}
+			case strings.HasPrefix(id, "selector-model:"):
+				for i, r := range m.filteredModels() {
+					if id == "selector-model:"+r.ID {
+						if m.catalogCursor == i && m.uiFocus != "selector-search" {
+							return act("selector-apply")
+						}
+						m.pinList(p.ListStart)
+						m.catalogCursor = i
+						break
+					}
+				}
+			default:
+				return act(id)
+			}
+			m.uiFocus = ""
+			m.input.Blur()
 		}
 		return m, nil, true
 	}
@@ -210,18 +230,16 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 			m.input.Blur()
 			return m, nil, true
 		}
-		if k != "tab" && k != "shift+tab" {
-			var c tea.Cmd
-			m.input, c = m.input.Update(key)
-			if m.screen == "new-instance" {
-				m.instanceFilter = m.input.Value()
-				m.instanceCursor = 0
-			} else {
-				m.catalogFilter = m.input.Value()
-				m.catalogCursor = 0
-			}
-			return m, c, true
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(key)
+		if m.screen == "new-instance" {
+			m.instanceFilter = m.input.Value()
+			m.instanceCursor = 0
+		} else {
+			m.catalogFilter = m.input.Value()
+			m.catalogCursor = 0
 		}
+		return m, cmd, true
 	}
 	switch k {
 	case "?", "ctrl+c", "ctrl+g":
@@ -241,30 +259,7 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 		if m.screen == "new-catalog" {
 			return act("selector-instances")
 		}
-	case "tab", "shift+tab":
-		ids := []string{}
-		listed := false
-		for _, h := range p.focusHits() {
-			if h.ID == "search" {
-				ids = append(ids, "selector-search")
-			}
-			if strings.HasPrefix(h.ID, "selector-") && strings.Contains(h.ID, ":") && !listed {
-				ids = append(ids, "selector-list")
-				listed = true
-			}
-			if strings.HasPrefix(h.ID, "selector-") && !strings.Contains(h.ID, ":") {
-				ids = append(ids, h.ID)
-			}
-		}
-		m.uiFocus = uiCycle(m.uiFocus, ids, k == "shift+tab")
-		if m.uiFocus == "selector-search" {
-			return act("search")
-		}
-		return m, nil, true
 	case "enter":
-		if m.uiFocus != "" && m.uiFocus != "selector-list" {
-			return act(m.uiFocus)
-		}
 		if m.screen == "new-catalog" {
 			return act("selector-apply")
 		}

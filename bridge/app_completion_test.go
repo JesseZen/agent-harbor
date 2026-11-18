@@ -76,10 +76,10 @@ func TestMagpieConfirmationUsesDirectKeysWithoutFooterSelection(t *testing.T) {
 	m.screen = "magpie-confirm"
 	m.uiFocus = "conn:esc"
 	m.action = "stop"
-	n, _ := m.Update(uiKey("tab"))
+	n, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = n.(harborModel)
-	if m.uiFocus != "" {
-		t.Fatal("Tab retained a footer target", m.uiFocus)
+	if m.screen != "magpie-confirm" || m.uiFocus != "conn:esc" {
+		t.Fatal("Tab changed confirmation state")
 	}
 	m.reviewOpenedAt = m.reviewOpenedAt.Add(-1000000000)
 	n, c := m.Update(uiKey("enter"))
@@ -192,8 +192,8 @@ func TestServiceMutationRunsInCommandAndRejectsDuplicateCompletion(t *testing.T)
 	}
 }
 
-func TestSettingsHelpClampsScrollAndKeepsNavigationFocus(t *testing.T) {
-	m := settingsModel{width: 40, height: 10, values: defaultShortcuts(), focusNav: "sessions"}
+func TestSettingsHelpClampsScroll(t *testing.T) {
+	m := settingsModel{width: 40, height: 10, values: defaultShortcuts()}
 	n, _ := m.Update(uiKey("?"))
 	m = n.(settingsModel)
 	if !m.help {
@@ -285,8 +285,7 @@ func TestProfileDefaultTaskClearsCallingFocusAndRestoresSavedChoice(t *testing.T
 	m := newHarborModel(f)
 	m.profiles = []profile{p}
 	m.screen = "profile-list"
-	m.uiFocus = "profile:d"
-	n, c := m.Update(uiKey("enter"))
+	n, c := m.Update(uiKey("d"))
 	m = settleApp(n, c).(harborModel)
 	if m.screen != "profile-default" || m.uiFocus != "" || m.profileDefaultCursor != 1 {
 		t.Fatal("lost visible target", m.screen, m.uiFocus, m.profileDefaultCursor)

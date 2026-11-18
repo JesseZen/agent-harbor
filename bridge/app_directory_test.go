@@ -63,7 +63,7 @@ func TestDirectoryPickerIntegration(t *testing.T) {
 	m.environment.Directory = root
 	m.environment.Projects = []string{child, root}
 	m.input.SetValue("original draft")
-	m = keySearch(m, "tab")
+	m = keySearch(m, "down")
 	if m.screen != "new-directory" {
 		t.Fatal(m.screen)
 	}
@@ -75,7 +75,7 @@ func TestDirectoryPickerIntegration(t *testing.T) {
 	if m.input.Value() != "original draft" {
 		t.Fatal("cancel lost draft")
 	}
-	m = keySearch(m, "tab")
+	m = keySearch(m, "down")
 	old := m.picker.generation
 	cmd := m.browseDirectory(root, false)
 	n, _ := m.Update(cmd())
@@ -88,7 +88,8 @@ func TestDirectoryPickerIntegration(t *testing.T) {
 	if m.picker.err != nil {
 		t.Fatal("stale result applied")
 	}
-	m = keySearch(m, "tab")
+	n, _ = m.Update(uiKey("up"))
+	m = n.(harborModel)
 	if !m.picker.list {
 		t.Fatal("focus")
 	}
@@ -100,7 +101,7 @@ func TestDirectoryPickerIntegration(t *testing.T) {
 		t.Fatal("right did not browse")
 	}
 	m = keySearch(m, "esc")
-	m = keySearch(m, "tab")
+	m = keySearch(m, "down")
 	m.picker.entries = []directoryEntry{{child, "browse"}}
 	m = keySearch(m, "enter")
 	if m.screen != "new-project" || m.input.Value() != child {

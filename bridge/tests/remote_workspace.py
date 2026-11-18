@@ -155,7 +155,6 @@ def main():
 
     try:
         run([binary, 'sessions', '--json'], check=False)
-        (root / 'harbor/onboarding.done').write_text('v1\n')
         descriptor = server('setup')
         result = run([binary, 'remote', 'add', 'RemoteBuild', '--ssh', args.host,
                       '--binary', remote / 'remote-harbor', '--state', descriptor['state'], '--native'])

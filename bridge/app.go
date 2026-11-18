@@ -80,7 +80,6 @@ type harborModel struct {
 	rowHover            string
 	mousePosition       *tea.MouseMsg
 	settings            *settingsModel
-	mouse               mouseClick
 	mouseListScreen     string
 	mouseListStart      int
 	detailScroll        int
@@ -116,6 +115,7 @@ type harborModel struct {
 	accountProfile      *profileBinding
 	accountGeneration   uint64
 	accountSnapshot     *profileAccountResult
+	accountCache        map[profileBinding]profileAccountResult
 	accountUsagePending bool
 	accountUsageError   string
 	accountRow          string
@@ -128,6 +128,7 @@ type harborModel struct {
 	formActive          bool
 	formFocus           int
 	formSaved           sessionDraft
+	creationConnections map[profileBinding]string
 	creating            bool
 	draft               sessionDraft
 	reports             []instanceReport
@@ -579,7 +580,16 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activeProfile == nil {
 			m.activeProfile = msg.environment.Profile
 		}
-		m.draft = sessionDraft{Profile: msg.environment.Profile, Connection: "local", Directory: msg.environment.Directory}
+		connection := msg.environment.LastConnection
+		if msg.environment.Profile != nil {
+			if choice := m.creationConnections[*msg.environment.Profile]; choice != "" {
+				connection = choice
+			}
+		}
+		if connection != "magpie" {
+			connection = "local"
+		}
+		m.draft = sessionDraft{Profile: msg.environment.Profile, Connection: connection, Directory: msg.environment.Directory}
 		m.formActive = true
 		m.formFocus = 0
 		m.creating = false

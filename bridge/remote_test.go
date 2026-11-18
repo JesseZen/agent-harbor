@@ -28,7 +28,11 @@ esac
 	if err := os.WriteFile(filepath.Join(b.root, "bin", "herdr"), []byte(stub), 0700); err != nil {
 		t.Fatal(err)
 	}
-	output, err := b.command("remote", "prepare", "--state", filepath.Join(b.root, "bridge"), "--native")
+	state := filepath.Join(b.root, "bridge")
+	if out, err := b.command("remote", "prepare", "--state", state); err == nil || !strings.Contains(out, "--native") {
+		t.Fatalf("initial prepare must require an explicit native choice: %s %v", out, err)
+	}
+	output, err := b.command("remote", "prepare", "--state", state, "--native")
 	if err != nil {
 		t.Fatalf("prepare: %s %v", output, err)
 	}
@@ -44,7 +48,7 @@ func TestRemotePreparationKeepsIdentityAndDoesNotExposeEnvironment(t *testing.T)
 	if !validRemoteID(w.ID) || w.Environment != nil || !strings.HasSuffix(w.Executable, w.ID) {
 		t.Fatalf("invalid descriptor: %+v", w)
 	}
-	output, err := b.command("remote", "prepare", "--state", w.State, "--native")
+	output, err := b.command("remote", "prepare", "--state", w.State)
 	if err != nil {
 		t.Fatalf("second prepare: %s %v", output, err)
 	}

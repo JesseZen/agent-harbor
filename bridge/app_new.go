@@ -94,7 +94,7 @@ func (m harborModel) updateNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "new-project":
-		if key == "tab" || key == "down" {
+		if key == "down" {
 			cmd := m.openDirectoryPicker()
 			return m, cmd
 		}
@@ -276,7 +276,7 @@ func (m harborModel) newView() string {
 		}
 		return strings.Join(lines, "\n")
 	case "new-project":
-		lines := []string{stepHeader(1, "Project directory"), "", m.input.View(), "", keysMark + "tab / ↓ choose directory"}
+		lines := []string{stepHeader(1, "Project directory"), "", m.input.View(), "", keysMark + "↓ choose directory"}
 		if len(m.environment.Projects) > 0 {
 			lines = append(lines, "", "📂 RECENT PROJECTS")
 			for _, p := range m.environment.Projects {

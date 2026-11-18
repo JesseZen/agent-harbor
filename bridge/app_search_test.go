@@ -77,9 +77,9 @@ func TestInlineSearchOwnershipAndActions(t *testing.T) {
 		if screen == "sessions" && len(m.visible()) != 3 {
 			t.Fatal("unicode path matching")
 		}
-		m = keySearch(m, "tab")
+		m = keySearch(m, "enter")
 		if m.searchFocus != "" {
-			t.Fatal("tab focus")
+			t.Fatal("Enter did not return to results")
 		}
 	}
 }
@@ -89,7 +89,7 @@ func TestInlineSearchStableRefreshAndReturn(t *testing.T) {
 	m = keySearch(m, "/")
 	m = keySearch(m, "Harbor")
 	id := m.searchSelectedID()
-	m = keySearch(m, "tab")
+	m = keySearch(m, "enter")
 	m = keySearch(m, "i")
 	m = keySearch(m, "esc")
 	if m.searchSelectedID() != id || m.filter != "Harbor" {

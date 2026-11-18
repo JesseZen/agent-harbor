@@ -7,6 +7,29 @@ caller-only candidate described in [the integration guide](../../docs/magpie-cal
 Report the exact client and dependency versions tested, and distinguish these
 gates from upstream acceptance or release.
 
+## Interactive TUI walkthrough
+
+The opt-in walkthrough runs the production Harbor TUI with synthetic accounts,
+sessions, Profiles and gateways. Build it from `bridge/` using
+`GOWORK=off go test -c -o /path/to/isolated/walkthrough.test`. Run the compiled
+binary in a terminal with the isolated environment described below and
+`HARBOR_TUI_WALKTHROUGH=1`, passing `-test.run='^TestTUIWalkthrough$'`.
+
+1. From Sessions, press `l` or Right to enter Connections, then repeat for
+   Accounts. Use `h` or Left to go back. Try Tab and Shift+Tab on each page.
+2. Accounts starts with cached quota. Wait four seconds for the refreshed
+   numbers. Leave Accounts, return, or press `r` to repeat the refresh. Click
+   the backup account once to move `>`, then again to open Details.
+3. From Sessions, press `n`. Connection starts at Magpie. Open Connection,
+   choose Native, cancel the form, and open another form to see Native recalled.
+   To switch back, choose Magpie, then select an instance and model before
+   cancelling and reopening.
+4. Hover a session row and compare its tint to the current cursor row. Click
+   twice on the unfocused row to see the two steps. Esc cancels the review.
+   Try the same focus-then-edit gesture on a Settings field.
+5. Press `?` for the page shortcuts. In Sessions search or a text editor,
+   type `hjkl` to verify the text stays in the field.
+
 ## Terminal visual evidence
 
 Remote workspace fixtures default to `NO_COLOR` on both hosts for text-based

@@ -66,7 +66,13 @@ func TestSettingsLocalEditingAndMouse(t *testing.T) {
 			hit = r
 		}
 	}
-	n, _ = m.Update(tea.MouseMsg{X: hit.X, Y: hit.Y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	click := tea.MouseMsg{X: hit.X, Y: hit.Y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+	n, _ = m.Update(click)
+	m = n.(settingsModel)
+	if m.editing || m.cursor != 1 {
+		t.Fatal("first click should focus the row")
+	}
+	n, _ = m.Update(click)
 	m = n.(settingsModel)
 	if !m.editing || m.cursor != 1 {
 		t.Fatal("row mouse")

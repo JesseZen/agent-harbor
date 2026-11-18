@@ -1,17 +1,8 @@
 package main
 
 import (
-	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
-	"strings"
-	"time"
 )
-
-type mouseClick struct {
-	id   string
-	x, y int
-	at   time.Time
-}
 
 func (m *harborModel) updateRowHover(previousScreen string, msg tea.Msg) {
 	m.rowHover = ""
@@ -46,21 +37,9 @@ func (m harborModel) mouseRegions() []uiRect {
 	}
 	return nil
 }
-func (m harborModel) mouseLayoutKey() string {
-	ids, _ := m.searchIDs()
-	return fmt.Sprintf("%s/%d/%d/%s/%s/%d/%d/%s/%d/%v", m.screen, m.width, m.height, m.searchQuery(), strings.Join(ids, "\x00"), m.scroll, m.picker.cursor, m.picker.query.Value(), m.formFocus, m.mouseRegions())
-}
-func (m harborModel) updateMouse(msg tea.MouseMsg, now time.Time) (tea.Model, tea.Cmd) {
-	if next, cmd, handled := m.updateSessionsUIAt(msg, now); handled {
-		return next, cmd
-	}
-	if next, cmd, handled := m.additionalPageInput(msg); handled {
-		return next, cmd
-	}
-	if next, cmd, handled := m.updateReviewUI(msg); handled {
-		return next, cmd
-	}
-	return m, nil
+func (m *harborModel) pinList(start int) {
+	m.mouseListStart = start
+	m.mouseListScreen = m.screen
 }
 
 func (m harborModel) listStart(cursor, count int) int {

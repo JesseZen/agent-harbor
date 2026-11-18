@@ -100,6 +100,9 @@ func prepareRemoteWorkspace(root string, native bool) (remoteWorkspace, error) {
 		return w, err
 	}
 	if os.IsNotExist(err) {
+		if !native {
+			return w, errors.New("remote setup requires --native to select this server's native client configuration")
+		}
 		id := make([]byte, 16)
 		if _, err := rand.Read(id); err != nil {
 			return w, err
@@ -110,16 +113,8 @@ func prepareRemoteWorkspace(root string, native bool) (remoteWorkspace, error) {
 	if err != nil {
 		return w, err
 	}
-	if !report.Completed {
-		if !native {
-			return w, errors.New("remote setup needs onboarding; use --native to select this server's native client configuration")
-		}
-		if !report.Ready {
-			return w, errors.New("remote dependencies are unavailable; install the Harbor candidate and a native Codex executable")
-		}
-		if err := onboardingAppService.FinishOnboarding(onboardingChoice{Kind: "local"}); err != nil {
-			return w, err
-		}
+	if !report.Ready {
+		return w, errors.New("remote dependencies are unavailable; install the Harbor candidate and a native Codex executable")
 	}
 	if err := openHerdrMode(false); err != nil {
 		return w, err

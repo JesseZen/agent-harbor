@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,17 +17,13 @@ import (
 // probing never binds or starts a Magpie instance.
 type onboardingReport struct {
 	Herdr, Codex, Magpie string
-	Ready, Completed     bool
-}
-type onboardingChoice struct {
-	Kind string
+	Ready                bool
 }
 
 var onboardingAppService onboardingService = harborService{}
 
 type onboardingService interface {
 	Onboarding() (onboardingReport, error)
-	FinishOnboarding(onboardingChoice) error
 }
 
 func (harborService) Onboarding() (onboardingReport, error) {
@@ -38,11 +33,6 @@ func (harborService) Onboarding() (onboardingReport, error) {
 		return r, err
 	}
 	if err := ensureHome(root); err != nil {
-		return r, err
-	}
-	_, err = os.Stat(filepath.Join(root, "onboarding.done"))
-	r.Completed = err == nil
-	if err != nil && !os.IsNotExist(err) {
 		return r, err
 	}
 	env, _, err := managedEnvironment(root)
@@ -77,22 +67,6 @@ func (harborService) Onboarding() (onboardingReport, error) {
 		cancel()
 	}
 	return r, nil
-}
-
-func (h harborService) FinishOnboarding(c onboardingChoice) error {
-	// Only remote setup still records an explicit native-environment choice.
-	if c.Kind != "local" {
-		return errors.New("remote setup requires an explicit native configuration choice")
-	}
-
-	root, err := bridgeHome()
-	if err != nil {
-		return err
-	}
-	if err = ensureHome(root); err != nil {
-		return err
-	}
-	return writeStateFile(filepath.Join(root, "onboarding.done"), []byte("v1\n"))
 }
 
 type onboardingRefreshed struct {

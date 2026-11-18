@@ -194,16 +194,6 @@ func (m harborModel) updateDirectory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.formFocus = 0
 		m.input.SetValue(p.saved)
 		return m, nil
-	case "tab":
-		p.list = !p.list
-		if p.list {
-			p.query.Prompt = "List: "
-			p.query.Blur()
-		} else {
-			p.query.Prompt = "Search: "
-			p.query.Focus()
-		}
-		return m, nil
 	case "ctrl+r":
 		root := p.root
 		if len(rows) > 0 {
@@ -393,7 +383,10 @@ func (m harborModel) directoryPage() uiPage {
 	if status != "" {
 		p.line(status)
 	}
-	p.Hint = "↑↓ select · Tab focus"
+	p.Hint = "↑↓/jk select · ←→/hl browse · / search"
+	if !d.list {
+		p.Hint = "Type search · ↑↓ list"
+	}
 	// Reserve the fixed shortcut bar before sizing the directory list.
 	disabled := ""
 	if len(rows) == 0 || d.searching {
@@ -412,7 +405,7 @@ func (m harborModel) directoryPage() uiPage {
 			text += "\nError: " + cleanUI(d.err.Error())
 		}
 		lines := strings.Split(ansi.Wrap(text, max(1, p.Width-4), ""), "\n")
-		p.Hint = "↑↓ scroll path · Esc back to results"
+		p.Hint = "↑↓/jk scroll path · Esc back to results"
 		available := max(0, p.Height-len(p.Lines)-len(p.shortcutBar().Lines))
 		offset := min(d.detailScroll, max(0, len(lines)-available))
 		for _, line := range lines[offset:min(len(lines), offset+available)] {
@@ -423,7 +416,8 @@ func (m harborModel) directoryPage() uiPage {
 	remaining := max(0, p.Height-len(p.Lines)-len(p.shortcutBar().Lines))
 	listTop := len(p.Lines)
 	count := remaining / 2
-	start := max(0, d.cursor-count+1)
+	start := m.listStart(d.cursor, count)
+	p.ListStart = start
 	for i := start; i < min(len(rows), start+count); i++ {
 		e := rows[i]
 		y := len(p.Lines)
@@ -446,6 +440,7 @@ func (m harborModel) directoryPage() uiPage {
 	return p.finish(0)
 }
 func (m harborModel) directoryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	page := m.directoryPage()
 	activate := func(id string) (tea.Model, tea.Cmd, bool) {
 		d := &m.picker
 		switch {
@@ -461,6 +456,11 @@ func (m harborModel) directoryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 		case strings.HasPrefix(id, "dir-path:"):
 			for i, e := range d.matches() {
 				if "dir-path:"+e.path == id {
+					if d.list && d.cursor == i {
+						n, c := m.updateDirectory(uiKey("enter"))
+						return n, c, true
+					}
+					m.pinList(page.ListStart)
 					d.cursor = i
 					break
 				}
@@ -503,7 +503,7 @@ func (m harborModel) directoryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 	if mouse, ok := msg.(tea.MouseMsg); ok {
 		if mouse.Action == tea.MouseActionPress {
 			if mouse.Button == tea.MouseButtonLeft {
-				return activate(m.directoryPage().target(mouse.X, mouse.Y))
+				return activate(page.target(mouse.X, mouse.Y))
 			}
 			key := ""
 			if mouse.Button == tea.MouseButtonWheelDown {
@@ -537,28 +537,18 @@ func (m harborModel) directoryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 		}
 	}
 	switch key.String() {
+	case "/":
+		if m.picker.list {
+			return activate("search")
+		}
+	case "up", "down":
+		if !m.picker.list && !m.picker.details {
+			m.uiFocus = "dir-list"
+			m.picker.list = true
+			m.picker.query.Blur()
+		}
 	case "ctrl+p":
 		return activate("dir-details")
-	case "tab", "shift+tab":
-		ids := []string{"search", "dir-list"}
-		i := 0
-		for j, id := range ids {
-			if id == m.uiFocus {
-				i = j
-			}
-		}
-		step := 1
-		if key.String() == "shift+tab" {
-			step = len(ids) - 1
-		}
-		m.uiFocus = ids[(i+step)%len(ids)]
-		m.picker.list = m.uiFocus != "search"
-		if m.picker.list {
-			m.picker.query.Blur()
-		} else {
-			m.picker.query.Focus()
-		}
-		return m, nil, true
 	case "ctrl+b":
 		return activate("dir-browse")
 	case "ctrl+r":

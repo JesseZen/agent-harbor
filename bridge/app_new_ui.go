@@ -50,8 +50,14 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 			model = m.environment.NativeConfig
 		}
 		if m.draft.Connection == "magpie" {
-			connection = "Magpie · " + orUnknown(m.draft.Instance)
-			model = orUnknown(m.draft.Model)
+			connection = "Magpie · choose instance and model"
+			model = "Choose a model or routing group"
+			if m.draft.Instance != "" {
+				connection = "Magpie · " + m.draft.Instance
+			}
+			if m.draft.Model != "" {
+				model = m.draft.Model
+			}
 		}
 		if m.draft.Connection != "local" && m.draft.Connection != "magpie" {
 			connection = "Unknown · choose explicitly"
@@ -78,7 +84,7 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 			focus = "new-cancel"
 		}
 		p.shortcuts(actions, focus)
-		p.Hint = "Tab fields · Enter open"
+		p.Hint = "↑↓/jk fields · Enter open"
 		if m.notice != "" {
 			p.line(cleanUI(m.notice))
 			p.shortcut(uiAction{ID: "new-details", Label: "Details", Key: "!"}, false)
@@ -93,7 +99,8 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 		}
 		listTop := len(p.Lines)
 		count := max(1, p.Height-12)
-		start := max(0, m.clientCursor-count+1)
+		start := m.listStart(m.clientCursor, count)
+		p.ListStart = start
 		for i := start; i < min(len(rows), start+count); i++ {
 			c := rows[i]
 			label := c.Label
@@ -110,7 +117,7 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 			p.listRow(id, "🤖", label, status, m.rowStyle(id, i == m.clientCursor && m.uiFocus != "new-client-search", c.Target == m.selectedClient()))
 		}
 		p.scrollRail(listTop, len(p.Lines)-listTop, len(rows), start)
-		p.Hint = "↑↓ select · / search"
+		p.Hint = "↑↓/jk select · / search"
 		if m.uiFocus == "new-client-search" {
 			p.Hint = "Type to search · ⎋ clear / leave search"
 		}
@@ -146,6 +153,7 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 		magpie := m.formSaved.Connection == "magpie"
 		p.listRow("new-native", selectorMark(native), "Native", m.selectedClient()+" settings and login", m.rowStyle("new-native", m.connectionCursor == 0, native))
 		p.listRow("new-magpie", selectorMark(magpie), "Magpie", "Choose instance and model", m.rowStyle("new-magpie", m.connectionCursor == 1, magpie))
+		p.Hint = "↑↓/jk select"
 		p.shortcuts([]uiAction{{ID: "new-connection-select", Label: "Select", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
 		if m.notice != "" {
 			p.line(cleanUI(m.notice))
@@ -219,7 +227,7 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			return n, c, true
 		}
 	}
-	if m.screen == "new-directory" && m.formActive {
+	if m.screen == "new-directory" {
 		return m.directoryPageInput(msg)
 	}
 	p, ok := m.newSessionPage()
@@ -230,8 +238,9 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		switch {
 		case strings.HasPrefix(id, "new-field:"):
 			for i, label := range []string{"Project", "Client", "Connection", "Model", "Name"} {
-				if id == "new-field:"+label {
+				if id == "new-field:"+label && m.formFocus != i {
 					m.formFocus = i
+					return m, nil, true
 				}
 			}
 			next, cmd := m.updateForm(uiKey("enter"))
@@ -245,7 +254,14 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		case strings.HasPrefix(id, "new-client:"):
 			for i, c := range m.visibleCreationClients() {
 				if id == "new-client:"+c.Target {
+					if m.clientCursor == i && m.uiFocus != "new-client-search" {
+						return activateClient(m, c)
+					}
+					m.pinList(p.ListStart)
 					m.clientCursor = i
+					m.uiFocus = ""
+					m.input.Blur()
+					break
 				}
 			}
 			return m, nil, true
@@ -259,53 +275,16 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 				m.notice = ""
 				return m, nil, true
 			}
-			c := rows[m.clientCursor]
-			if c.Target != "codex" && !c.nativeExecutableReady() {
-				m.notice = "Hook integration only; upstream native startup is unverified."
-				return m, nil, true
-			}
-			if c.Target != "codex" && m.draft.Connection == "magpie" {
-				m.notice = "Choose Native before selecting this client; Magpie isolation is unverified."
-				return m, nil, true
-			}
-			if m.draft.Profile != nil {
-				binding := *m.draft.Profile
-				var environment profileClientEnvironment
-				return m.serviceTask(func() error {
-					var err error
-					environment, err = m.service.ResolveProfileClient(profileClientRequest{Binding: binding})
-					return err
-				}, func(n *harborModel, err error) tea.Cmd {
-					if err != nil {
-						n.notice = err.Error()
-						return nil
-					}
-					if environment.Kind == profileIsolated && c.Target != "codex" {
-						n.notice = "This client requires an explicitly selected existing environment; isolated support is available for Codex."
-						return nil
-					}
-					binding.Client = c.Target
-					n.draft.Profile = &binding
-					n.draft.Client = c.Target
-					n.screen = "new-form"
-					n.uiFocus = ""
-					n.notice = ""
-					return nil
-				})
-			}
-			m.draft.Client = c.Target
-			m.screen = "new-form"
-			m.formFocus = 0
-			m.uiFocus = ""
-			m.notice = ""
-			return m, nil, true
+			return activateClient(m, rows[m.clientCursor])
 		case id == "new-native" || id == "new-magpie":
-			if id == "new-native" {
-				m.connectionCursor = 0
-			} else {
-				m.connectionCursor = 1
+			index := 0
+			if id == "new-magpie" {
+				index = 1
 			}
-			return m, nil, true
+			if m.connectionCursor != index {
+				m.connectionCursor = index
+				return m, nil, true
+			}
 		case id == "new-details":
 			n, c := m.update(uiKey("!"))
 			return n, c, true
@@ -336,13 +315,6 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 	if m.screen == "new-form" && key.String() == "ctrl+s" {
 		return activate("new-create")
 	}
-	if m.screen == "new-name" && (key.String() == "tab" || key.String() == "shift+tab") {
-		return m, nil, true
-	}
-	if m.screen == "new-connection" && (key.String() == "tab" || key.String() == "shift+tab") {
-		m.connectionCursor = 1 - m.connectionCursor
-		return m, nil, true
-	}
 	if m.screen == "new-cli" {
 		k := key.String()
 		if m.uiFocus == "new-client-search" {
@@ -351,7 +323,7 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 				m.clientCursor = 0
 				return m, nil, true
 			}
-			if k == "esc" || k == "enter" || k == "tab" {
+			if k == "esc" || k == "enter" {
 				m.uiFocus = ""
 				m.clientCursor = 0
 				return m, nil, true
@@ -364,9 +336,9 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		switch k {
 		case "/":
 			return activate("search")
-		case "down", "j", "tab":
+		case "down", "j":
 			m.clientCursor = min(max(0, len(m.visibleCreationClients())-1), m.clientCursor+1)
-		case "up", "k", "shift+tab":
+		case "up", "k":
 			m.clientCursor = max(0, m.clientCursor-1)
 		case "enter":
 			return activate("new-client-select")
@@ -381,4 +353,46 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 	}
 	n, c := m.updateForm(key)
 	return n, c, true
+}
+
+func activateClient(m harborModel, c clientCapability) (tea.Model, tea.Cmd, bool) {
+	if c.Target != "codex" && !c.nativeExecutableReady() {
+		m.notice = "Hook integration only; upstream native startup is unverified."
+		return m, nil, true
+	}
+	if c.Target != "codex" && m.draft.Connection == "magpie" {
+		m.notice = "Choose Native before selecting this client; Magpie isolation is unverified."
+		return m, nil, true
+	}
+	if m.draft.Profile != nil {
+		binding := *m.draft.Profile
+		var environment profileClientEnvironment
+		return m.serviceTask(func() error {
+			var err error
+			environment, err = m.service.ResolveProfileClient(profileClientRequest{Binding: binding})
+			return err
+		}, func(n *harborModel, err error) tea.Cmd {
+			if err != nil {
+				n.notice = err.Error()
+				return nil
+			}
+			if environment.Kind == profileIsolated && c.Target != "codex" {
+				n.notice = "This client requires an explicitly selected existing environment; isolated support is available for Codex."
+				return nil
+			}
+			binding.Client = c.Target
+			n.draft.Profile = &binding
+			n.draft.Client = c.Target
+			n.screen = "new-form"
+			n.uiFocus = ""
+			n.notice = ""
+			return nil
+		})
+	}
+	m.draft.Client = c.Target
+	m.screen = "new-form"
+	m.formFocus = 0
+	m.uiFocus = ""
+	m.notice = ""
+	return m, nil, true
 }

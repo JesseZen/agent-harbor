@@ -136,23 +136,15 @@ func (m harborModel) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		m.restoreSearchSelection(id)
 		return m, nil, true
 	}
-	if k == "tab" || k == "shift+tab" {
-		if m.searchFocus == m.screen {
-			m.searchFocus = ""
-			m.input.Blur()
-		} else {
-			m.searchFocus = m.screen
-			m.input.SetValue(m.searchQuery())
-			m.input.CursorEnd()
-			m.input.Focus()
-		}
-		return m, nil, true
-	}
 	if m.searchFocus != m.screen {
 		return m, nil, false
 	}
 	switch k {
-	case "ctrl+c", "ctrl+g", "enter", "up", "down":
+	case "enter":
+		m.searchFocus = ""
+		m.input.Blur()
+		return m, nil, true
+	case "ctrl+c", "ctrl+g", "up", "down":
 		return m, nil, false
 	}
 	before := m.searchQuery()
@@ -197,9 +189,9 @@ func (m harborModel) searchLine(n, total int) string {
 }
 func (m harborModel) searchHints() string {
 	if m.searchFocus == m.screen {
-		return "↑↓ move  enter act  tab list  esc clear"
+		return "↑↓/jk move  enter list  esc clear"
 	}
-	return "↑↓ move  enter act  / search  tab focus  ? help  q close"
+	return "↑↓/jk move  enter act  / search  ? help  q close"
 }
 func (m harborModel) listFooter(s string) string {
 	if m.searchList() {

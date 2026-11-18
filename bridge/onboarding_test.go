@@ -11,16 +11,10 @@ import (
 
 type fakeOnboardingService struct {
 	report onboardingReport
-	calls  []onboardingChoice
 	err    error
 }
 
 func (f *fakeOnboardingService) Onboarding() (onboardingReport, error) { return f.report, f.err }
-func (f *fakeOnboardingService) FinishOnboarding(c onboardingChoice) error {
-	f.calls = append(f.calls, c)
-	return f.err
-}
-
 func TestDependencyChecksShowOnlyTheActualFailure(t *testing.T) {
 	m := onboardingModel{service: &fakeOnboardingService{}, width: 80, height: 24, report: onboardingReport{Herdr: "herdr 0.9.5", Codex: "missing or unsupported executable; install native Codex", Magpie: "magpie fixture"}}
 	next := appKey(m, "enter")
@@ -60,43 +54,13 @@ func TestOnboardingFitsPracticalSizes(t *testing.T) {
 	}
 }
 
-func TestOnboardingLocalPersistsOnlyHarborCompletion(t *testing.T) {
-	root := t.TempDir()
-	if err := os.Chmod(root, 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("AGENT_HARBOR_BRIDGE_HOME", root)
-	t.Setenv("PATH", t.TempDir())
-	h := harborService{}
-	before, err := h.Onboarding()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before.Completed || before.Ready {
-		t.Fatal(before)
-	}
-	if err := h.FinishOnboarding(onboardingChoice{Kind: "local"}); err != nil {
-		t.Fatal(err)
-	}
-	after, err := h.Onboarding()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !after.Completed || after.Ready {
-		t.Fatal("completion must not hide missing dependencies", after)
-	}
-	if _, err := os.Stat(filepath.Join(root, "magpie.json")); !os.IsNotExist(err) {
-		t.Fatal("local-only changed the registry", err)
-	}
-}
-
 func TestDependencyRefreshOpensWorkspaceWhenReady(t *testing.T) {
 	f := &fakeOnboardingService{report: onboardingReport{Ready: true}}
 	var model tea.Model = onboardingModel{service: f, report: onboardingReport{Herdr: "herdr 0.9.5", Codex: "missing"}}
 	model = appKey(model, "?")
 	model = appKey(model, "esc")
 	model = appKey(model, "r")
-	if !model.(onboardingModel).done || len(f.calls) != 0 {
+	if !model.(onboardingModel).done {
 		t.Fatal("refresh did not continue without connection setup")
 	}
 }

@@ -486,7 +486,7 @@ def main():
             name,first,marker,relay=({'native':('UI-Native','AH_LOCAL_C','AH_RESUME_C',native),
                                       'magpie':('UI-A','AH_LOCAL_FIRST','AH_LOCAL_SECOND',relay_a)}[a.experimental_account_recovery])
             before=next(r for r in records() if r['name']==name)
-            popup();key('/');text(name);key('Tab');key('s');screen('Stop process');reviewed_confirm()
+            popup();key('/');text(name);key('Enter');key('s');screen('Stop process');reviewed_confirm()
             wait(lambda:not next(r for r in records() if r['name']==name).get('process_group'),'experimental session stopped')
             def herdr_released_conversation():
                 agents=json.loads(run([wrapper,'agent','list']).stdout)['result']['agents']
@@ -527,7 +527,7 @@ def main():
             run([wrapper,'agent','focus',three['herdr_pane']])
             print('PASS ordinary terminal manually launched external Codex is observable, focusable and read-only',flush=True)
         if a.live_state_probe or a.full_state:
-            popup();key('/');text('UI-Native');key('Tab');screen('Idle')
+            popup();key('/');text('UI-Native');key('Enter');screen('Idle')
             run([wrapper,'agent','prompt',three['herdr_pane'],'AH_LIVE_STATUS'])
             started_refresh=time.monotonic()
             wait(lambda:'Working' in capture(),'automatic working state',timeout=3)
@@ -560,13 +560,13 @@ def main():
         # closed. Its popup may be terminated by that close request.
         run([wrapper,'tab','focus',one['herdr_tab']])
         wait(lambda:any(p['pane_id']==one['herdr_pane'] and p.get('focused') for p in json.loads(run([wrapper,'pane','list']).stdout)['result']['panes']),'restored pane focused before review')
-        popup();key('/');text('UI-A');key('Tab');key('c');screen('Close inspected shell')
+        popup();key('/');text('UI-A');key('Enter');key('c');screen('Close inspected shell')
         key('Escape');key('c');screen('Close inspected shell');reviewed_confirm();time.sleep(.5)
         wait(lambda:next(r for r in records() if r['name']=='UI-A').get('ended_evidence'),'reviewed exit saved when closing its own popup')
         if 'Harbor · Profile:' in capture():key('q')
         print('PASS restored idle shell review, cancellation and explicit close',flush=True)
         for ended_name in ['UI-B','UI-Native']:
-            popup();key('/');text(ended_name);key('Tab');key('c');screen('Close inspected shell');reviewed_confirm();time.sleep(.5)
+            popup();key('/');text(ended_name);key('Enter');key('c');screen('Close inspected shell');reviewed_confirm();time.sleep(.5)
             wait(lambda:next(r for r in records() if r['name']==ended_name).get('ended_evidence'),'reviewed exit '+ended_name)
             if 'Harbor · Profile:' in capture():key('q')
         print('PASS explicit restored-shell end evidence for all three original runs',flush=True)
@@ -664,9 +664,9 @@ def main():
             finally:
                 mcp.terminate();mcp.wait(timeout=10)
         # Retired history actions explain native tools and preserve the conversation.
-        popup();key('/');text('UI-B');key('Tab');key('d');screen('Client history');key('Enter');key('q')
+        popup();key('/');text('UI-B');key('Enter');key('d');screen('Client history');key('Enter');key('q')
         assert any(r['name']=='UI-B' for r in records())
-        popup();key('/');text('UI-B');key('Tab');key('s');screen('Stop process');reviewed_confirm();time.sleep(.5)
+        popup();key('/');text('UI-B');key('Enter');key('s');screen('Stop process');reviewed_confirm();time.sleep(.5)
         if 'Harbor · Profile:' in capture():key('q')
         if a.replacement:
             stopped=json.loads(run([binary,'sessions','--json']).stdout)
@@ -681,7 +681,7 @@ def main():
             wait(lambda:not next(r for r in json.loads(run([binary,'sessions','--json']).stdout) if r['name']=='UI-B')['running'],'stopped UI-B before removal')
         history_before = {str(p): p.read_bytes() for p in (root/'codex/sessions').rglob('*'+saved['UI-B'][0]+'*') if p.is_file()}
         assert history_before
-        popup();key('/');text('UI-B');key('Tab');key('x');screen('Remove record');reviewed_confirm()
+        popup();key('/');text('UI-B');key('Enter');key('x');screen('Remove record');reviewed_confirm()
         if a.replacement:
             # A visible busy response must never be bypassed by touching the lock.
             # Record only fixture lock holders, then retry the same public action.

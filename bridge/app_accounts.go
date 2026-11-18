@@ -9,6 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const accountLoginKey = "n"
+
 type accountActionService interface {
 	CodexAccountAction(string, io.Reader, io.Writer, io.Writer) (string, error)
 }
@@ -64,7 +66,7 @@ func (m harborModel) updateAccounts(key string) (tea.Model, tea.Cmd) {
 		return m, m.loadProfiles()
 	}
 
-	if m.screen != "accounts" || (key != "s" && key != "l" && key != "o" && key != "r") {
+	if m.screen != "accounts" || (key != "s" && key != accountLoginKey && key != "o" && key != "r") {
 		return m, nil
 	}
 	service, ok := m.service.(profileAccountService)
@@ -82,13 +84,13 @@ func (m harborModel) updateAccounts(key string) (tea.Model, tea.Cmd) {
 		cmd := m.beginAccountInspect()
 		return m, cmd
 	}
-	if key == "s" && m.accountSnapshot != nil && len(m.accountSnapshot.Accounts) == 0 {
-		m.accountResult = "No saved logins. Return and press l to add a login."
+	if key == "s" && !m.accountUsagePending && m.accountSnapshot != nil && len(m.accountSnapshot.Accounts) == 0 {
+		m.accountResult = "No saved logins. Return and press " + accountLoginKey + " to add a login."
 		m.screen = "accounts-result"
 		return m, nil
 	}
 	action := "switch"
-	if key == "l" {
+	if key == accountLoginKey {
 		action = "login"
 	}
 	if key == "o" {
@@ -111,7 +113,39 @@ func (m *harborModel) beginAccountInspect() tea.Cmd {
 	if m.accountProfile == nil {
 		return nil
 	}
+	if cached, ok := m.accountCache[*m.accountProfile]; ok {
+		m.accountSnapshot = &cached
+		m.reconcileAccountRow()
+	}
+	m.accountUsagePending = true
 	return m.inspectAccounts(*m.accountProfile)
+}
+
+func (m *harborModel) cacheAccountSnapshot(snapshot profileAccountResult) {
+	if m.accountCache == nil {
+		m.accountCache = make(map[profileBinding]profileAccountResult)
+	}
+	m.accountCache[*m.accountProfile] = snapshot
+	m.accountSnapshot = &snapshot
+}
+
+// Roster reads return fresh identities and login state with no usage payload.
+func (m *harborModel) setAccountRoster(snapshot profileAccountResult) {
+	cached := m.accountCache[*m.accountProfile]
+	usage := make(map[string]*savedAccountUsage, len(cached.Accounts))
+	for _, account := range cached.Accounts {
+		if account.Key != "" {
+			usage[account.Key] = account.Usage
+		}
+	}
+	snapshot.Accounts = append([]savedCodexAccount(nil), snapshot.Accounts...)
+	for i := range snapshot.Accounts {
+		account := &snapshot.Accounts[i]
+		if account.Usage == nil {
+			account.Usage = usage[account.Key]
+		}
+	}
+	m.cacheAccountSnapshot(snapshot)
 }
 
 func (m harborModel) inspectAccounts(binding profileBinding) tea.Cmd {
@@ -180,7 +214,7 @@ func (m harborModel) selectedAccount() (savedCodexAccount, bool) {
 
 func (m harborModel) canResetAccount() bool {
 	a, ok := m.selectedAccount()
-	return ok && m.accountProfile != nil && !m.accountUsagePending && a.Usage.hasResetCard()
+	return ok && m.accountProfile != nil && !m.accountUsagePending && m.accountUsageError == "" && a.Usage.hasResetCard()
 }
 
 func (m harborModel) reviewAccountReset() (tea.Model, tea.Cmd) {

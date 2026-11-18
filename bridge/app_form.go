@@ -33,9 +33,9 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case "new-form":
 		switch k {
-		case "tab", "down":
+		case "down":
 			m.formFocus = (m.formFocus + 1) % 5
-		case "shift+tab", "up":
+		case "up":
 			m.formFocus = (m.formFocus + 4) % 5
 		case "enter":
 			m.notice = ""
@@ -54,14 +54,14 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.uiFocus = ""
 				m.clientCursor = 0
 			case 2:
-				m.screen = "new-connection"
-				m.connectionCursor = 0
-				if m.draft.Connection == "magpie" {
-					m.connectionCursor = 1
-				}
+				m.chooseConnection()
 			case 3:
 				if m.draft.Connection != "magpie" {
 					m.notice = "Native " + m.selectedClient() + " uses its own model configuration and login; choose the model in that client."
+					return m, nil
+				}
+				if m.draft.Instance == "" {
+					m.chooseConnection()
 					return m, nil
 				}
 				cmd := m.formCatalog()
@@ -184,6 +184,7 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.draft.Connection = "local"
 				m.draft.Instance = ""
 				m.draft.Model = ""
+				m.rememberConnection()
 				return back()
 			}
 			m.generation++
@@ -241,6 +242,24 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+func (m *harborModel) chooseConnection() {
+	m.screen = "new-connection"
+	m.connectionCursor = 0
+	if m.draft.Connection == "magpie" {
+		m.connectionCursor = 1
+	}
+}
+
+func (m *harborModel) rememberConnection() {
+	if m.draft.Profile == nil {
+		return
+	}
+	if m.creationConnections == nil {
+		m.creationConnections = make(map[profileBinding]string)
+	}
+	m.creationConnections[*m.draft.Profile] = m.draft.Connection
+}
+
 func (m *harborModel) formCatalog() tea.Cmd {
 	m.generation++
 	g, id := m.generation, m.draft.Instance

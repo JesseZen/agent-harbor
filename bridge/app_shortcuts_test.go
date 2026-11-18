@@ -56,9 +56,8 @@ func TestProfileDefaultKeyboardUsesVisibleFocus(t *testing.T) {
 	m.profiles = f.ProfileRecords
 	m.screen = "profile-default"
 	m.profileInstances = []magpieInstance{{ID: "other", Name: "Other"}}
-	m.uiFocus = "profile-instance:other"
-	m.profileDefaultCursor = 0
-	n, c := m.Update(uiKey("enter"))
+	selected, _ := m.Update(uiKey("j"))
+	n, c := selected.Update(uiKey("enter"))
 	n = settleApp(n, c)
 	if n.(harborModel).screen != "profile-list" || f.ProfileRecords[0].DefaultInstanceID != "other" {
 		t.Fatal("Enter saved a different instance from the visible focus")

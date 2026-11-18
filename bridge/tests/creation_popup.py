@@ -55,9 +55,9 @@ try:
   (root/(name+'.ansi')).write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
  keys('C-b');keys('a');wait('Search sessions')
  click('New session');wait('New session')
- click('Connection');wait('Choose instance');click('Native');click('Select');wait('New session')
- click('Name');keys('C-a','C-k');keys('-l','Mouse Native');click('Apply');wait('Mouse Native')
- click('Model');wait('uses its own model')
+ click('Connection');click('Connection');wait('Choose instance');click('Native');wait('New session')
+ click('Name');click('Name');keys('C-a','C-k');keys('-l','Mouse Native');click('Apply');wait('Mouse Native')
+ click('Model');click('Model');wait('uses its own model')
  for cols,rows in [(160,45),(100,30),(60,20)]:
   tm('resize-window','-t','app:0','-x',str(cols),'-y',str(rows));time.sleep(.4);save('creation-'+str(cols))
  tm('resize-window','-t','app:0','-x','160','-y','45');time.sleep(.3)
@@ -66,7 +66,7 @@ try:
  assert records[0]['working_directory']==str(root/'project')
  assert records[0]['name']=='Mouse Native' and records[0]['cli']=='codex' and records[0]['mode']=='local',records
  keys('C-b');keys('a');wait('Search sessions');keys('n');wait('New session')
- keys('Up','Enter');keys('C-a','C-k');keys('-l','Keyboard Native');keys('Enter','Tab','Enter');time.sleep(2)
+ keys('Up','Enter');keys('C-a','C-k');keys('-l','Keyboard Native');keys('Enter','C-s');time.sleep(2)
  records=json.loads((root/'harbor/sessions.json').read_text());assert len(records)==2,records
  assert records[1]['working_directory']==str(root/'project')
  assert records[1]['name']=='Keyboard Native' and records[1]['cli']=='codex' and records[1]['mode']=='local',records

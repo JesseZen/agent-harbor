@@ -48,7 +48,7 @@ func TestAccountsV2ControlsAndResults(t *testing.T) {
 			}
 		}
 		m.screen = "accounts-busy"
-		for _, key := range []string{"s", "l", "q", "?", "esc"} {
+		for _, key := range []string{"s", accountLoginKey, "q", "?", "esc"} {
 			n, c, h := m.accountsPageInput(uiKey(key))
 			if !h || c != nil || n.(harborModel).screen != "accounts-busy" {
 				t.Fatalf("busy leaked %s", key)

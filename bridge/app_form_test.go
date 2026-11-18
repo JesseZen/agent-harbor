@@ -184,13 +184,13 @@ func TestFormNavigationAndCatalogFailurePreserveIntent(t *testing.T) {
 	m.draft = sessionDraft{Directory: "/projects/harbor", Name: "custom", Connection: "magpie", Instance: "original", Model: "vanished"}
 	f.Reports = []instanceReport{{magpieInstance: magpieInstance{ID: "replacement"}}}
 	var model tea.Model = m
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyUp})
 	if model.(harborModel).formFocus != 4 {
-		t.Fatal("shift tab")
+		t.Fatal("up")
 	}
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	if model.(harborModel).formFocus != 0 {
-		t.Fatal("tab")
+		t.Fatal("down")
 	}
 	for _, k := range []string{"up", "enter", "discard", "esc"} {
 		model = appKey(model, k)

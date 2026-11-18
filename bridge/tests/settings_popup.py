@@ -67,8 +67,8 @@ try:
  click('Search settings');keys('-l','Magpie');assert 'prefix+m' in capture() and 'prefix+a' not in capture()
  keys('Escape');keys('Escape')
  click('prefix+a');keys('C-u');keys('-l','prefix+t');click('Accept field')
- click('prefix+,');keys('C-u');keys('-l','ctrl+g');click('Accept field')
- click('prefix+m');keys('C-u');keys('-l','prefix+f');click('Accept field')
+ click('prefix+,');click('prefix+,');keys('C-u');keys('-l','ctrl+g');click('Accept field')
+ click('prefix+m');click('prefix+m');keys('C-u');keys('-l','prefix+f');click('Accept field')
  click('Save changes');out=wait('Saved for this workspace');(root/'settings-saved-160.ansi').write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
  (root/'saved.txt').write_text(out)
  import json

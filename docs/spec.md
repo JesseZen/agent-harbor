@@ -72,7 +72,8 @@ session activity. Each affected session reports its outcome; ordinary account
 management does not restart processes or depend on experimental refresh.
 Opening Accounts loads saved Codex logins for the selected Profile and
 automatically refreshes 5-hour and weekly availability and reset cards
-through bundled codex-auth. Each account has its own detail view and
+through bundled codex-auth. The last displayed values for that Profile stay
+visible while refreshing. Each account has its own detail view and
 lookup result. An explicit confirmation in Details redeems one card for
 that saved account through codex-auth, which selects the card. Harbor
 refreshes the account list after the operation.
@@ -129,6 +130,9 @@ change their upstream acceptance or runtime evidence.
 
 Startup checks Herdr and Codex dependencies, then opens the workspace directly.
 It does not require a connection choice or start/bind Magpie. Each new Session
-chooses its own native or Magpie connection; optional gateways are set up through
-Connections when needed. Codex discovery supports native executables and the
+chooses its own Native or Magpie connection. The new-session form starts with
+the last applied connection type for the same Profile and client. On reopening
+Harbor it can use the latest saved Session in that Profile and client. A new
+Magpie session still requires an instance and a model or routing group. Optional
+gateways are set up through Connections when needed. Codex discovery supports native executables and the
 native payload in the official npm package without running unknown wrappers.

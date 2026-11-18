@@ -1,9 +1,9 @@
-Changes in v0.1.0-dev.6:
+Changes in v0.1.0-dev.7:
 
-- Accounts automatically refreshes 5-hour and weekly Codex quota and reset-card availability for saved logins in the current Profile.
-- Open an account's details to view quota reset times and card expiry. Confirm redemption to use one card through bundled codex-auth and refresh the results.
-- The account list keeps quota percentages visible on narrow panes and adds timestamps and bars as space allows.
-- Sessions and selection lists use consistent keyboard cursor, mouse hover, and applied selection styles. Shortcut hints fit in at most two lines.
+- The new-session form recalls the most recent Native or Magpie choice for the current Profile. Magpie setup still asks for an instance and model.
+- Accounts keeps the last quota visible during background refresh. Press `n` to add a login.
+- Click a row to move the cursor, then click the current row to perform its Enter action. Arrow keys and `hjkl` navigate the main tabs, lists, and forms. Tab and Shift+Tab no longer cycle focus.
+- Removed the Connections default-instance shortcut and obsolete first-run choice code.
 
 Native development candidate for macOS and Linux, arm64 and amd64.
 

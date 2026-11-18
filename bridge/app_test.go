@@ -386,14 +386,17 @@ func TestHarborFiltersInstancesAndShowsCurrentIdentity(t *testing.T) {
 		} else {
 			model = appKey(model, "m")
 		}
-		for _, k := range []string{"/", "Beta", "tab"} {
+		for _, k := range []string{"/", "Beta"} {
 			model = appKey(model, k)
 		}
+		model, _ = model.Update(uiKey("enter"))
 		view := ansi.Strip(model.View())
 		if strings.Contains(view, "Alpha") || !strings.Contains(view, "Beta") || !strings.Contains(view, "unknown") {
 			t.Fatal(view)
 		}
-		model = appKey(model, "i")
+		if !wizard {
+			model = appKey(model, "i")
+		}
 		if !strings.Contains(ansi.Strip(model.View()), "/fixture/beta") || !strings.Contains(ansi.Strip(model.View()), "configuration unknown") {
 			t.Fatal(model.View())
 		}
@@ -411,7 +414,7 @@ func TestHarborInstanceRefreshCannotReopenCancelledScreen(t *testing.T) {
 		t.Fatal(model.View())
 	}
 	model = appKey(model, "m")
-	for _, k := range []string{"/", "Alpha", "tab"} {
+	for _, k := range []string{"/", "Alpha", "enter"} {
 		model = appKey(model, k)
 	}
 	f.Reports = []instanceReport{{magpieInstance: magpieInstance{ID: "b", Name: "Beta"}, Health: instanceVerified}}
@@ -560,7 +563,7 @@ func TestHarborDirectoryCompletionChoicesAtPracticalSizes(t *testing.T) {
 		m.width = size[0]
 		m.height = size[1]
 		m.input.SetValue("/projects/")
-		model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 		if cmd == nil {
 			t.Fatal("preview effect missing")
 		}
@@ -578,7 +581,7 @@ func TestHarborDirectoryCompletionChoicesAtPracticalSizes(t *testing.T) {
 		if model.(harborModel).input.Value() != "/projects/" {
 			t.Fatal("cancel changed input")
 		}
-		model, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+		model, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
 		model = appKey(model, "down")
 		model = appKey(model, "enter")
 		if model.(harborModel).input.Value() != "/projects/project-01" {

@@ -55,7 +55,7 @@ func (m harborModel) profilePage() (uiPage, bool) {
 	}
 	p := newUIPage(m.width, m.height)
 	p.line(paint(fg("brand"), "Harbor · Profiles"))
-	p.tabs("profiles", m.uiHover, m.uiFocus, true)
+	p.tabs("profiles", m.uiHover, m.uiFocus)
 	p.field("", "", "Current", cleanUI(m.activeProfileLabel()), false, false)
 	p.line(paint(fg("section"), "Profiles"))
 	actions := []uiAction{{ID: "profile:enter", Label: "Select", Key: "enter", Primary: true}, {ID: "profile:n", Label: "Create", Key: "n"}, {ID: "profile:r", Label: "Rename", Key: "r"}, {ID: "profile:d", Label: "Magpie default", Key: "d"}, {ID: "profile:esc", Label: "Back", Key: "esc"}}
@@ -63,13 +63,15 @@ func (m harborModel) profilePage() (uiPage, bool) {
 		actions = append(actions, uiAction{ID: "profile:b", Label: "Bind reviewed original environment", Key: "b"})
 	}
 	p.shortcuts(actions, m.uiFocus)
-	p.Hint = "↑↓ choose · Tab focus"
+	p.Hint = "↑↓/jk choose"
+	p.Hint += " · " + tabHint
 	listTop := len(p.Lines)
 	count := max(1, m.height-len(p.Lines)-len(p.shortcutBar().Lines))
 	if m.notice != "" {
 		count = max(1, count-1)
 	}
 	start := m.listStart(m.profileCursor, count)
+	p.ListStart = start
 	for i := start; i < min(len(m.profiles), start+count); i++ {
 		row := m.profiles[i]
 		label := row.Name + " · " + string(row.Kind)
@@ -84,7 +86,8 @@ func (m harborModel) profilePage() (uiPage, bool) {
 		p.line(paint(fg("brand"), "Harbor › Profile Magpie default"))
 		p.line("For future sessions only; existing sessions keep their instance.")
 		count := max(1, m.height-7)
-		start := max(0, m.profileDefaultCursor-count+1)
+		start := m.listStart(m.profileDefaultCursor, count)
+		p.ListStart = start
 		listTop := len(p.Lines)
 		for i := start; i < min(len(m.profileInstances)+1, start+count); i++ {
 			id, label := "", "Shared workspace default"
@@ -102,7 +105,7 @@ func (m harborModel) profilePage() (uiPage, bool) {
 		p.line(cleanUI(m.notice))
 	}
 
-	p.Hint = "↑↓ choose · Tab focus"
+	p.Hint = "↑↓/jk choose"
 	return p.finish(0), true
 }
 func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
@@ -146,7 +149,12 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			m.uiFocus = ""
 			for i, p := range m.profiles {
 				if p.ID == strings.TrimPrefix(id, "profile-row:") {
+					if m.profileCursor == i {
+						return m.profilePageInput(uiKey("enter"))
+					}
+					m.pinList(page.ListStart)
 					m.profileCursor = i
+					break
 				}
 			}
 			return m, nil, true
@@ -155,13 +163,19 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			if m.profileCursor >= len(m.profiles) {
 				return m, nil, true
 			}
-			b, err := bindingOf(m.profiles[m.profileCursor], "codex")
-			if err != nil {
-				m.notice = err.Error()
-				return m, nil, true
+			index := 0
+			for i, instance := range m.profileInstances {
+				if id == "profile-instance:"+instance.ID {
+					index = i + 1
+					break
+				}
 			}
-			instance := strings.TrimPrefix(id, "profile-instance:")
-			return m.saveProfileDefault(b, instance)
+			if m.profileDefaultCursor == index {
+				return m.profilePageInput(uiKey("enter"))
+			}
+			m.pinList(page.ListStart)
+			m.profileDefaultCursor = index
+			return m, nil, true
 		}
 		k = strings.TrimPrefix(id, "profile:")
 		iskey = true
@@ -169,43 +183,7 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	if !iskey {
 		return m, nil, false
 	}
-	if k == "tab" || k == "shift+tab" {
-		page, _ := m.profilePage()
-		ids := []string{}
-		for _, hit := range page.focusHits() {
-			if strings.HasPrefix(hit.ID, "nav:") || strings.HasPrefix(hit.ID, "profile:") || strings.HasPrefix(hit.ID, "profile-instance:") {
-				ids = append(ids, hit.ID)
-			}
-		}
-		m.uiFocus = uiCycle(m.uiFocus, ids, k == "shift+tab")
-		if strings.HasPrefix(m.uiFocus, "profile-instance:") {
-			m.profileDefaultCursor = 0
-			for i, instance := range m.profileInstances {
-				if m.uiFocus == "profile-instance:"+instance.ID {
-					m.profileDefaultCursor = i + 1
-				}
-			}
-		}
-		return m, nil, true
-	}
-	if k == "enter" && m.uiFocus != "" {
-		if strings.HasPrefix(m.uiFocus, "profile-instance:") {
-			m.profileDefaultCursor = 0
-			for i, instance := range m.profileInstances {
-				if m.uiFocus == "profile-instance:"+instance.ID {
-					m.profileDefaultCursor = i + 1
-				}
-			}
-		}
-		if strings.HasPrefix(m.uiFocus, "nav:") {
-			n, c := m.activateSessions(m.uiFocus)
-			return n, c, true
-		}
-		if strings.HasPrefix(m.uiFocus, "profile:") {
-			k = strings.TrimPrefix(m.uiFocus, "profile:")
-		}
-	}
-	if k == "esc" {
+	if k == "esc" || (m.screen == "profile-bind" && k == "enter") {
 		m.profileReview = nil
 		m.uiFocus = ""
 		if m.screen == "profile-list" {

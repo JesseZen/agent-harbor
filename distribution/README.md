@@ -1,10 +1,44 @@
 # Release maintenance
 
 The tag workflow builds on native GitHub runners: macOS arm64/amd64 and Ubuntu
-24.04 arm64/amd64. It pins dependency source commits, applies the tracked patches,
-packages all four executables and licenses, and tests the actual native package
-and CLI lifecycle in isolated homes. `build-dependencies.sh` is the reproducible
-entry point. Rust 1.96.1, Zig 0.16.0 and Go 1.26.8 are build-time requirements.
+24.04 arm64/amd64. It builds Harbor with Go 1.26.8, downloads and verifies pinned
+dependencies, packages all four executables and licenses, and tests the native
+package and CLI lifecycle in isolated homes. `build-dependencies.sh` remains
+available for local source builds with Rust 1.96.1, Zig 0.16.0 and Go 1.26.8.
+
+## Fork-built dependencies
+
+`fork-release.yml` is the workflow for `JesseZen/herdr` and `JesseZen/magpie`.
+Install it at `.github/workflows/harbor-dependency.yml` on each fork's
+Harbor-specific branch, based on the exact upstream commit in
+`build-dependencies.sh`, with the corresponding two patches applied in order.
+Keep unrelated upstream workflows off the Harbor release branch if they would
+also trigger on the new tags. A push to `harbor-candidate` runs the Intel-only
+diagnostic on Herdr and all four builds on Magpie, without publishing. To run
+a manual diagnostic, the workflow must also exist on the fork's default branch.
+Select the patched ref and set
+`intel_only=true` for Herdr. Download `intel-zig-samples` from the run to
+inspect Zig stacks and compare them with the logged CPU and elapsed times.
+The diagnostic does not publish a release.
+
+Push a unique `harbor-v*` tag on each reviewed fork commit to build the four
+native assets. Check the successful build and the tag's resolved commit before
+recording the SHA256 of each downloaded binary. Add `dependencies.lock` only
+when both releases are complete, with one space-separated row per dependency
+and target:
+
+```text
+dependency target tag fork-commit binary-sha256 first-patch-sha256:second-patch-sha256
+```
+
+The last column records the two patched inputs, in the same order as the
+source-build script. It must be updated when the reviewed fork source changes
+to match new patches. On Harbor, first dispatch the release workflow on an
+untagged ref containing the lock and verify all four package/install jobs.
+Harbor does not compile dependencies during release builds. A missing lock or
+mismatched asset fails the run; it does not trigger a source rebuild.
+
+## Harbor releases
 
 To publish a development candidate, commit changes and push a new unique
 `v0.*` tag, for example `v0.1.0-dev.2`. Never move or reuse a published tag.

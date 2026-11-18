@@ -1,8 +1,9 @@
-Fixes in v0.1.0-dev.4:
+Changes in v0.1.0-dev.5:
 
 - Recognize official npm Codex installations by resolving their native executable, including Profile account management.
 - Open the workspace directly after dependency checks. Choose native or Magpie connections per Session and set up optional gateways in Connections.
 - Show dependency failures without incorrectly asking users to reinstall bundled Herdr.
+- Build Harbor packages using pinned, SHA256-verified Herdr and Magpie binaries from the Harbor forks.
 
 Native development candidate for macOS and Linux, arm64 and amd64.
 

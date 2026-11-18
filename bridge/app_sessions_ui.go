@@ -2,7 +2,6 @@ package main
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"strings"
 	"time"
@@ -143,18 +142,13 @@ func (m harborModel) sessionsLayout() uiPage {
 	for i := start; i < end; i++ {
 		s := rows[i]
 		y := len(left.Lines)
-		mark := "  "
-		if i == m.cursor {
-			mark = "› "
-		}
-		name := mark + cleanUI(s.Name)
+		id := "session:" + s.ID
+		row := m.rowStyle(id, i == m.cursor && !m.selectionMissing && m.searchFocus != "sessions" && (m.uiFocus == "" || m.uiFocus == "list"), false)
+		name := row.marker() + cleanUI(s.Name)
 		status := statusDot(orUnknown(s.Status))
-		name = ansi.Truncate(name, max(4, leftW-ansi.StringWidth(status)-5), "…")
-		base := fg("text")
-		if i == m.cursor {
-			base = base.Background(lipgloss.Color(harborPalette["selBg"]))
-		}
-		text := paint(base, name+strings.Repeat(" ", max(1, leftW-2-ansi.StringWidth(name+status)))) + paint(base.Foreground(lipgloss.Color(harborPalette[statusRole(s.Status)])), status)
+		status = ansi.Truncate(status, max(1, leftW-7), "…")
+		text := row.line(name, "text", leftW-2-ansi.StringWidth(status)-1) +
+			paint(row.style(statusRole(s.Status)), " "+status)
 		text = highlightSearch(text, m.filter)
 		left.line(text)
 		connection := "Native"
@@ -164,15 +158,15 @@ func (m harborModel) sessionsLayout() uiPage {
 		if s.External {
 			connection = "External · connection unknown"
 		}
-		left.line(paint(fg("value"), "  "+cleanUI(s.CLI)+" · "+connection+" · "+m.profileDisplayLabel(s.Profile)))
+		left.line(row.line("  "+cleanUI(s.CLI)+" · "+connection+" · "+m.profileDisplayLabel(s.Profile), "value", leftW-2))
 		reason := sessionAttention(s)
 		if m.selectionMissing {
 			reason = "Selected target changed. Select a session."
 		}
 		if reason != "" {
-			left.line(paint(fg("warn"), ansi.Truncate(cleanUI(reason), leftW-2, "…")))
+			left.line(row.line(cleanUI(reason), "warn", leftW-2))
 		}
-		left.hit("session:"+s.ID, 1, y, leftW-2, min(len(left.Lines)-y, bodyH-y))
+		left.hit(id, 1, y, leftW-2, min(len(left.Lines)-y, bodyH-y))
 	}
 	total, offset := 0, 0
 	for i, row := range rows {

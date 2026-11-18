@@ -106,7 +106,8 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 			} else if c.nativeExecutableReady() {
 				status = "Native executable · recovery unverified"
 			}
-			p.field("new-client:"+c.Target, "🤖", label, status, i == m.clientCursor, false)
+			id := "new-client:" + c.Target
+			p.listRow(id, "🤖", label, status, m.rowStyle(id, i == m.clientCursor && m.uiFocus != "new-client-search", c.Target == m.selectedClient()))
 		}
 		p.scrollRail(listTop, len(p.Lines)-listTop, len(rows), start)
 		p.Hint = "↑↓ select · / search"
@@ -141,8 +142,10 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 		p.shortcuts([]uiAction{{ID: "new-name-save", Label: "Apply", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
 	case "new-connection":
 		p.title("Connection")
-		p.field("new-native", selectorMark(m.formSaved.Connection == "local"), "Native", m.selectedClient()+" settings and login", m.connectionCursor == 0, false)
-		p.field("new-magpie", selectorMark(m.formSaved.Connection == "magpie"), "Magpie", "Choose instance and model", m.connectionCursor == 1, false)
+		native := m.formSaved.Connection == "local"
+		magpie := m.formSaved.Connection == "magpie"
+		p.listRow("new-native", selectorMark(native), "Native", m.selectedClient()+" settings and login", m.rowStyle("new-native", m.connectionCursor == 0, native))
+		p.listRow("new-magpie", selectorMark(magpie), "Magpie", "Choose instance and model", m.rowStyle("new-magpie", m.connectionCursor == 1, magpie))
 		p.shortcuts([]uiAction{{ID: "new-connection-select", Label: "Select", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
 		if m.notice != "" {
 			p.line(cleanUI(m.notice))

@@ -77,6 +77,8 @@ type harborModel struct {
 
 	uiFocus             string
 	uiHover             string
+	rowHover            string
+	mousePosition       *tea.MouseMsg
 	settings            *settingsModel
 	mouse               mouseClick
 	mouseListScreen     string
@@ -114,6 +116,12 @@ type harborModel struct {
 	accountProfile      *profileBinding
 	accountGeneration   uint64
 	accountSnapshot     *profileAccountResult
+	accountUsagePending bool
+	accountUsageError   string
+	accountRow          string
+	accountListScroll   int
+	accountResetReview  string
+	accountResetNotice  string
 	reviewedSelection   *codexSelection
 	selectionReviewErr  error
 	selectionFallback   bool
@@ -224,6 +232,10 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if settings.closed {
 			m.settings = nil
 			if settings.nav != "" {
+				if settings.nav == "accounts" {
+					m.screen = "sessions"
+					return m.Update(uiKey("a"))
+				}
 				m.screen = settings.nav
 				if m.screen == "profiles" {
 					m.screen = "profile-list"
@@ -320,6 +332,11 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.generation != m.listGeneration {
 			return m, nil
 		}
+		var accounts tea.Cmd
+		if m.screen == "accounts" && m.accountProfile == nil && m.activeProfile != nil {
+			m.accountProfile = m.activeProfile
+			accounts = m.beginAccountInspect()
+		}
 		m.refreshing = false
 		previousDiscovery := m.discoveryNotice
 		m.discoveryNotice = ""
@@ -350,9 +367,9 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if !m.pollScheduled {
 			m.pollScheduled = true
-			return m, m.refreshTimer()
+			return m, tea.Batch(m.refreshTimer(), accounts)
 		}
-		return m, nil
+		return m, accounts
 	case appSessionInspected:
 		if m.refreshContext.Err() != nil || m.screen != "busy" || m.reviewed.ID != msg.expected.ID {
 			return m, nil
@@ -937,6 +954,8 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadProfiles()
 		case "a":
 			m.screen = "accounts"
+			m.accountRow = ""
+			m.scroll = 0
 			if m.activeProfile != nil {
 				b := *m.activeProfile
 				m.accountProfile = &b
@@ -948,8 +967,8 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.accountSnapshot = nil
 			}
 			if m.accountProfile != nil {
-				m.accountGeneration++
-				return m, m.inspectAccounts(*m.accountProfile)
+				cmd := m.beginAccountInspect()
+				return m, cmd
 			}
 		case "n":
 			m.generation++

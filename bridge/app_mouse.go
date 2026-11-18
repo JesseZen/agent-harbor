@@ -13,6 +13,26 @@ type mouseClick struct {
 	at   time.Time
 }
 
+func (m *harborModel) updateRowHover(previousScreen string, msg tea.Msg) {
+	m.rowHover = ""
+	if m.screen != previousScreen || m.settings != nil {
+		m.mousePosition = nil
+		return
+	}
+	if mouse, ok := msg.(tea.MouseMsg); ok && mouse.Action == tea.MouseActionMotion {
+		m.mousePosition = &mouse
+	}
+	if m.mousePosition == nil {
+		return
+	}
+	for _, hit := range m.mouseRegions() {
+		if hit.contains(m.mousePosition.X, m.mousePosition.Y) {
+			m.rowHover = hit.ID
+			return
+		}
+	}
+}
+
 // Geometry comes exclusively from the final rendered page.
 func (m harborModel) mouseRegions() []uiRect {
 	if p, ok := m.additionalPage(); ok {

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"strings"
 	"testing"
 )
@@ -15,21 +16,35 @@ func TestAccountsV2ControlsAndResults(t *testing.T) {
 		m.width = size[0]
 		m.height = size[1]
 		p, ok := m.accountsPage()
-		if !ok || !strings.Contains(p.view(), "Unknown") {
+		if !ok || !strings.Contains(p.view(), "Select a Profile") {
 			t.Fatal("missing evidence state")
 		}
-		for _, a := range m.accountActions() {
+		for _, a := range []string{"account:i", "account:s", "account:?"} {
 			found := false
 			for _, r := range p.Hits {
-				if r.ID == a.ID {
+				if r.ID == a {
 					found = true
-					if p.target(r.X, r.Y) != a.ID {
+					if p.target(r.X, r.Y) != a {
 						t.Fatal("wrong hit")
 					}
 				}
 			}
 			if !found {
-				t.Fatalf("unreachable %s at %v", a.ID, size)
+				t.Fatalf("unreachable %s at %v", a, size)
+			}
+		}
+		if size[0] == 60 {
+			if !strings.HasSuffix(strings.TrimSpace(ansi.Strip(p.Lines[len(p.Lines)-1])), "...") {
+				t.Fatal("missing overflow marker")
+			}
+			next, _ := m.Update(uiKey("?"))
+			help := next.(harborModel)
+			if help.screen != "help" || !strings.Contains(help.helpView(), "Not signed in") {
+				t.Fatal("hidden action missing from help")
+			}
+			next, _ = m.Update(uiKey("o"))
+			if next.(harborModel).screen != "accounts-result" {
+				t.Fatal("hidden action lost its shortcut")
 			}
 		}
 		m.screen = "accounts-busy"

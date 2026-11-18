@@ -1,5 +1,13 @@
 # UI 实机走查 — 2026-11-17
 
+## Accounts 额度（2026-11-18）
+
+Accounts 先显示当前 Profile 的 Codex 保存账号，再通过 codex-auth 批量刷新 5 小时余量、7 天余量和重置卡。缺失或刷新失败的窗口显示 N/A，详情中显示账号级错误。列表的 ↻ 表示服务返回了可用卡。方向键选择，Enter 或点击打开详情。详情展示账号、套餐、可用卡数和到期时间。按 u 后用 y 确认，codex-auth 为该账号选卡并兑换，随后 Harbor 自动重查。Claude Code 和 Antigravity 仍为占位入口。
+
+macOS arm64 使用隔离 Herdr 0.9.5、Codex 0.169.0、codex-auth 0.4.0 和模拟额度服务，在 160×45、100×30、80×24、60×24 检查实际弹窗。验证详情值列与右边框对齐、卡片日期解析、取消、兑换备用账号的模拟卡、重查及单行失败。真实 ChatGPT 账号和其他平台尚未验证。
+
+Sessions、Accounts、Profiles、Connections 和新建会话的选择列表共用光标、悬浮及已选样式。四种外层尺寸已在隔离 Herdr 实测 Sessions 和 Accounts 的鼠标悬浮与键盘移动。Accounts 另有组合状态回归测试，覆盖当前登录色的优先级和移出后的底色恢复。其余选择列表通过相关 Go 回归。
+
 ## 启动检测修正（2026-11-18）
 
 main 移除首次启动的 Local/Magpie 二选一与确认页。依赖齐全直接进入工作区；缺依赖时仅显示 Dependency checks，r 重查成功后继续。不会创建 Session、启动或绑定 Magpie。每个 Session 的连接选择和 Connections 的显式初始化继续使用现有流程。官方 npm Codex 解析到同一安装的原生 payload，版本、启动和 Profile 账号管理复用解析；未知包装器仍拒绝。

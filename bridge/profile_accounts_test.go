@@ -53,6 +53,9 @@ esac
 case "$1" in
  list)
  printf '%s\n' '{"schema_version":1,"active_account_key":"synthetic::account","accounts":[{"account_key":"synthetic::account","email":"synthetic@example.test","active":true,"access_token_expires_at":4102444800}]}' ;;
+ reset)
+ [ "$2" = synthetic::account ] && [ "$#" = 2 ] || exit 4
+ printf '%s\n' "$2" > "$CODEX_HOME/reset-fixture" ;;
  switch)
  [ "$2" = --skip-api ] && [ "$3" = --no-restart-daemon ] || exit 3
  printf '{}' > "$CODEX_HOME/auth.json" ;;
@@ -94,6 +97,18 @@ esac
 	}
 	if r, err := action(ab, "signed-out"); err != nil || r.State != "signed-out" || len(r.Accounts) != 1 {
 		t.Fatal(r, err)
+	}
+	for _, key := range []string{"synthetic@example.test", "synthetic::account"} {
+		_, err := h.ProfileCodexAccounts(context.Background(), codexAccountRequest{Profile: ab, Action: "reset", Selected: key}, nil, nil, nil)
+		if (err == nil) != (key == "synthetic::account") {
+			t.Fatalf("reset with selector %q: %v", key, err)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(a.Clients[0].Home, "reset-fixture")); err != nil || strings.TrimSpace(string(data)) != "synthetic::account" {
+		t.Fatal("reset did not use the captured Profile and exact account key", err)
+	}
+	if _, err := os.Stat(filepath.Join(b.Clients[0].Home, "reset-fixture")); !os.IsNotExist(err) {
+		t.Fatal("reset ran in another Profile", err)
 	}
 	bAfter, err := os.ReadFile(filepath.Join(b.Clients[0].Home, "auth.json"))
 	if err != nil || string(bAfter) != string(bBefore) {

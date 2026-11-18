@@ -12,7 +12,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -428,17 +427,19 @@ func (m harborModel) directoryPage() uiPage {
 	for i := start; i < min(len(rows), start+count); i++ {
 		e := rows[i]
 		y := len(p.Lines)
-		mark := "  "
-		if i == d.cursor {
-			mark = "› "
+		id := "dir-path:" + e.path
+		selected := e.path == m.draft.Directory
+		row := m.rowStyle(id, i == d.cursor && d.list, selected)
+		mark := "📂"
+		if selected {
+			mark = selectorMark(true) + " " + mark
 		}
-		style := fg("text")
-		if i == d.cursor {
-			style = style.Background(lipgloss.Color(harborPalette["selBg"]))
-		}
-		p.line(paint(style, mark+"📂 "+cleanUI(filepath.Base(e.path))) + paint(fg("muted"), " · "+cleanUI(e.source)))
-		p.line(paint(fg("value"), "    "+cleanUI(e.path)))
-		p.hit("dir-path:"+e.path, 1, y, p.Width-2, 2)
+		name := row.marker() + mark + " " + cleanUI(filepath.Base(e.path))
+		source := " · " + cleanUI(e.source)
+		name = ansi.Truncate(name, max(4, p.Width-2-ansi.StringWidth(source)), "…")
+		p.line(paint(row.style("text"), name) + row.line(source, "muted", p.Width-2-ansi.StringWidth(name)))
+		p.line(row.line("    "+cleanUI(e.path), "value", p.Width-2))
+		p.hit(id, 1, y, p.Width-2, 2)
 	}
 
 	p.scrollRail(listTop, len(p.Lines)-listTop, len(rows)*2, start*2)

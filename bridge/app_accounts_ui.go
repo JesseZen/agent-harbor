@@ -1,19 +1,42 @@
 package main
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
+	"fmt"
+	"math"
 	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func (m harborModel) accountActions() []uiAction {
-	if m.screen == "accounts-busy" {
+	switch m.screen {
+	case "accounts-busy", "accounts-resetting":
 		return nil
-	}
-	if m.screen == "accounts-result" || m.screen == "accounts-detail" {
+	case "accounts-reset-confirm":
+		return []uiAction{{ID: "account:cancel-reset", Label: "Cancel", Key: "esc"}, {ID: "account:confirm-reset", Label: "Confirm use", Key: "y"}}
+	case "accounts-detail":
+		back := uiAction{ID: "account:back", Label: "Back to accounts", Key: "esc"}
+		if m.canResetAccount() {
+			return []uiAction{{ID: "account:use-reset", Label: "Use reset card", Key: "u"}, back}
+		}
+		return []uiAction{back}
+	case "accounts-result":
 		return []uiAction{{ID: "account:back", Label: "Back to accounts", Key: "esc"}}
 	}
-	return []uiAction{{ID: "account:,", Label: "Settings", Key: ","}, {ID: "account:i", Label: "Details", Key: "i"}, {ID: "account:?", Label: "Help", Key: "?"}, {ID: "account:s", Label: "Select saved login", Key: "s", Primary: true}, {ID: "account:l", Label: "Add login", Key: "l"}, {ID: "account:o", Label: "Not signed in", Key: "o"}, {ID: "account:p", Label: "Choose Profile", Key: "p"}, {ID: "account:r", Label: "Refresh", Key: "r"}, {ID: "account:back", Label: "Back", Key: "esc"}}
+	return []uiAction{
+		{ID: "account:i", Label: "Details", Key: "enter"},
+		{ID: "account:s", Label: "Select saved login", Key: "s", Primary: true},
+		{ID: "account:?", Label: "Help", Key: "?"},
+		{ID: "account:p", Label: "Choose Profile", Key: "p"},
+		{ID: "account:l", Label: "Add login", Key: "l"},
+		{ID: "account:back", Label: "Back", Key: "esc"},
+		{ID: "account:r", Label: "Refresh", Key: "r"},
+		{ID: "account:o", Label: "Not signed in", Key: "o"},
+		{ID: "account:,", Label: "Settings", Key: ","},
+	}
 }
 
 func (m harborModel) accountContent() uiPage {
@@ -28,42 +51,10 @@ func (m harborModel) accountContent() uiPage {
 	p.line(paint(fg("brand"), "👤 Harbor · Accounts"))
 	if m.screen == "accounts" {
 		p.tabs("accounts", m.uiHover, m.uiFocus, true)
-		p.field("", "", "Profile", m.profileDisplayLabel(m.accountProfile), false, false)
-		if m.accountProfile == nil {
-			wrap("Unknown · choose a Profile with p to check its login.")
-		} else if m.accountSnapshot == nil {
-			p.field("", "", "Login", "Checking…", false, false)
-		} else {
-			snapshot := m.accountSnapshot
-			p.field("", "", "Login", orUnknown(snapshot.State), false, false)
-			p.line(paint(fg("section"), "Saved logins"))
-			if len(snapshot.Accounts) == 0 {
-				p.emptyState("No saved logins")
-			}
-			for _, a := range snapshot.Accounts {
-				label := a.Alias
-				if label == "" {
-					label = a.Email
-				}
-				status := ""
-				if a.Active {
-					status = "saved selection"
-				}
-				p.field("", "", cleanUI(label), status, a.Active, false)
-			}
-		}
+		m.accountOverview(&p)
 
-	} else if m.screen == "accounts-detail" {
-		p.line(paint(fg("section"), "Account details"))
-		if m.accountSnapshot != nil {
-			wrap(accountResultText(*m.accountSnapshot))
-
-		}
-		wrap("Switch between replies. Active or unknown activity blocks changes.")
-		if experimentalCodexAccounts() {
-			wrap("Experimental running-server refresh is undocumented.")
-		}
-
+	} else if m.screen == "accounts-detail" || m.screen == "accounts-reset-confirm" || m.screen == "accounts-resetting" {
+		m.accountDetail(&p, wrap)
 	} else if m.screen == "accounts-busy" {
 		wrap("Waiting for the account action in codex-auth. Complete or cancel there; duplicate Harbor actions are disabled.")
 	} else {
@@ -77,15 +68,317 @@ func (m harborModel) accountContent() uiPage {
 	return p
 }
 
+func (m harborModel) accountDetail(p *uiPage, wrap func(string)) {
+	p.line(paint(fg("section"), "Account details"))
+	a, ok := m.selectedAccount()
+	if !ok {
+		if m.accountSnapshot != nil {
+			wrap(accountResultText(*m.accountSnapshot))
+		}
+		wrap("Switch between replies. Active or unknown activity blocks changes.")
+		if experimentalCodexAccounts() {
+			wrap("Experimental running-server refresh is undocumented.")
+		}
+		return
+	}
+
+	const valueColumn = 14
+	valueWidth := max(1, p.Width-2-valueColumn)
+	field := func(label, value string) {
+		for _, line := range strings.Split(ansi.Wrap(value, valueWidth, ""), "\n") {
+			p.line(kvw(label, line, valueColumn))
+			label = ""
+		}
+	}
+	field("Profile", cleanUI(m.accountSnapshot.ProfileName))
+	field("Email", accountName(a))
+	if a.Alias != "" && a.Alias != a.Email {
+		field("Alias", cleanUI(a.Alias))
+	}
+	if a.Workspace != "" {
+		field("Workspace", cleanUI(a.Workspace))
+	}
+	plan := accountPlan(a)
+	if a.PlanExpires != nil && *a.PlanExpires > 0 {
+		plan += " · ends " + time.Unix(*a.PlanExpires, 0).Local().Format(weeklyResetFormat)
+	}
+	field("Plan", plan)
+	if m.accountSnapshot.State == "expired" && m.accountSnapshot.Selected == a.Key {
+		p.line(kvw("Login", paint(fg("warn"), "Expired"), valueColumn))
+	}
+
+	if m.screen == "accounts-resetting" {
+		p.line("")
+		p.line(paint(fg("warn"), "Using reset card…"))
+		return
+	}
+	if m.screen == "accounts-reset-confirm" {
+		p.line("")
+		wrap("Use one reset card for this account?")
+		return
+	}
+
+	if m.height > 16 {
+		p.line("")
+	}
+	field("5h left", accountQuotaCell(a.Usage, m.accountUsagePending, 300, min(valueWidth, shortQuotaWidth)))
+	field("7d left", accountQuotaCell(a.Usage, m.accountUsagePending, 10080, min(valueWidth, weeklyQuotaWidth)))
+	switch {
+	case m.accountUsageError != "":
+		wrap(m.accountUsageError)
+	case a.Usage != nil && !m.accountUsagePending:
+		switch a.Usage.Refresh.Status {
+		case "missing_auth":
+			wrap("Usage lookup needs a valid saved ChatGPT login.")
+		case "http_error":
+			wrap(fmt.Sprintf("Usage lookup failed (HTTP %d).", a.Usage.Refresh.HTTPStatus))
+		case "error":
+			wrap("Usage lookup failed.")
+		}
+	}
+	if m.height > 16 {
+		p.line("")
+	}
+	status := "Unavailable"
+	switch {
+	case m.accountUsagePending:
+		status = "Checking…"
+	case !a.Usage.current() || a.Usage.ResetCount == nil:
+	case *a.Usage.ResetCount <= 0:
+		status = "None available"
+	default:
+		status = fmt.Sprintf("%d available", *a.Usage.ResetCount)
+	}
+	field("Reset cards", status)
+	if !m.accountUsagePending && a.Usage.current() && a.Usage.ResetCount != nil && *a.Usage.ResetCount > 0 {
+		label := "Expires"
+		for _, card := range a.Usage.ResetCredits {
+			if expiry := card.expiration(); card.Status == "available" && !expiry.IsZero() {
+				field(label, expiry.Local().Format(weeklyResetFormat))
+				label = ""
+			}
+		}
+		if !a.Usage.hasResetCard() {
+			field("", "Card details unavailable")
+		}
+	}
+	if m.accountResetNotice != "" {
+		wrap(m.accountResetNotice)
+	}
+}
+
+func (m harborModel) accountOverview(p *uiPage) {
+	label := "None selected"
+	if m.accountProfile != nil {
+		label = m.profileDisplayLabel(m.accountProfile)
+		if m.accountSnapshot != nil && m.accountSnapshot.ProfileName != "" {
+			label = m.accountSnapshot.ProfileName
+		}
+	}
+	p.line(kvw("Profile", cleanUI(label), 9))
+	if p.Width >= 60 {
+		p.line("")
+	}
+	status := "Select a Profile"
+	if m.accountProfile != nil {
+		status = "Checking…"
+		if m.accountSnapshot != nil {
+			switch m.accountSnapshot.State {
+			case "selected":
+				status = ""
+			case "expired":
+				status = "Login expired"
+			case "signed-out":
+				status = "Signed out"
+			case "unavailable":
+				status = "Unavailable"
+			default:
+				status = "Login unconfirmed"
+			}
+		}
+	}
+	appendAccountClient(p, "Codex", status)
+	if snapshot := m.accountSnapshot; m.accountProfile != nil && snapshot != nil {
+		if len(snapshot.Accounts) == 0 && snapshot.State == "signed-out" {
+			p.emptyState("  No saved logins")
+		}
+		if len(snapshot.Accounts) > 0 {
+			m.appendCodexAccountTable(p)
+		}
+	}
+	if p.Width >= 60 {
+		p.line("")
+	}
+	appendAccountClient(p, "Claude Code", "Not supported")
+	appendAccountClient(p, "Antigravity", "Not supported")
+}
+
+func appendAccountClient(p *uiPage, name, status string) {
+	title := " " + name
+	width := max(1, p.Width-2)
+	status = ansi.Truncate(status, max(0, width-ansi.StringWidth(title)-3), "…")
+	padding := max(0, width-ansi.StringWidth(title)-ansi.StringWidth(status)-1)
+	band := lipgloss.Color(harborPalette["button"])
+	p.line(paint(fg("text").Background(band).Bold(true), title) +
+		paint(fg("value").Background(band), strings.Repeat(" ", padding)+status+" "))
+}
+
+const (
+	shortResetFormat  = "3:04 PM"
+	weeklyResetFormat = "Jan 02 Mon 3:04 PM"
+	shortQuotaWidth   = 4 + 1 + len("12:42 PM")
+	weeklyQuotaWidth  = 4 + 1 + len("Nov 18 Wed 12:42 PM")
+)
+
+const accountRowPrefix = "account-row:"
+
+func (m harborModel) appendCodexAccountTable(p *uiPage) {
+	snapshot := m.accountSnapshot
+	// Four columns share one row. Extra space first buys reset timestamps,
+	// then a meter in each quota column.
+	const rowOverhead = 10 // page padding, selection marker, three column gaps
+	planWidth, shortWidth, weeklyWidth := 5, 7, 7
+	if p.Width >= 55 {
+		planWidth = 8
+		shortWidth = shortQuotaWidth
+	}
+	if p.Width >= 70 {
+		weeklyWidth = weeklyQuotaWidth
+	}
+	if p.Width >= 88 {
+		meterWidth := min(10, 5+(p.Width-88)/3)
+		shortWidth += meterWidth
+		weeklyWidth += meterWidth
+	}
+	emailWidth := max(1, p.Width-rowOverhead-planWidth-shortWidth-weeklyWidth)
+	p.line("  " + accountTableCell(paint(fg("key"), "Email"), emailWidth) + "  " +
+		accountTableCell(paint(fg("key"), "Plan"), planWidth) + "  " +
+		accountTableCell(paint(fg("key"), "5h left"), shortWidth) + "  " + paint(fg("key"), "7d left"))
+	for _, account := range snapshot.Accounts {
+		id := accountRowPrefix + account.Key
+		row := m.rowStyle(id, account.Key != "" && id == m.uiFocus, m.currentAccount(account.Key))
+		usage := account.Usage
+		nameWidth := emailWidth
+		icons := ""
+		if emailWidth >= 5 {
+			nameWidth -= 3
+			selected, reset := " ", " "
+			if row.selected {
+				selected = "✓"
+			}
+			if !m.accountUsagePending && usage.current() && usage.ResetCount != nil && *usage.ResetCount > 0 {
+				reset = "↻"
+			}
+			if asciiUI() {
+				reset = strings.ReplaceAll(reset, "↻", "+")
+			}
+			icons = paint(row.style("value"), " ") + paint(row.style("section"), selected) + paint(row.style("warn"), reset)
+		}
+		gap := paint(row.style("value"), "  ")
+		cell := func(minutes, width int) string {
+			value := ansi.Truncate(accountQuotaCellStyled(usage, m.accountUsagePending, minutes, width, row.style), width, "…")
+			return value + paint(row.style("value"), strings.Repeat(" ", width-ansi.StringWidth(value)))
+		}
+		line := paint(row.style("text"), row.marker()+accountTableCell(accountName(account), nameWidth)) + icons + gap +
+			paint(row.style("value"), accountTableCell(accountPlan(account), planWidth)) + gap +
+			cell(300, shortWidth) + gap + cell(10080, weeklyWidth)
+		if account.Key != "" {
+			p.hit(id, 1, len(p.Lines), p.Width-2, 1)
+		}
+		p.line(line)
+	}
+}
+
+func accountName(a savedCodexAccount) string {
+	if email := cleanUI(a.Email); email != "" {
+		return email
+	}
+	return orUnknown(cleanUI(a.Alias))
+}
+
+func accountPlan(a savedCodexAccount) string {
+	if plan := cleanUI(a.Plan); plan != "" {
+		return plan
+	}
+	return "—"
+}
+
+func accountTableCell(value string, width int) string {
+	value = ansi.Truncate(value, width, strings.Repeat(".", min(3, width)))
+	return value + strings.Repeat(" ", max(0, width-ansi.StringWidth(value)))
+}
+
+func accountQuotaCell(usage *savedAccountUsage, pending bool, minutes, width int) string {
+	return accountQuotaCellStyled(usage, pending, minutes, width, fg)
+}
+
+func accountQuotaCellStyled(usage *savedAccountUsage, pending bool, minutes, width int, style func(string) lipgloss.Style) string {
+	if pending {
+		return paint(style("value"), "...")
+	}
+	if !usage.current() {
+		return paint(style("value"), "N/A")
+	}
+	for _, window := range []*savedUsageWindow{usage.Primary, usage.Secondary} {
+		if window == nil || window.UsedPercent == nil || window.Minutes != minutes {
+			continue
+		}
+		remaining := int(math.Round(100 - min(100, max(0, *window.UsedPercent))))
+		role := quotaRemainingRole(remaining)
+		value := paint(style(role), fmt.Sprintf("%-4s", fmt.Sprint(remaining)+"%"))
+		resetFormat, quotaWidth := shortResetFormat, shortQuotaWidth
+		if minutes == 10080 {
+			resetFormat, quotaWidth = weeklyResetFormat, weeklyQuotaWidth
+		}
+		if window.ResetsAt > 0 && width >= quotaWidth {
+			reset := time.Unix(window.ResetsAt, 0).Local().Format(resetFormat)
+			value += paint(style("value"), " "+reset)
+		}
+		if cells := width - quotaWidth; cells >= 5 {
+			value = accountQuotaMeter(remaining, cells-1, role, style) + paint(style("value"), " ") + value
+		}
+		return value
+	}
+	return paint(style("value"), "N/A")
+}
+
+func quotaRemainingRole(remaining int) string {
+	switch {
+	case remaining <= 20:
+		return "bad"
+	case remaining <= 40:
+		return "warn"
+	default:
+		return "ok"
+	}
+}
+
+func accountQuotaMeter(remaining, cells int, role string, style func(string) lipgloss.Style) string {
+	filled := (remaining*cells + 50) / 100
+	if remaining > 0 && remaining < 100 {
+		filled = min(cells-1, max(1, filled))
+	}
+	fill, track := "▆", "▆"
+	if asciiUI() {
+		fill, track = "=", "-"
+	}
+	return paint(style(role), strings.Repeat(fill, filled)) + paint(style("border"), strings.Repeat(track, cells-filled))
+}
+
 func (m harborModel) accountsPage() (uiPage, bool) {
-	if m.screen != "accounts" && m.screen != "accounts-result" && m.screen != "accounts-busy" && m.screen != "accounts-detail" {
+	if m.screen != "accounts" && !strings.HasPrefix(m.screen, "accounts-") {
 		return uiPage{}, false
 	}
 	content := m.accountContent()
 	footer := newUIPage(m.width, 10000)
 	actions := m.accountActions()
 	footer.shortcuts(actions, m.uiFocus)
-	footer.Hint = "↑↓ / PgUp/PgDown scroll · Tab focus"
+	if m.screen != "accounts-reset-confirm" && m.screen != "accounts-resetting" {
+		footer.Hint = scrollHint
+	}
+	if m.screen == "accounts" {
+		footer.Hint = "↑↓ choose · PgUp/PgDn scroll"
+	}
 	return content.withFooter(footer, m.height, m.scroll), true
 }
 
@@ -93,17 +386,35 @@ func (m harborModel) accountActivate(id string) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(id, "nav:") {
 		return m.activateSessions(id)
 	}
-	if id == "account:i" {
+	if m.screen == "accounts" && (id == "account:i" || strings.HasPrefix(id, accountRowPrefix)) {
+		if strings.HasPrefix(id, accountRowPrefix) {
+			m.accountRow = strings.TrimPrefix(id, accountRowPrefix)
+		}
+		m.accountListScroll = m.scroll
 		m.screen = "accounts-detail"
 		m.scroll = 0
+		m.accountResetNotice = ""
 		return m, nil
 	}
-	if id == "account:?" {
+	switch id {
+	case "account:use-reset":
+		return m.reviewAccountReset()
+	case "account:confirm-reset":
+		return m.submitAccountReset()
+	case "account:cancel-reset":
+		m.accountResetReview = ""
+		m.screen, m.scroll = "accounts-detail", 0
+		return m, nil
+	case "account:?":
 		return m.Update(uiKey("?"))
-	}
-	if id == "account:back" {
+	case "account:back":
+		if m.screen == "accounts-detail" {
+			m.screen = "accounts"
+			m.scroll = m.accountListScroll
+			m.uiFocus = accountRowPrefix + m.accountRow
+			return m, nil
+		}
 		m.scroll = 0
-		m.uiFocus = "account:s"
 		return m.updateAccounts("esc")
 	}
 	for _, a := range m.accountActions() {
@@ -115,6 +426,103 @@ func (m harborModel) accountActivate(id string) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
+func (m *harborModel) reconcileAccountRow() {
+	if _, ok := m.selectedAccount(); !ok {
+		m.accountRow = ""
+		if m.accountSnapshot != nil {
+			for _, a := range m.accountSnapshot.Accounts {
+				if a.Key != "" && (m.accountRow == "" || m.currentAccount(a.Key)) {
+					m.accountRow = a.Key
+				}
+			}
+		}
+	}
+	if m.accountRow != "" {
+		m.uiFocus = accountRowPrefix + m.accountRow
+	}
+}
+
+func (m *harborModel) moveAccountRow(delta int) bool {
+	if m.accountSnapshot == nil {
+		return false
+	}
+	var rows []string
+	for _, a := range m.accountSnapshot.Accounts {
+		if a.Key != "" {
+			rows = append(rows, a.Key)
+		}
+	}
+	if len(rows) == 0 {
+		return false
+	}
+	index := 0
+	for i, key := range rows {
+		if key == m.accountRow {
+			index = max(0, min(len(rows)-1, i+delta))
+			break
+		}
+	}
+	m.accountRow = rows[index]
+	m.uiFocus = accountRowPrefix + m.accountRow
+	content := m.accountContent()
+	page, _ := m.accountsPage()
+	visible := len(content.Lines) - page.MaxScroll
+	for _, hit := range content.Hits {
+		if hit.ID == m.uiFocus {
+			m.scroll = min(hit.Y, max(m.scroll, hit.Y-visible+1))
+			break
+		}
+	}
+	return true
+}
+
+func (m *harborModel) applyAccountRead(read appAccountRead) tea.Cmd {
+	if read.generation != m.accountGeneration || m.accountProfile == nil || read.request.Profile != *m.accountProfile || m.accountSnapshot == nil {
+		return nil
+	}
+	snapshot := *m.accountSnapshot
+	switch read.request.Action {
+	case "usage":
+		m.accountUsagePending = false
+		m.accountUsageError = ""
+		if read.err != nil {
+			m.accountUsageError = read.err.Error()
+		}
+		refreshed := make(map[string]savedCodexAccount, len(read.result.Accounts))
+		for _, a := range read.result.Accounts {
+			refreshed[a.Key] = a
+		}
+		snapshot.Accounts = append([]savedCodexAccount(nil), snapshot.Accounts...)
+		for i := range snapshot.Accounts {
+			a := &snapshot.Accounts[i]
+			a.Usage = nil
+			if batch, ok := refreshed[a.Key]; ok && a.Key != "" {
+				a.Usage = batch.Usage
+				if batch.Plan != "" {
+					a.Plan = batch.Plan
+				}
+				if batch.Workspace != "" {
+					a.Workspace = batch.Workspace
+				}
+			}
+		}
+	case "reset":
+		if m.screen != "accounts-resetting" || m.accountResetReview != read.request.Selected {
+			return nil
+		}
+		m.screen, m.scroll = "accounts-detail", 0
+		m.accountResetReview = ""
+		m.accountResetNotice = "Reset completed."
+		if read.err != nil {
+			m.accountResetNotice = read.err.Error() + "."
+		}
+		return m.loadAccountUsage()
+	}
+	m.accountSnapshot = &snapshot
+	return nil
+}
+
 func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	if status, ok := msg.(appAccountStatus); ok {
 		if status.generation != m.accountGeneration || m.accountProfile == nil || status.profile != *m.accountProfile {
@@ -124,7 +532,15 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		if status.err != nil {
 			m.accountSnapshot.Detail = status.err.Error()
 		}
-		return m, nil, true
+		if m.screen == "accounts" {
+			m.reconcileAccountRow()
+		}
+		cmd := m.loadAccountUsage()
+		return m, cmd, true
+	}
+	if read, ok := msg.(appAccountRead); ok {
+		cmd := m.applyAccountRead(read)
+		return m, cmd, true
 	}
 	if done, ok := msg.(appAccountDone); ok {
 		if done.profile != nil && (m.accountProfile == nil || *done.profile != *m.accountProfile) {
@@ -146,14 +562,15 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			}
 			m.accountResult += done.err.Error()
 		}
-		return m, tea.EnableMouseAllMotion, true
+		cmd := m.loadAccountUsage()
+		return m, tea.Batch(tea.EnableMouseAllMotion, cmd), true
 	}
 	if _, ok := m.accountsPage(); !ok {
 		return m, nil, false
 	}
 	switch v := msg.(type) {
 	case tea.MouseMsg:
-		if m.screen == "accounts-busy" {
+		if m.screen == "accounts-busy" || m.screen == "accounts-resetting" {
 			return m, nil, true
 		}
 		if v.Button == tea.MouseButtonWheelDown {
@@ -177,15 +594,19 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	case tea.KeyMsg:
-		if m.screen == "accounts-busy" {
+		if m.screen == "accounts-busy" || m.screen == "accounts-resetting" {
 			return m, nil, true
 		}
 		key := v.String()
 		switch key {
 		case "down", "j":
-			m.scroll++
+			if m.screen != "accounts" || !m.moveAccountRow(1) {
+				m.scroll++
+			}
 		case "up", "k":
-			m.scroll = max(0, m.scroll-1)
+			if m.screen != "accounts" || !m.moveAccountRow(-1) {
+				m.scroll = max(0, m.scroll-1)
+			}
 		case "pgdown":
 			m.scroll += max(1, m.height/2)
 		case "pgup":
@@ -199,11 +620,28 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				}
 			}
 			m.uiFocus = uiCycle(m.uiFocus, ids, key == "shift+tab")
+			if strings.HasPrefix(m.uiFocus, accountRowPrefix) {
+				m.accountRow = strings.TrimPrefix(m.uiFocus, accountRowPrefix)
+			}
 		case "enter":
-			n, c := m.accountActivate(m.uiFocus)
+			target := m.uiFocus
+			if m.screen == "accounts" && !strings.HasPrefix(target, "nav:") {
+				target = "account:i"
+			}
+			if m.screen == "accounts-reset-confirm" {
+				target = "account:cancel-reset"
+			}
+			n, c := m.accountActivate(target)
 			return n, c, true
 		case "esc", "q":
-			n, c := m.accountActivate("account:back")
+			target := "account:back"
+			if m.screen == "accounts-reset-confirm" {
+				target = "account:cancel-reset"
+			}
+			n, c := m.accountActivate(target)
+			return n, c, true
+		case "i":
+			n, c := m.accountActivate("account:i")
 			return n, c, true
 		default:
 			for _, a := range m.accountActions() {

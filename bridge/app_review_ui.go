@@ -114,7 +114,7 @@ func (m harborModel) reviewLayout() uiPage {
 	p.Hint = ""
 	layout := p.finish(m.scroll)
 	if layout.MaxScroll > 0 {
-		p.Hint = "↑↓ / PgUp/PgDown scroll"
+		p.Hint = scrollHint
 		return p.finish(m.scroll)
 	}
 	return layout

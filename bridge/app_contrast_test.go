@@ -44,6 +44,22 @@ func TestHelpTablesWrapDescriptionsAndRetainScrollRail(t *testing.T) {
 	}
 }
 
+func TestNarrowFooterCapsHeightAndPreservesActionMetadata(t *testing.T) {
+	p := newUIPage(25, 16)
+	p.shortcuts([]uiAction{
+		{ID: "first", Key: "a", Label: "First action"},
+		{ID: "second", Key: "b", Label: "Second action to clip"},
+		{ID: "third", Key: "c", Label: "Third action"},
+	}, "")
+	bar := p.shortcutBar()
+	if len(bar.Lines) != 2 || !strings.HasSuffix(ansi.Strip(bar.Lines[1]), "...") {
+		t.Fatal(bar.Lines)
+	}
+	if len(bar.Actions) != 3 || bar.target(1, 0) != "first" || len(bar.Hits) != 1 {
+		t.Fatalf("actions = %v, hits = %v", bar.Actions, bar.Hits)
+	}
+}
+
 func TestFooterColourSeparatesKeyFromDescription(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	os.Unsetenv("NO_COLOR")

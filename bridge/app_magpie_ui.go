@@ -45,7 +45,8 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 	p.line(paint(fg("section"), "Magpie instances"))
 	rows := m.instanceRows()
 	for i, r := range rows {
-		p.field("instance:"+r.ID, "🐦", r.Name, r.Kind+" · "+r.Health, i == m.instanceCursor, false)
+		id := "instance:" + r.ID
+		p.listRow(id, "🐦", r.Name, r.Kind+" · "+r.Health, m.rowStyle(id, i == m.instanceCursor && m.searchFocus != "magpie" && !strings.HasPrefix(m.uiFocus, "nav:"), false))
 	}
 	if len(rows) == 0 {
 		p.emptyState("No recorded instances.")
@@ -67,7 +68,7 @@ func (m harborModel) connectionPage() (uiPage, bool) {
 	p.shortcuts(a[len(a)-3:], m.uiFocus)
 	p.Height = m.height
 	if p.Hint == "" {
-		p.Hint = "/ search · Tab focus · ↑↓ select · PgUp/PgDown scroll · Esc back"
+		p.Hint = "/ search · Tab focus · ↑↓ select · PgUp/PgDn scroll · Esc back"
 	}
 	if m.searchFocus == "magpie" {
 		p.Actions = nil
@@ -101,10 +102,7 @@ func (m harborModel) connectionDocument() uiPage {
 		}
 	}
 	footer.shortcuts(actions, m.uiFocus)
-	footer.Hint = "↑↓ / PgUp/PgDown scroll"
-	if m.screen == "magpie-confirm" {
-		footer.Hint = "↑↓ / PgUp/PgDown scroll · PgUp/PgDown scroll"
-	}
+	footer.Hint = scrollHint
 	return p.withFooter(footer, m.height, m.scroll)
 }
 func (m harborModel) connectionActivate(id string) (tea.Model, tea.Cmd) {
@@ -351,6 +349,6 @@ func (m harborModel) connectionRevealSelected() harborModel {
 func (m harborModel) connectionFooterHeight() int {
 	p := newUIPage(m.width, m.height)
 	p.shortcuts(m.connectionActions(), m.uiFocus)
-	p.Hint = "/ search · Tab focus · ↑↓ select · PgUp/PgDown scroll · Esc back"
+	p.Hint = "/ search · Tab focus · ↑↓ select · PgUp/PgDn scroll · Esc back"
 	return len(p.shortcutBar().Lines)
 }

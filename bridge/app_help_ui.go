@@ -50,7 +50,7 @@ func renderHelp(width int, sections []helpSection) string {
 	return strings.Join(lines, "\n")
 }
 func (m harborModel) contextHelp() []helpSection {
-	navigation := helpSection{"Navigation", []helpRow{{"Tab / Shift+Tab", "Move between fields, list and navigation"}, {"↑↓", "Select a row or scroll text"}, {"Enter", "Apply current field or selected row; use shown action keys"}, {"Esc", "Clear search, leave input, then return"}, {"PgUp/PgDown", "Scroll long documents"}}}
+	navigation := helpSection{"Navigation", []helpRow{{"Tab / Shift+Tab", "Move between fields, list and navigation"}, {"↑↓", "Select a row or scroll text"}, {"Enter", "Apply current field or selected row; use shown action keys"}, {"Esc", "Clear search, leave input, then return"}, {"PgUp/PgDn", "Scroll long documents"}}}
 	actions := []uiAction{}
 	parent := m
 	parent.screen = m.previous
@@ -85,7 +85,7 @@ func (m harborModel) contextHelp() []helpSection {
 }
 func settingsHelp() []helpSection {
 	return []helpSection{
-		{"Navigation", []helpRow{{"Tab / Shift+Tab", "Move focus"}, {"↑↓", "Choose a field"}, {"Enter", "Edit field; accept draft value"}, {"Esc", "Cancel edit or return without saving"}, {"/", "Search settings"}, {"PgUp/PgDown", "Scroll help and details"}}},
+		{"Navigation", []helpRow{{"Tab / Shift+Tab", "Move focus"}, {"↑↓", "Choose a field"}, {"Enter", "Edit field; accept draft value"}, {"Esc", "Cancel edit or return without saving"}, {"/", "Search settings"}, {"PgUp/PgDn", "Scroll help and details"}}},
 		{"Changes", []helpRow{{"^S", "Save all changes"}, {"^R", "Restore defaults in the draft"}, {"i", "Inspect the current message"}, {"?", "Open keyboard help"}}},
 		{"Workspace", []helpRow{{"prefix", "Ctrl+B; shortcuts affect this workspace only"}, {"prefix+s", "Open native Herdr settings"}, {"^Z", "Suspend; resume retains the draft"}, {"^C", "Close Harbor"}}},
 	}

@@ -70,6 +70,12 @@ codex-auth, saved-login selection and “Not signed in” while retaining saved
 accounts. Account mutations coordinate with launch and refuse active or unknown
 session activity. Each affected session reports its outcome; ordinary account
 management does not restart processes or depend on experimental refresh.
+Opening Accounts loads saved Codex logins for the selected Profile and
+automatically refreshes 5-hour and weekly availability and reset cards
+through bundled codex-auth. Each account has its own detail view and
+lookup result. An explicit confirmation in Details redeems one card for
+that saved account through codex-auth, which selects the card. Harbor
+refreshes the account list after the operation.
 Profile-bound execution is implemented and received maintainer-reported macOS
 manual acceptance on 2026-11-16. The [acceptance record](issues-19-20-acceptance.md)
 retains the separate detailed real-account, remote and platform validation scope.

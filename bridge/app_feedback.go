@@ -39,6 +39,7 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.servicePending || done.id != m.serviceTaskID {
 			return m, nil
 		}
+		previousScreen := m.screen
 		m.servicePending = false
 		cmd := done.apply(&m, done.err)
 		m.noticeID++
@@ -51,6 +52,7 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.uiFocus = "list"
 			m.scroll = 0
 		}
+		m.updateRowHover(previousScreen, msg)
 		return m, cmd
 	}
 	if m.servicePending {
@@ -62,12 +64,13 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "?" && m.settings == nil && !m.editingText() && m.screen != "help" && m.screen != "busy" && m.screen != "magpie-busy" && m.screen != "accounts-busy" {
+	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "?" && m.settings == nil && !m.editingText() && m.screen != "help" && m.screen != "busy" && m.screen != "magpie-busy" && m.screen != "accounts-busy" && m.screen != "accounts-resetting" {
 		m.secondaryHelpScroll = m.scroll
 		m.secondaryHelpFocus = m.uiFocus
 		m.previous = m.screen
 		m.screen = "help"
 		m.scroll = 0
+		m.updateRowHover(m.previous, msg)
 		return m, nil
 	}
 	next, cmd := m.updateFrame(msg)
@@ -89,9 +92,15 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if n.screen == "confirm" || n.screen == "confirm-evidence" {
 		n.scroll = max(0, min(n.scroll, n.reviewLayout().MaxScroll))
 	}
+	n.updateRowHover(m.screen, msg)
 	return n, cmd
 }
 func (m harborModel) updateFrame(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg.(type) {
+	case appAccountStatus, appAccountRead, appAccountDone:
+		next, cmd, _ := m.accountsPageInput(msg)
+		return next, cmd
+	}
 	if m.settings != nil && !isRuntimeRefresh(msg) {
 		return m.update(msg)
 	}

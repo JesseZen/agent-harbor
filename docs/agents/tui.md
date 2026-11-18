@@ -6,9 +6,10 @@ Apply this contract to new features, screens, dialogs and changes to shared cont
 
 - Preserve Harbor's dark gray surface, semantic palette, field alignment, selection background and established emoji. New pages must look and behave like adjacent Harbor pages. A feature-specific theme or independently styled page requires an explicit design change from the user.
 - Reuse `uiPage`, fields, search/edit boxes, shortcut formatting, footer docking and scroll rails in `bridge/app_ui.go`. Extend the shared component when a class of pages needs a change; avoid a parallel implementation made from page-specific spacing and strings.
-- Keep navigation tabs, fields and list options. Harbor actions use keyboard shortcuts in a fixed bottom bar. Calculate content capacity from the actual wrapped footer, including narrow windows, messages and resize; wrap key and action together.
+- Keep navigation tabs, fields and list options. Harbor actions use keyboard shortcuts in a fixed bottom bar. Keep key and action together and limit the footer to two lines, with `...` when more hints are available. Hidden shortcuts remain available by key. Calculate content capacity from the displayed footer.
 - Search fields use a muted idle border, pale purple focus border, `⌕`, an in-field gray placeholder and the real input cursor. Typing replaces the placeholder; clearing restores it. Use the shared `⎋`, `↵` and `⇥` display formatting while dispatching the actual keys.
 - Put icons where they identify navigation or meaningful data. The Profile emoji appears only in its top-level tab, without repeating it in the page title or Profile fields. At narrow widths, keep all tab targets and expand the current or focused tab's text.
+- In selectable lists, show the keyboard cursor with `>` and the accent foreground. Hover gives the row a background tint and preserves its foreground. If the list has an applied selection, give its main label the selection foreground even under the cursor. Keep status and measurement colors readable in all states. A check mark can identify the applied selection without color.
 - Use a proportional right-edge scroll rail only for overflowing content. Reserve its cell without losing text; keep it out of the footer and clamp offsets on content and size changes.
 
 ## Content and interaction

@@ -11,7 +11,7 @@ func selectorMark(selected bool) string {
 	if selected {
 		return "✓"
 	}
-	return "·"
+	return ""
 }
 func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 	p := newUIPage(m.width, 10000)
@@ -33,8 +33,12 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 		start := max(0, m.instanceCursor-count+1)
 		for i := start; i < min(len(rows), start+count); i++ {
 			r := rows[i]
-			p.field("selector-instance:"+r.ID, selectorMark(m.formSaved.Connection == "magpie" && m.formSaved.Instance == r.ID), r.Name, r.ID+" · "+r.Health, i == m.instanceCursor, false)
-			p.Lines[len(p.Lines)-1] = highlightSearch(p.Lines[len(p.Lines)-1], m.instanceFilter)
+			id := "selector-instance:" + r.ID
+			selected := m.formSaved.Connection == "magpie" && m.formSaved.Instance == r.ID
+			p.listRow(id, selectorMark(selected), r.Name, r.ID+" · "+r.Health, m.rowStyle(id, i == m.instanceCursor && m.uiFocus != "selector-search", selected))
+			if !selected {
+				p.Lines[len(p.Lines)-1] = highlightSearch(p.Lines[len(p.Lines)-1], m.instanceFilter)
+			}
 		}
 		p.scrollRail(listTop, len(p.Lines)-listTop, len(rows), start)
 		if len(rows) > 0 {
@@ -66,8 +70,12 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 			if r.OwnedBy != "" {
 				label += " · " + r.OwnedBy
 			}
-			p.field("selector-model:"+r.ID, selectorMark(m.formSaved.Connection == "magpie" && m.formSaved.Instance == m.draft.Instance && m.formSaved.Model == r.ID), r.ID, label, i == m.catalogCursor, false)
-			p.Lines[len(p.Lines)-1] = highlightSearch(p.Lines[len(p.Lines)-1], m.catalogFilter)
+			id := "selector-model:" + r.ID
+			selected := m.formSaved.Connection == "magpie" && m.formSaved.Instance == m.draft.Instance && m.formSaved.Model == r.ID
+			p.listRow(id, selectorMark(selected), r.ID, label, m.rowStyle(id, i == m.catalogCursor && m.uiFocus != "selector-search", selected))
+			if !selected {
+				p.Lines[len(p.Lines)-1] = highlightSearch(p.Lines[len(p.Lines)-1], m.catalogFilter)
+			}
 		}
 		p.scrollRail(listTop, len(p.Lines)-listTop, len(rows), start)
 		wrap("Auxiliary requests may send conversation parts to other providers.")
@@ -90,7 +98,7 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 	if m.notice != "" {
 		wrap(cleanUI(m.notice))
 	}
-	hint := "PgUp/PgDown scroll · Tab controls"
+	hint := "PgUp/PgDn scroll · Tab controls"
 	if m.uiFocus == "selector-search" {
 		hint = "Type search · tab list · Esc clear/back"
 	}

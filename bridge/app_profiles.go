@@ -73,12 +73,9 @@ func (m harborModel) profilePage() (uiPage, bool) {
 	for i := start; i < min(len(m.profiles), start+count); i++ {
 		row := m.profiles[i]
 		label := row.Name + " · " + string(row.Kind)
-		if m.activeProfile != nil && row.ID == m.activeProfile.ProfileID {
-			label += " · selected"
-		}
-		y := len(p.Lines)
-		p.field("", "", cleanUI(label), "", i == m.profileCursor, false)
-		p.hit("profile-row:"+row.ID, 1, y, max(1, p.Width-2), 1)
+		id := "profile-row:" + row.ID
+		selected := m.activeProfile != nil && row.ID == m.activeProfile.ProfileID
+		p.listRow(id, selectorMark(selected), cleanUI(label), "", m.rowStyle(id, i == m.profileCursor && !strings.HasPrefix(m.uiFocus, "nav:"), selected))
 	}
 	p.scrollRail(listTop, len(p.Lines)-listTop, len(m.profiles), start)
 
@@ -94,7 +91,9 @@ func (m harborModel) profilePage() (uiPage, bool) {
 			if i > 0 {
 				id, label = m.profileInstances[i-1].ID, m.profileInstances[i-1].Name+" · "+m.profileInstances[i-1].ID
 			}
-			p.field("profile-instance:"+id, "", label, "", m.profileDefaultCursor == i, false)
+			selected := m.profileCursor < len(m.profiles) && id == m.profiles[m.profileCursor].DefaultInstanceID
+			target := "profile-instance:" + id
+			p.listRow(target, selectorMark(selected), cleanUI(label), "", m.rowStyle(target, m.profileDefaultCursor == i, selected))
 		}
 		p.scrollRail(listTop, len(p.Lines)-listTop, len(m.profileInstances)+1, start)
 		p.shortcuts([]uiAction{{ID: "profile:enter", Label: "Save default", Key: "enter"}, {ID: "profile:esc", Label: "Cancel", Key: "esc"}}, "")
@@ -119,6 +118,10 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				m.activeProfile = &b
 				m.accountProfile = &b
 				m.accountSnapshot = nil
+				if m.screen == "accounts" {
+					cmd := m.beginAccountInspect()
+					return m, cmd, true
+				}
 				m.accountGeneration++
 			}
 		}
@@ -328,6 +331,7 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				n.activeProfile = &b
 				n.accountProfile = &b
 				n.accountSnapshot = nil
+				n.accountRow = ""
 				n.accountGeneration++
 				n.generation++
 				n.screen = "sessions"
@@ -336,7 +340,7 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				if n.profileReturn != "" {
 					n.screen, n.scroll, n.uiFocus = n.profileReturn, n.profileReturnScroll, ""
 					n.profileReturn = ""
-					return n.inspectAccounts(b)
+					return n.beginAccountInspect()
 				}
 				return n.load()
 			})

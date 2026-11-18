@@ -92,13 +92,17 @@ than replacing or stopping a user-managed service.
 
 ### Codex accounts
 
-The Accounts page (`a`) is available by default. Select the Profile with `p`;
-its name, Codex home and affected owned sessions appear in the page. `l` adds a
-login through official Codex, `s` selects a saved login, `o` selects Not signed
-in while retaining the saved list, and `r` rereads status. Browsing does not
-select or sign out an account. Unknown/active session activity refuses mutation;
-stop the named session explicitly before retrying when it cannot be inspected.
-Existing environments may also affect external clients sharing that home.
+The Accounts page (`a`) automatically refreshes Codex usage and reset-card
+availability for the selected Profile. `p` chooses a Profile and `r` reruns the
+lookup. Enter on a saved account opens Details. A ticket marks available
+reset cards. In Details, `u` opens a confirmation and `y` redeems one card
+through bundled codex-auth, which chooses the card.
+
+`l` adds a login through official Codex, `s` selects a saved login, and `o`
+selects Not signed in while retaining the saved list. Unknown or active
+session activity blocks login changes. Stop the named session explicitly
+before retrying when its activity cannot be inspected. Existing environments
+may also affect external clients sharing that home.
 
 Profile runtime and account integration are implemented together. The maintainer
 reported macOS manual acceptance on 2026-11-16; the [acceptance record](../docs/issues-19-20-acceptance.md)

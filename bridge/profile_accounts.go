@@ -14,16 +14,69 @@ import (
 )
 
 type codexAccountRequest struct {
-	Profile profileBinding
-	Action  string // inspect, login, switch, signed-out
+	Profile  profileBinding
+	Action   string // inspect, usage, reset, login, switch, signed-out
+	Selected string
 }
 type savedCodexAccount struct {
-	Key     string `json:"account_key"`
-	Email   string `json:"email"`
-	Alias   string `json:"alias"`
-	Active  bool   `json:"active"`
-	Expires *int64 `json:"access_token_expires_at"`
+	Key         string             `json:"account_key"`
+	Email       string             `json:"email"`
+	Plan        string             `json:"plan"`
+	Alias       string             `json:"alias"`
+	Workspace   string             `json:"account_name"`
+	Active      bool               `json:"active"`
+	Expires     *int64             `json:"access_token_expires_at"`
+	PlanExpires *int64             `json:"plan_expires_at"`
+	Usage       *savedAccountUsage `json:"usage"`
 }
+
+type savedAccountUsage struct {
+	Source       string             `json:"source"`
+	Primary      *savedUsageWindow  `json:"primary"`
+	Secondary    *savedUsageWindow  `json:"secondary"`
+	ResetCount   *int               `json:"reset_credits"`
+	ResetCredits []savedResetCredit `json:"reset_credit"`
+	Refresh      struct {
+		Status     string `json:"status"`
+		HTTPStatus int    `json:"http_status"`
+	} `json:"refresh"`
+}
+
+type savedResetCredit struct {
+	Status    string `json:"status"`
+	ExpiresAt string `json:"expires_at"`
+}
+
+func (c savedResetCredit) expiration() time.Time {
+	at, _ := time.Parse(time.RFC3339, c.ExpiresAt)
+	return at
+}
+
+type savedUsageWindow struct {
+	UsedPercent *float64 `json:"used_percent"`
+	Minutes     int      `json:"window_minutes"`
+	ResetsAt    int64    `json:"resets_at"`
+}
+
+// A failed usage request can include old quota and cards.
+func (u *savedAccountUsage) current() bool {
+	return u != nil && u.Source == "api" && u.Refresh.Status == "ok"
+}
+
+func (u *savedAccountUsage) hasResetCard() bool {
+	if !u.current() || u.ResetCount == nil || *u.ResetCount <= 0 {
+		return false
+	}
+	now := time.Now()
+	for _, card := range u.ResetCredits {
+		expiry := card.expiration()
+		if card.Status == "available" && (expiry.IsZero() || expiry.After(now)) {
+			return true
+		}
+	}
+	return false
+}
+
 type profileAccountResult struct {
 	Profile                            profileBinding
 	ProfileName, Home, State, Selected string
@@ -46,14 +99,15 @@ func (h harborService) ProfileCodexAccounts(ctx context.Context, req codexAccoun
 func profileCodexAccounts(ctx context.Context, service applicationService, req codexAccountRequest, in io.Reader, out, diagnostic io.Writer) (profileAccountResult, error) {
 	result := profileAccountResult{Profile: req.Profile, State: "unconfirmed"}
 	operation := profileAccountMutation
-	if req.Action == "inspect" {
+	switch req.Action {
+	case "inspect", "usage":
 		operation = profileInspect
+	case "reset", "login", "switch", "signed-out":
+	default:
+		return result, errors.New("unknown account action")
 	}
 	if req.Profile.Client != "codex" {
 		return result, ErrProfileUnsupported
-	}
-	if req.Action != "inspect" && req.Action != "login" && req.Action != "switch" && req.Action != "signed-out" {
-		return result, errors.New("unknown account action")
 	}
 	err := service.WithProfileClient(ctx, profileClientRequest{Binding: req.Profile}, operation, func(scope profileClientScope) error {
 		env := scope.Environment
@@ -80,8 +134,15 @@ func profileCodexAccounts(ctx context.Context, service applicationService, req c
 			result.State = "unavailable"
 			return err
 		}
-		if req.Action == "inspect" {
+		switch req.Action {
+		case "inspect":
 			return readProfileAccounts(ctx, tool, env, &result)
+		case "usage":
+			list, err := listProfileAccounts(ctx, tool, env, "--api")
+			result.Accounts = list.Accounts
+			return err
+		case "reset":
+			return resetProfileAccount(ctx, tool, env, req.Selected)
 		}
 		for _, s := range scope.Sessions {
 			if sessionLaunchPending(s) {
@@ -162,25 +223,57 @@ func profileCodexAccounts(ctx context.Context, service applicationService, req c
 	return result, err
 }
 
-func readProfileAccounts(ctx context.Context, tool string, env profileClientEnvironment, result *profileAccountResult) error {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+func resetProfileAccount(ctx context.Context, tool string, env profileClientEnvironment, selected string) error {
+	list, err := listProfileAccounts(ctx, tool, env, "--skip-api")
+	if err != nil {
+		return err
+	}
+	// codex-auth tries the exact registry key before its other selector forms.
+	for _, account := range list.Accounts {
+		if selected != "" && account.Key == selected {
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, tool, "reset", selected)
+			cmd.Env, cmd.Dir = env.Environment, env.Home
+			if err := cmd.Run(); err != nil {
+				return errors.New("codex-auth did not confirm the reset")
+			}
+			return nil
+		}
+	}
+	return errors.New("the saved login is no longer in this Profile")
+}
+
+type savedAccountList struct {
+	Version  int                 `json:"schema_version"`
+	Active   string              `json:"active_account_key"`
+	Accounts []savedCodexAccount `json:"accounts"`
+}
+
+func listProfileAccounts(ctx context.Context, tool string, env profileClientEnvironment, flag string) (savedAccountList, error) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, tool, "list", "--skip-api", "--json")
+	cmd := exec.CommandContext(ctx, tool, "list", flag, "--json")
 	cmd.Env = env.Environment
 	cmd.Dir = env.Home
 	data, err := cmd.Output()
 	if err != nil {
-		result.State = "unavailable"
-		return errors.New("saved accounts could not be read")
+		return savedAccountList{}, errors.New("codex-auth could not read saved account data")
 	}
-	var list struct {
-		Version  int                 `json:"schema_version"`
-		Active   string              `json:"active_account_key"`
-		Accounts []savedCodexAccount `json:"accounts"`
-	}
+	var list savedAccountList
 	if json.Unmarshal(data, &list) != nil || list.Version != 1 {
+		return savedAccountList{}, errors.New("incompatible codex-auth account response; reinstall the pinned tool")
+	}
+	return list, nil
+}
+
+func readProfileAccounts(ctx context.Context, tool string, env profileClientEnvironment, result *profileAccountResult) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	list, err := listProfileAccounts(ctx, tool, env, "--skip-api")
+	if err != nil {
 		result.State = "unavailable"
-		return errors.New("incompatible codex-auth account response; reinstall the pinned tool")
+		return err
 	}
 	result.Accounts = list.Accounts
 	result.Selected = ""
@@ -191,7 +284,7 @@ func readProfileAccounts(ctx context.Context, tool string, env profileClientEnvi
 	if err != nil {
 		return err
 	}
-	cmd = exec.CommandContext(ctx, codex, append(append([]string{}, env.Arguments...), "login", "status")...)
+	cmd := exec.CommandContext(ctx, codex, append(append([]string{}, env.Arguments...), "login", "status")...)
 	cmd.Env = env.Environment
 	cmd.Dir = env.Home
 	status, err := cmd.CombinedOutput()

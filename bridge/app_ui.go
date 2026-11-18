@@ -146,6 +146,7 @@ func (p uiPage) shortcutBar() uiPage {
 	bar := newUIPage(p.Width, p.Height)
 	bar.Actions = p.Actions
 	line := ""
+	lastWholeHint := 0
 	flush := func() {
 		if line != "" {
 			bar.line(line)
@@ -179,6 +180,9 @@ func (p uiPage) shortcutBar() uiPage {
 			}
 			x, y := 1+ansi.StringWidth(line), len(bar.Lines)
 			line += part
+			if y == 1 && ansi.StringWidth(line) <= p.Width-6 {
+				lastWholeHint = ansi.StringWidth(line)
+			}
 			if id != "" && !disabled {
 				bar.hit(id, x, y, ansi.StringWidth(part), 1)
 			}
@@ -197,8 +201,29 @@ func (p uiPage) shortcutBar() uiPage {
 		appendHint(key, label, "", false, false)
 	}
 	flush()
+	if len(bar.Lines) > 2 {
+		bar.Lines = bar.Lines[:2]
+		width := max(1, bar.Width-2)
+		marker := strings.Repeat(".", min(3, width))
+		line := ""
+		if lastWholeHint > 0 {
+			line = ansi.Truncate(bar.Lines[1], lastWholeHint, "")
+			marker = " " + marker
+		}
+		bar.Lines[1] = line + paint(fg("text"), marker)
+		end := 1 + ansi.StringWidth(line)
+		hits := bar.Hits[:0]
+		for _, hit := range bar.Hits {
+			if hit.Y == 0 || (hit.Y == 1 && hit.X+hit.W <= end) {
+				hits = append(hits, hit)
+			}
+		}
+		bar.Hits = hits
+	}
 	return bar
 }
+
+const scrollHint = "↑↓ PgUp/PgDn scroll"
 
 // Hints and actions share one layout and the same bright-key/dim-description pair.
 func splitHint(hint string) (string, string) {
@@ -228,11 +253,59 @@ func (p uiPage) finish(scroll int) uiPage {
 }
 
 func (p *uiPage) field(id, icon, label, value string, focused, editable bool) {
-	y := len(p.Lines)
 	mark := "  "
 	if focused {
 		mark = "› "
 	}
+	base := fg("text")
+	if focused {
+		base = base.Background(lipgloss.Color(harborPalette["selBg"]))
+	}
+	p.fieldLine(id, icon, label, value, mark, base, base.Foreground(lipgloss.Color(harborPalette["value"])), editable)
+}
+
+type uiRowStyle struct {
+	cursor, selected, hovered bool
+}
+
+func (r uiRowStyle) marker() string {
+	if r.cursor {
+		return "> "
+	}
+	return "  "
+}
+
+func (r uiRowStyle) style(role string) lipgloss.Style {
+	if role == "text" {
+		switch {
+		case r.selected:
+			role = "section"
+		case r.cursor:
+			role = "brand"
+		}
+	}
+	style := fg(role)
+	if r.hovered {
+		style = style.Background(lipgloss.Color(harborPalette["selBg"]))
+	}
+	return style
+}
+
+func (r uiRowStyle) line(text, role string, width int) string {
+	text = ansi.Truncate(text, width, "…")
+	return paint(r.style(role), text+strings.Repeat(" ", max(0, width-ansi.StringWidth(text))))
+}
+
+func (m harborModel) rowStyle(id string, cursor, selected bool) uiRowStyle {
+	return uiRowStyle{cursor: cursor, selected: selected, hovered: id != "" && id == m.rowHover}
+}
+
+func (p *uiPage) listRow(id, icon, label, value string, row uiRowStyle) {
+	p.fieldLine(id, icon, label, value, row.marker(), row.style("text"), row.style("value"), false)
+}
+
+func (p *uiPage) fieldLine(id, icon, label, value, mark string, labelStyle, valueStyle lipgloss.Style, editable bool) {
+	y := len(p.Lines)
 	prefix := mark + icon + strings.Repeat(" ", max(1, 4-ansi.StringWidth(icon)))
 	col := min(24, max(20, p.Width/3))
 	key := prefix + label
@@ -244,11 +317,7 @@ func (p *uiPage) field(id, icon, label, value string, focused, editable bool) {
 	available := max(1, p.Width-2-ansi.StringWidth(key)-ansi.StringWidth(suffix))
 	value = ansi.Truncate(value, available, "…")
 	value += strings.Repeat(" ", max(0, available-ansi.StringWidth(value)))
-	base := lipgloss.NewStyle().Background(lipgloss.Color(harborPalette["bg"]))
-	if focused {
-		base = base.Background(lipgloss.Color(harborPalette["selBg"]))
-	}
-	p.line(paint(base.Foreground(lipgloss.Color(harborPalette["text"])), key) + paint(base.Foreground(lipgloss.Color(harborPalette["value"])), value+suffix))
+	p.line(paint(labelStyle, key) + paint(valueStyle, value+suffix))
 	p.hit(id, 1, y, p.Width-2, 1)
 }
 

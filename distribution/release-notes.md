@@ -1,9 +1,9 @@
-Changes in v0.1.0-dev.5:
+Changes in v0.1.0-dev.6:
 
-- Recognize official npm Codex installations by resolving their native executable, including Profile account management.
-- Open the workspace directly after dependency checks. Choose native or Magpie connections per Session and set up optional gateways in Connections.
-- Show dependency failures without incorrectly asking users to reinstall bundled Herdr.
-- Build Harbor packages using pinned, SHA256-verified Herdr and Magpie binaries from the Harbor forks.
+- Accounts automatically refreshes 5-hour and weekly Codex quota and reset-card availability for saved logins in the current Profile.
+- Open an account's details to view quota reset times and card expiry. Confirm redemption to use one card through bundled codex-auth and refresh the results.
+- The account list keeps quota percentages visible on narrow panes and adds timestamps and bars as space allows.
+- Sessions and selection lists use consistent keyboard cursor, mouse hover, and applied selection styles. Shortcut hints fit in at most two lines.
 
 Native development candidate for macOS and Linux, arm64 and amd64.
 

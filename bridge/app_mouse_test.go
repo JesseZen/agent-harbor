@@ -191,7 +191,7 @@ func TestMouseShortPopupVisibleCells(t *testing.T) {
 	if m.mouse.id != "a" {
 		t.Fatal("visible name inert")
 	}
-	m = mouseAt(m, 3, m.height-1, at.Add(time.Millisecond))
+	m = mouseAt(m, 0, m.height-1, at.Add(time.Millisecond))
 	if m.mouse.id != "" || m.screen != "sessions" {
 		t.Fatal("footer activated row")
 	}

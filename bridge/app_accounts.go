@@ -79,8 +79,8 @@ func (m harborModel) updateAccounts(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key == "r" {
-		m.accountGeneration++
-		return m, m.inspectAccounts(*m.accountProfile)
+		cmd := m.beginAccountInspect()
+		return m, cmd
 	}
 	if key == "s" && m.accountSnapshot != nil && len(m.accountSnapshot.Accounts) == 0 {
 		m.accountResult = "No saved logins. Return and press l to add a login."
@@ -103,6 +103,17 @@ func (m harborModel) updateAccounts(key string) (tea.Model, tea.Cmd) {
 	})
 }
 
+func (m *harborModel) beginAccountInspect() tea.Cmd {
+	m.accountGeneration++
+	m.accountSnapshot = nil
+	m.accountUsagePending = false
+	m.accountUsageError = ""
+	if m.accountProfile == nil {
+		return nil
+	}
+	return m.inspectAccounts(*m.accountProfile)
+}
+
 func (m harborModel) inspectAccounts(binding profileBinding) tea.Cmd {
 	generation := m.accountGeneration
 	return func() tea.Msg {
@@ -120,6 +131,76 @@ type appAccountStatus struct {
 	profile    profileBinding
 	result     profileAccountResult
 	err        error
+}
+
+type appAccountRead struct {
+	generation uint64
+	request    codexAccountRequest
+	result     profileAccountResult
+	err        error
+}
+
+func (m harborModel) readAccountData(req codexAccountRequest) tea.Cmd {
+	service, ok := m.service.(profileAccountService)
+	if !ok {
+		return nil
+	}
+	generation := m.accountGeneration
+	return func() tea.Msg {
+		result, err := service.ProfileCodexAccounts(context.Background(), req, nil, nil, nil)
+		return appAccountRead{generation: generation, request: req, result: result, err: err}
+	}
+}
+
+func (m *harborModel) loadAccountUsage() tea.Cmd {
+	m.accountUsageError = ""
+	if m.accountProfile == nil || m.accountSnapshot == nil || len(m.accountSnapshot.Accounts) == 0 {
+		m.accountUsagePending = false
+		return nil
+	}
+	cmd := m.readAccountData(codexAccountRequest{Profile: *m.accountProfile, Action: "usage"})
+	m.accountUsagePending = cmd != nil
+	return cmd
+}
+
+func (m harborModel) currentAccount(key string) bool {
+	return key != "" && m.accountSnapshot != nil && m.accountSnapshot.State == "selected" && key == m.accountSnapshot.Selected
+}
+
+func (m harborModel) selectedAccount() (savedCodexAccount, bool) {
+	if m.accountSnapshot != nil {
+		for _, a := range m.accountSnapshot.Accounts {
+			if a.Key != "" && a.Key == m.accountRow {
+				return a, true
+			}
+		}
+	}
+	return savedCodexAccount{}, false
+}
+
+func (m harborModel) canResetAccount() bool {
+	a, ok := m.selectedAccount()
+	return ok && m.accountProfile != nil && !m.accountUsagePending && a.Usage.hasResetCard()
+}
+
+func (m harborModel) reviewAccountReset() (tea.Model, tea.Cmd) {
+	if !m.canResetAccount() {
+		return m, nil
+	}
+	m.accountResetReview = m.accountRow
+	m.screen, m.scroll = "accounts-reset-confirm", 0
+	return m, nil
+}
+
+func (m harborModel) submitAccountReset() (tea.Model, tea.Cmd) {
+	if m.accountResetReview != m.accountRow || !m.canResetAccount() {
+		return m, nil
+	}
+	cmd := m.readAccountData(codexAccountRequest{Profile: *m.accountProfile, Action: "reset", Selected: m.accountResetReview})
+	if cmd != nil {
+		m.screen, m.scroll = "accounts-resetting", 0
+	}
+	return m, cmd
 }
 
 func accountResultText(result profileAccountResult) string {

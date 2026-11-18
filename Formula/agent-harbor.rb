@@ -1,26 +1,26 @@
 class AgentHarbor < Formula
   desc "AI CLI sessions with Profiles, conversation recovery and optional routing"
   homepage "https://github.com/JesseZen/agent-harbor"
-  version "0.1.0-dev.6"
+  version "0.1.0-dev.7"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.6/agent-harbor-v0.1.0-dev.6-darwin-arm64.tar.gz"
-      sha256 "9e3716421b78aba67e2ff6c995c5b13bf63167542857142acbea84039874162d"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.7/agent-harbor-v0.1.0-dev.7-darwin-arm64.tar.gz"
+      sha256 "6b4ecc0916f7dcd7da3a26be0b0813a34021295534f9e5f810ed1fca7a9c94f9"
     else
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.6/agent-harbor-v0.1.0-dev.6-darwin-amd64.tar.gz"
-      sha256 "c298b1fe1ab016bd6220eeaa8750505d8c3bd2aabd78ae2e0b2434cac763a392"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.7/agent-harbor-v0.1.0-dev.7-darwin-amd64.tar.gz"
+      sha256 "83c942cccf6043eb19d58ff73a0af47918c415659f182c3eba50522e0da1ba03"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.6/agent-harbor-v0.1.0-dev.6-linux-arm64.tar.gz"
-      sha256 "eaf3b49fe2ec3116013cbbdff70930c7d2ad7e6d1b109a8829e04c9793e49dec"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.7/agent-harbor-v0.1.0-dev.7-linux-arm64.tar.gz"
+      sha256 "9025650c064c358d8424e47fbe3d1a1e780cc551fa104747e41bb11e2fbe6686"
     else
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.6/agent-harbor-v0.1.0-dev.6-linux-amd64.tar.gz"
-      sha256 "12d447bb44a34dc627d901723aa54619da2cb413a9b080a1367fc6738553d131"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.7/agent-harbor-v0.1.0-dev.7-linux-amd64.tar.gz"
+      sha256 "01e02815f26529359959dbfc1f5c24d1166e4b203d131ede60318d824d819782"
     end
   end
 

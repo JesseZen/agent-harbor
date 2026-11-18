@@ -1,26 +1,26 @@
 class AgentHarbor < Formula
   desc "AI CLI sessions with Profiles, conversation recovery and optional routing"
   homepage "https://github.com/JesseZen/agent-harbor"
-  version "0.1.0-dev.5"
+  version "0.1.0-dev.6"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.5/agent-harbor-v0.1.0-dev.5-darwin-arm64.tar.gz"
-      sha256 "2420707160395702f2d7b8e3816f73591f9c917e40e78ae3dc5e9964fead2aa2"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.6/agent-harbor-v0.1.0-dev.6-darwin-arm64.tar.gz"
+      sha256 "9e3716421b78aba67e2ff6c995c5b13bf63167542857142acbea84039874162d"
     else
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.5/agent-harbor-v0.1.0-dev.5-darwin-amd64.tar.gz"
-      sha256 "39cd4544ea1e96f64d439bd01ad44d86a1e84c05412fde2cc58bf4a1ba7a79f2"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.6/agent-harbor-v0.1.0-dev.6-darwin-amd64.tar.gz"
+      sha256 "c298b1fe1ab016bd6220eeaa8750505d8c3bd2aabd78ae2e0b2434cac763a392"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.5/agent-harbor-v0.1.0-dev.5-linux-arm64.tar.gz"
-      sha256 "8f08eb54e64b60696419b064cc51c6cc51af2d3607484798377cf4fadf9bc1af"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.6/agent-harbor-v0.1.0-dev.6-linux-arm64.tar.gz"
+      sha256 "eaf3b49fe2ec3116013cbbdff70930c7d2ad7e6d1b109a8829e04c9793e49dec"
     else
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.5/agent-harbor-v0.1.0-dev.5-linux-amd64.tar.gz"
-      sha256 "39a4a33ea36bdaf4061dee5b0302bf02f7ef114e9a58dbcb3bf6922844374b66"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.6/agent-harbor-v0.1.0-dev.6-linux-amd64.tar.gz"
+      sha256 "12d447bb44a34dc627d901723aa54619da2cb413a9b080a1367fc6738553d131"
     end
   end
 

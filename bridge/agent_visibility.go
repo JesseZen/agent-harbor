@@ -200,35 +200,40 @@ func verifiedForegroundRun(ctx context.Context, socket, identity string, agent h
 	return match
 }
 
+func herdrAgentSnapshot(ctx context.Context) (socket, identity string, agents []herdrAgent, err error) {
+	socket, err = agentDiscoverySocket()
+	if err != nil || socket == "" {
+		return "", "", nil, err
+	}
+	identity = socketIdentity(socket)
+	var result struct {
+		Agents *[]herdrAgent `json:"agents"`
+	}
+	if err := agentRPCContext(ctx, socket, "agent.list", map[string]any{}, &result); err != nil {
+		return "", "", nil, err
+	}
+	if result.Agents == nil || identity == "" || socketIdentity(socket) != identity {
+		return "", "", nil, errors.New(agentDiscoveryWarning)
+	}
+	unique := map[string]bool{}
+	for _, agent := range *result.Agents {
+		if agent.Pane == "" || unique[agent.Pane] {
+			return "", "", nil, errors.New(agentDiscoveryWarning)
+		}
+		unique[agent.Pane] = true
+	}
+	return socket, identity, *result.Agents, nil
+}
+
 func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, error) {
 	for i := range views {
 		views[i].Runtime = unknownRuntime(views[i].session)
 		views[i].Running = false
 		views[i].Status = "Unknown"
 	}
-	socket, err := agentDiscoverySocket()
-	if err != nil {
+	socket, identity, agents, err := herdrAgentSnapshot(ctx)
+	if err != nil || socket == "" {
 		return views, err
-	}
-	if socket == "" {
-		return views, nil
-	}
-	identity := socketIdentity(socket)
-	var result struct {
-		Agents *[]herdrAgent `json:"agents"`
-	}
-	if err := agentRPCContext(ctx, socket, "agent.list", map[string]any{}, &result); err != nil {
-		return views, err
-	}
-	if result.Agents == nil || identity == "" || socketIdentity(socket) != identity {
-		return views, errors.New(agentDiscoveryWarning)
-	}
-	unique := map[string]bool{}
-	for _, agent := range *result.Agents {
-		if agent.Pane == "" || unique[agent.Pane] {
-			return views, errors.New(agentDiscoveryWarning)
-		}
-		unique[agent.Pane] = true
 	}
 	at := time.Now().UTC()
 	for i := range views {
@@ -236,7 +241,7 @@ func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, 
 		views[i].Runtime.Instance = identity
 	}
 	seen := map[string]bool{}
-	for _, agent := range *result.Agents {
+	for _, agent := range agents {
 		if agent.Pane == "" || seen[agent.Pane] {
 			continue
 		}

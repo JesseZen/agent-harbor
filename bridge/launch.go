@@ -148,9 +148,10 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 		policy := profilePolicyArguments(environment)
 		cmd.Args = append(append([]string{cmd.Path}, policy...), cmd.Args[1:]...)
 	}
-	experimentalAccounts := !neutral && (s.Mode == "local" || joinedCodex(s)) && os.Getenv("AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS") == "1"
+	ownsAccountServer := !neutral && (s.Mode == "local" || joinedCodex(s))
+	remoteArgs := cmd.Args
 	if s.CodexOptions != nil {
-		tuiOptions, serverOptions, err := codexOptionLaunchArguments(context.Background(), binary, environment, s, kind, serverSettings, *s.CodexOptions, experimentalAccounts)
+		localOptions, remoteOptions, serverOptions, err := codexOptionLaunchPlans(context.Background(), binary, environment, s, kind, serverSettings, *s.CodexOptions)
 		if err != nil {
 			return err
 		}
@@ -159,7 +160,8 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 			queryLength = len(query.Argv) - 1
 		}
 		at := len(cmd.Args) - queryLength
-		cmd.Args = append(append(append([]string(nil), cmd.Args[:at]...), tuiOptions...), cmd.Args[at:]...)
+		remoteArgs = append(append(append([]string(nil), cmd.Args[:at]...), remoteOptions...), cmd.Args[at:]...)
+		cmd.Args = append(append(append([]string(nil), cmd.Args[:at]...), localOptions...), cmd.Args[at:]...)
 		serverSettings = append(serverSettings, serverOptions...)
 	}
 	if s.Profile != nil {
@@ -215,7 +217,7 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 		}
 		cmd.Args = append(append([]string{cmd.Path}, settings...), cmd.Args[1:]...)
 	}
-	if !neutral && !experimentalAccounts {
+	if !neutral {
 		// Explicit per-launch configuration keeps native startup updates disabled.
 		cmd.Args = append([]string{cmd.Path, "--no-daemon", "-c", "check_for_update_on_startup=false"}, cmd.Args[1:]...)
 	}
@@ -281,18 +283,16 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 		return err
 	}
 	var accountServer *ownedCodexServer
-	if experimentalAccounts {
+	if ownsAccountServer {
 		accountServer, err = startOwnedCodexServer(binary, serverSettings, s.WorkingDirectory, cmd.Env)
 		if err != nil {
-			if rollbackErr := undoFailedStart(s, plan); rollbackErr != nil {
-				return fmt.Errorf("Codex App Server could not start: %v; session state needs review: %w", err, rollbackErr)
-			}
-			return err
+			fmt.Fprintln(os.Stderr, "Opening Codex without live account changes:", err)
+		} else {
+			defer accountServer.Close()
+			stopSignalWatch := watchCodexServerSignals(accountServer)
+			defer stopSignalWatch()
+			cmd.Args = append([]string{cmd.Path, "--remote", "unix://" + accountServer.socket, "-c", "check_for_update_on_startup=false"}, remoteArgs[1:]...)
 		}
-		defer accountServer.Close()
-		stopSignalWatch := watchCodexServerSignals(accountServer)
-		defer stopSignalWatch()
-		cmd.Args = append([]string{cmd.Path, "--remote", "unix://" + accountServer.socket, "-c", "check_for_update_on_startup=false"}, cmd.Args[1:]...)
 	}
 	version := ""
 	if !neutral {

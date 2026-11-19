@@ -10,10 +10,6 @@ import (
 	"time"
 )
 
-func experimentalCodexAccounts() bool {
-	return os.Getenv("AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS") == "1"
-}
-
 func codexAuthProgram() (string, error) {
 	return findCodexAuth(os.Getenv("AGENT_HARBOR_CODEX_AUTH_BIN"))
 }
@@ -72,7 +68,11 @@ func refreshCodexAccount(s session, selected string) (string, error) {
 }
 
 func refreshCodexAccountSocket(socket, directory, selected string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	return refreshCodexAccountWithCheck(context.Background(), socket, directory, selected, nil)
+}
+
+func refreshCodexAccountWithCheck(ctx context.Context, socket, directory, selected string, check func() error) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	rpc, err := connectCodexRPC(ctx, socket)
 	if err != nil {
@@ -85,7 +85,12 @@ func refreshCodexAccountSocket(socket, directory, selected string) (string, erro
 		} `json:"thread"`
 	}
 	if err := rpc.call(ctx, "thread/start", map[string]any{"cwd": directory, "ephemeral": true, "config": map[string]any{"features": map[string]bool{"apps": false}}}, &started); err != nil || started.Thread.ID == "" {
-		return "", errors.New("could not prepare the experimental account refresh")
+		return "", errors.New("could not prepare the Codex account refresh")
+	}
+	if check != nil {
+		if err := check(); err != nil {
+			return "", err
+		}
 	}
 	// Codex 0.169 reloads its own auth during this request. This is not an
 	// upstream guarantee; verify the resulting identity before reporting it.

@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 )
@@ -29,7 +32,6 @@ func (h controlledAccountService) ProfileCodexAccounts(ctx context.Context, req 
 func TestProfileAccountsScopeAndSignedOut(t *testing.T) {
 	root := visibilityTestRoot(t)
 	os.Unsetenv(originalEnvKey)
-	t.Setenv("AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS", "")
 	bin := filepath.Join(root, "tools")
 	os.Mkdir(bin, 0700)
 	codex := filepath.Join(bin, "codex")
@@ -57,9 +59,14 @@ case "$1" in
  [ "$2" = synthetic::account ] && [ "$#" = 2 ] || exit 4
  printf '%s\n' "$2" > "$CODEX_HOME/reset-fixture" ;;
  switch)
- [ "$2" = --skip-api ] && [ "$3" = --no-restart-daemon ] || exit 3
+ [ "$2" = synthetic::account ] && [ "$3" = --json ] && [ "$4" = --no-restart-daemon ] || exit 3
  printf '{}' > "$CODEX_HOME/auth.json" ;;
- login) exit 1;;
+ login)
+ [ -f "$HOME/allow-fixture-login" ] || exit 1
+ printf '{}' > "$CODEX_HOME/auth.json" ;;
+ import)
+ [ "$2" != "$CODEX_HOME/auth.json" ] && [ -f "$2" ] || exit 5
+ printf 'imported' > "$CODEX_HOME/import-fixture" ;;
  *) exit 2;;
 esac
 `), 0700); err != nil {
@@ -80,7 +87,7 @@ esac
 	}
 	ab, bb := binding(a), binding(b)
 	action := func(b profileBinding, action string) (profileAccountResult, error) {
-		return h.ProfileCodexAccounts(context.Background(), codexAccountRequest{Profile: b, Action: action}, nil, io.Discard, io.Discard)
+		return h.ProfileCodexAccounts(context.Background(), codexAccountRequest{Profile: b, Action: action, Selected: "synthetic::account"}, nil, io.Discard, io.Discard)
 	}
 	for _, bind := range []profileBinding{ab, bb} {
 		if r, err := action(bind, "switch"); err != nil || r.State != "selected" {
@@ -98,6 +105,10 @@ esac
 	if r, err := action(ab, "signed-out"); err != nil || r.State != "signed-out" || len(r.Accounts) != 1 {
 		t.Fatal(r, err)
 	}
+	_, err = h.ProfileCodexAccounts(context.Background(), codexAccountRequest{Profile: ab, Action: "switch", Selected: "synthetic@example.test"}, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "no longer in this Profile") {
+		t.Fatalf("switch accepted a non-key selector: %v", err)
+	}
 	for _, key := range []string{"synthetic@example.test", "synthetic::account"} {
 		_, err := h.ProfileCodexAccounts(context.Background(), codexAccountRequest{Profile: ab, Action: "reset", Selected: key}, nil, nil, nil)
 		if (err == nil) != (key == "synthetic::account") {
@@ -114,8 +125,29 @@ esac
 	if err != nil || string(bAfter) != string(bBefore) {
 		t.Fatal("B was changed", err)
 	}
-	if r, err := action(ab, "login"); err == nil || r.State != "signed-out" {
+	if r, err := action(ab, "login"); err == nil || r.login != nil {
 		t.Fatal("failed login claimed success", r, err)
+	}
+	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), "allow-fixture-login"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	staged, err := action(ab, "login")
+	if err != nil || staged.login == nil || staged.login.key != "synthetic::account" {
+		t.Fatal("authorization did not return a staged login", err)
+	}
+	defer staged.login.close()
+	if _, err := os.Stat(filepath.Join(a.Clients[0].Home, "auth.json")); !os.IsNotExist(err) {
+		t.Fatal("authorization changed the Profile login", err)
+	}
+	if _, err := h.ProfileCodexAccounts(context.Background(), codexAccountRequest{Profile: bb, Action: "login", login: staged.login}, nil, nil, nil); !errors.Is(err, ErrProfileIdentity) {
+		t.Fatal("staged login accepted by a different Profile", err)
+	}
+	committed, err := h.ProfileCodexAccounts(context.Background(), codexAccountRequest{Profile: ab, Action: "login", login: staged.login}, nil, nil, nil)
+	if err != nil || committed.Selected != staged.login.key {
+		t.Fatal("staged login not selected", err)
+	}
+	if _, err := os.Stat(filepath.Join(a.Clients[0].Home, "import-fixture")); err != nil {
+		t.Fatal("new login not imported into the Profile", err)
 	}
 	if err := h.ValidateProfileResult(ab, bb); !errors.Is(err, ErrProfileIdentity) {
 		t.Fatal("stale result accepted", err)
@@ -151,13 +183,20 @@ func TestProfileAccountStaleUIResult(t *testing.T) {
 	}
 }
 
-func TestBlockedProfileAccountLoginKeepsRoster(t *testing.T) {
+func TestBlockedProfileAccountSwitchKeepsRoster(t *testing.T) {
 	root := visibilityTestRoot(t)
 	h := harborService{}
 	p := mustProfile(t, h, "Coding")
 	binding := bindingFor(p)
 	tool := filepath.Join(root, "codex-auth")
-	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf 'ran' > invoked\nexit 1\n"), 0700); err != nil {
+	if err := os.WriteFile(tool, []byte(`#!/bin/sh
+if [ "$1" = list ]; then
+  printf '%s\n' '{"schema_version":1,"accounts":[{"account_key":"backup"}]}'
+else
+  printf 'ran' > invoked
+  exit 1
+fi
+`), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AGENT_HARBOR_CODEX_AUTH_BIN", tool)
@@ -178,28 +217,103 @@ func TestBlockedProfileAccountLoginKeepsRoster(t *testing.T) {
 	initial.Accounts[0].Usage = walkthroughUsage(18, 100)
 	m.cacheAccountSnapshot(initial)
 	m.reconcileAccountRow()
-	next, cmd := m.Update(uiKey(accountLoginKey))
+	m.accountRow = "backup"
+	next, cmd := m.Update(uiKey("s"))
 	m = next.(harborModel)
 	if cmd == nil || m.screen != "accounts-busy" {
-		t.Fatal("Add login did not start an action")
+		t.Fatal("Switch did not start an action")
 	}
-	operation := accountExec{service: h, action: "login", profile: binding}
-	err := operation.Run()
-	if err == nil || !strings.Contains(err.Error(), running.Name) {
-		t.Fatalf("running session did not block login: %v", err)
-	}
+	next, _ = m.Update(cmd())
 	if _, err := os.Stat(filepath.Join(p.Clients[0].Home, "invoked")); !os.IsNotExist(err) {
 		t.Fatal("blocked login called codex-auth", err)
 	}
-	next, _ = m.Update(appAccountDone{result: operation.result, err: err, profile: &binding, snapshot: &operation.snapshot})
 	result := next.(harborModel)
 	next, _ = result.Update(uiKey("esc"))
 	m = next.(harborModel)
 	if m.screen != "accounts" || !m.currentAccount("primary") || len(m.accountSnapshot.Accounts) != 2 || !strings.Contains(m.View(), "82%") {
 		t.Fatal("blocked login cleared the existing account or quota")
 	}
-	if !strings.Contains(result.accountResult, "no dedicated Codex App Server") || strings.Contains(result.accountResult, "Login: unconfirmed") {
+	if !strings.Contains(result.accountResult, running.Name+": Herdr") || strings.Contains(result.accountResult, "Login: unconfirmed") {
 		t.Fatalf("blocked result misreported the login state: %s", result.accountResult)
+	}
+}
+
+func TestAccountActivityUsesVerifiedHerdrRunNotConversationOrAppServer(t *testing.T) {
+	root := visibilityTestRoot(t)
+	socket := filepath.Join(root, "herdr", "accounts.sock")
+	if err := os.MkdirAll(filepath.Dir(socket), 0700); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	t.Setenv("HERDR_SOCKET_PATH", socket)
+	profile := profileBinding{WorkspaceID: "workspace", ProfileID: "profile", EnvironmentID: "environment", Client: "codex"}
+	s := session{Name: "Retained window", CLI: "codex", Mode: "magpie", CodexConnection: "caller", Profile: &profile,
+		HerdrPane: "pane", HerdrTab: "tab", HerdrSocket: socket, HerdrSocketIdentity: socketIdentity(socket),
+		RunToken: "account-test", CodexHome: filepath.Join(root, "codex"), Conversation: &conversationEvidence{Status: "conflict"}}
+	s.ProcessGroup = startSessionProcessGroupFixture(t, root, map[string]string{
+		"AH_SESSION_RUN_TOKEN": s.RunToken, "CODEX_HOME": s.CodexHome,
+		"AH_PROFILE_WORKSPACE": profile.WorkspaceID, "AH_PROFILE_ID": profile.ProfileID, "AH_PROFILE_ENVIRONMENT": profile.EnvironmentID,
+	})
+	var activity atomic.Value
+	activity.Store("working")
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			var request struct{ Method string }
+			if json.NewDecoder(conn).Decode(&request) == nil {
+				var result any
+				if request.Method == "agent.list" {
+					result = map[string]any{"agents": []herdrAgent{{Pane: s.HerdrPane, Tab: s.HerdrTab, Terminal: "terminal", Workspace: "workspace", Client: s.CLI, Activity: activity.Load().(string)}}}
+				} else if request.Method == "pane.process_info" {
+					result = map[string]any{"process_info": map[string]any{"pane_id": s.HerdrPane, "foreground_process_group_id": s.ProcessGroup}}
+				}
+				_ = json.NewEncoder(conn).Encode(map[string]any{"result": result})
+			}
+			_ = conn.Close()
+		}
+	}()
+	for _, status := range []string{"working", "blocked", "unknown", "idle", "done"} {
+		activity.Store(status)
+		live, err := accountIdleSessions(context.Background(), []session{s})
+		var pending *accountTurnPending
+		switch status {
+		case "working", "blocked":
+			if !errors.As(err, &pending) || pending.name != s.Name {
+				t.Fatalf("%s did not defer: %v", status, err)
+			}
+		case "unknown":
+			if err == nil || errors.As(err, &pending) || !strings.Contains(err.Error(), s.Name) {
+				t.Fatalf("unknown treated as safe or transient: %v", err)
+			}
+		default:
+			if err != nil || len(live) != 1 {
+				t.Fatalf("verified %s window without an App Server blocked login: %v", status, err)
+			}
+			if got := applyRunningCodexLogin(context.Background(), live[0], profileAccountResult{State: "selected"}); got.State != "not confirmed" {
+				t.Fatalf("old window claimed login adoption: %+v", got)
+			}
+		}
+	}
+	wrong := s
+	wrong.RunToken = "another-run"
+	if _, err := accountIdleSessions(context.Background(), []session{wrong}); err == nil {
+		t.Fatal("wrong foreground launch token was accepted")
+	}
+	if _, err := accountIdleSessions(context.Background(), []session{s, s}); err == nil {
+		t.Fatal("ambiguous run was accepted")
+	}
+	apiOnly := s
+	apiOnly.CodexConnection = "api"
+	activity.Store("working")
+	if live, err := accountIdleSessions(context.Background(), []session{apiOnly}); err != nil || len(live) != 0 {
+		t.Fatal("API-only window participated in login change", err)
 	}
 }
 

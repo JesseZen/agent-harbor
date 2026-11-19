@@ -117,7 +117,7 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 func (m harborModel) updateFrame(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg.(type) {
-	case appAccountStatus, appAccountRead, appAccountDone:
+	case appAccountStatus, appAccountRead, appAccountDone, appAccountRetry:
 		next, cmd, _ := m.accountsPageInput(msg)
 		return next, cmd
 	}

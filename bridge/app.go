@@ -124,6 +124,8 @@ type harborModel struct {
 	environment         appEnvironment
 	nativeReview        string
 	accountResult       string
+	accountWaiting      *accountExec
+	accountWaitReason   string
 	accountProfile      *profileBinding
 	accountGeneration   uint64
 	accountSnapshot     *profileAccountResult
@@ -633,6 +635,9 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		key := msg.String()
 		if key == "ctrl+c" {
+			if m.accountWaiting != nil {
+				m.accountWaiting.login.close()
+			}
 			if m.cancelRefresh != nil {
 				m.cancelRefresh()
 			}

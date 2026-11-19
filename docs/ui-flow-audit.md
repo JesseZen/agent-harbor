@@ -1,5 +1,17 @@
 # UI 实机走查 — 2026-11-17
 
+## Accounts 原窗口切号（2026-11-20）
+
+Accounts 通过 Herdr 检查受影响的 Codex 窗口，忙时显示正在等哪个窗口，Esc 取消。结果页先显示 Profile 保存的登录，再显示各窗口是否采用；旧窗口没有专用 App Server 不再导致空闲状态被误判。不登录仍保留原账号列表。
+
+隔离 macOS arm64 用原版 Codex 0.170.0、Herdr 0.9.5、codex-auth 0.4.0 和 Magpie 0.1.3528-harbor-dev 复测。Native 和已登录 Magpie 均通过忙时等待、取消和同窗口 A → B；Native 下一条请求带 B，Magpie 仍用原提供方凭据，官方额度请求带 B。外层 160×45、100×30、80×24、60×24 均检查等待和结果页，另在四尺寸实走已存登录与不登录。Native App Server 与 API-only Magpie 的原对话恢复和启动选项通过回归。请求均发到本地模拟服务，真实授权账号和远端仍待测。[验收步骤](../bridge/tests/README.md#accounts-popup)
+
+## Accounts 未登录选项（2026-11-19）
+
+`Not signed in` 和已存账号在同一张表里。已存账号按 `s` 应用，Enter 仍打开详情。未登录行用 Enter 或再次点击进入确认，Esc 回到原行。确认登出后打勾，保留已存账号；仍没有实测账号在线刷新时，不能根据这个勾号判断当前窗口的登录。
+
+macOS arm64 用隔离 Herdr 0.9.5、Codex 0.170.0 和 codex-auth 0.4.0，在外层 160×45、100×30、80×24、60×24 测试空账号、两步点击、取消和 A → 未登录 → B → A。Go 回归检查额度保留和按准确账号键切换。没有改动会话活动拦截；这次弹窗验收未用真实账号，也没有在有其他 Codex 窗口运行时切换。[验收步骤](../bridge/tests/README.md#accounts-popup)
+
 ## Enter 恢复（#21 决定 1）
 
 Sessions 显示 Enter 将进入终端、恢复对话或选择恢复目标。原运行已结束时，Enter 先只读检查旧 pane。能核实原 shell 时直接进入一次确认，恢复后旧 shell 仍在。无法确认时正文显示原因和 Recheck。只有已核实目标 pane 才显示 View old terminal。

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -13,8 +14,15 @@ import (
 
 func (m harborModel) accountActions() []uiAction {
 	switch m.screen {
-	case "accounts-busy", "accounts-resetting":
+	case "accounts-busy":
+		if m.accountWaiting != nil {
+			return []uiAction{{ID: "account:cancel-wait", Label: "Cancel switch", Key: "esc"}}
+		}
 		return nil
+	case "accounts-resetting":
+		return nil
+	case "accounts-signout-confirm":
+		return []uiAction{{ID: "account:confirm-signout", Label: "Sign out", Key: "y"}, {ID: "account:cancel-signout", Label: "Cancel", Key: "esc"}}
 	case "accounts-reset-confirm":
 		return []uiAction{{ID: "account:cancel-reset", Label: "Cancel", Key: "esc"}, {ID: "account:confirm-reset", Label: "Confirm use", Key: "y"}}
 	case "accounts-detail":
@@ -26,17 +34,26 @@ func (m harborModel) accountActions() []uiAction {
 	case "accounts-result":
 		return []uiAction{{ID: "account:back", Label: "Back to accounts", Key: "esc"}}
 	}
-	return []uiAction{
-		{ID: "account:i", Label: "Details", Key: "enter"},
-		{ID: "account:s", Label: "Select saved login", Key: "s", Primary: true},
+	var actions []uiAction
+	if m.uiFocus != accountRowPrefix {
+		actions = append(actions, uiAction{ID: "account:i", Label: "Details", Key: "enter"})
+	} else if m.canSignOutAccount() {
+		actions = append(actions, uiAction{ID: "account:o", Label: "Sign out", Key: "enter"})
+	}
+	if account, ok := m.selectedAccount(); ok && !m.currentAccount(account.Key) {
+		actions = append(actions, uiAction{ID: "account:s", Label: "Use selected login", Key: "s", Primary: true})
+	}
+	actions = append(actions, []uiAction{
 		{ID: "account:" + accountLoginKey, Label: "Add login", Key: accountLoginKey},
 		{ID: "account:?", Label: "Help", Key: "?"},
 		{ID: "account:p", Label: "Choose Profile", Key: "p"},
 		{ID: "account:back", Label: "Back", Key: "esc"},
 		{ID: "account:r", Label: "Refresh", Key: "r"},
-		{ID: "account:o", Label: "Not signed in", Key: "o"},
-		{ID: "account:,", Label: "Settings", Key: ","},
+	}...)
+	if m.uiFocus != accountRowPrefix && m.canSignOutAccount() {
+		actions = append(actions, uiAction{ID: "account:signout-shortcut", Label: "Sign out", Key: "o"})
 	}
+	return append(actions, uiAction{ID: "account:,", Label: "Settings", Key: ","})
 }
 
 func (m harborModel) accountContent() uiPage {
@@ -52,11 +69,21 @@ func (m harborModel) accountContent() uiPage {
 	if m.screen == "accounts" {
 		p.tabs("accounts", m.uiHover, m.uiFocus)
 		m.accountOverview(&p)
-
+	} else if m.screen == "accounts-signout-confirm" {
+		p.line(paint(fg("section"), "Sign out of Codex"))
+		if m.accountProfile != nil && m.accountSnapshot != nil {
+			p.line(kvw("Profile", cleanUI(orUnknown(m.accountSnapshot.ProfileName)), 9))
+		}
+		wrap("Saved logins stay available.")
 	} else if m.screen == "accounts-detail" || m.screen == "accounts-reset-confirm" || m.screen == "accounts-resetting" {
 		m.accountDetail(&p, wrap)
 	} else if m.screen == "accounts-busy" {
-		wrap("Waiting for the account action in codex-auth. Complete or cancel there; duplicate Harbor actions are disabled.")
+		if m.accountWaiting != nil {
+			p.line(paint(fg("section"), "Waiting to change login"))
+			wrap(m.accountWaitReason)
+		} else {
+			wrap("Updating Codex login…")
+		}
 	} else {
 		p.line(paint(fg("section"), "Account action result"))
 		if m.accountResult == "" {
@@ -74,11 +101,9 @@ func (m harborModel) accountDetail(p *uiPage, wrap func(string)) {
 	if !ok {
 		if m.accountSnapshot != nil {
 			wrap(accountResultText(*m.accountSnapshot))
+			wrap("Codex home: " + m.accountSnapshot.Home)
 		}
-		wrap("Switch between replies. Active or unknown activity blocks changes.")
-		if experimentalCodexAccounts() {
-			wrap("Experimental running-server refresh is undocumented.")
-		}
+		wrap("Switch between replies. Wait for the result before sending another prompt.")
 		return
 	}
 
@@ -184,12 +209,10 @@ func (m harborModel) accountOverview(p *uiPage) {
 		status = "Checking…"
 		if m.accountSnapshot != nil {
 			switch m.accountSnapshot.State {
-			case "selected":
+			case "selected", "signed-out":
 				status = ""
 			case "expired":
 				status = "Login expired"
-			case "signed-out":
-				status = "Signed out"
 			case "unavailable":
 				status = "Unavailable"
 			default:
@@ -199,11 +222,9 @@ func (m harborModel) accountOverview(p *uiPage) {
 	}
 	appendAccountClient(p, "Codex", status)
 	if snapshot := m.accountSnapshot; m.accountProfile != nil && snapshot != nil {
+		m.appendCodexAccountTable(p)
 		if len(snapshot.Accounts) == 0 && snapshot.State == "signed-out" {
 			p.emptyState("  No saved logins")
-		}
-		if len(snapshot.Accounts) > 0 {
-			m.appendCodexAccountTable(p)
 		}
 	}
 	if p.Width >= 60 {
@@ -251,9 +272,20 @@ func (m harborModel) appendCodexAccountTable(p *uiPage) {
 		weeklyWidth += meterWidth
 	}
 	emailWidth := max(1, p.Width-rowOverhead-planWidth-shortWidth-weeklyWidth)
-	p.line("  " + accountTableCell(paint(fg("key"), "Email"), emailWidth) + "  " +
-		accountTableCell(paint(fg("key"), "Plan"), planWidth) + "  " +
-		accountTableCell(paint(fg("key"), "5h left"), shortWidth) + "  " + paint(fg("key"), "7d left"))
+	if len(snapshot.Accounts) > 0 {
+		p.line("  " + accountTableCell(paint(fg("key"), "Email"), emailWidth) + "  " +
+			accountTableCell(paint(fg("key"), "Plan"), planWidth) + "  " +
+			accountTableCell(paint(fg("key"), "5h left"), shortWidth) + "  " + paint(fg("key"), "7d left"))
+	}
+	row := m.rowStyle(accountRowPrefix, m.uiFocus == accountRowPrefix, snapshot.State == "signed-out")
+	const noLoginLabel = "Not signed in"
+	label := row.marker() + accountTableCell(noLoginLabel, max(len(noLoginLabel)+1, emailWidth-2))
+	line := paint(row.style("text"), label)
+	if row.selected {
+		line += paint(row.style("section"), "✓")
+	}
+	p.hit(accountRowPrefix, 1, len(p.Lines), p.Width-2, 1)
+	p.line(line + row.line("", "value", max(0, p.Width-2-ansi.StringWidth(line))))
 	for _, account := range snapshot.Accounts {
 		id := accountRowPrefix + account.Key
 		row := m.rowStyle(id, account.Key != "" && id == m.uiFocus, m.currentAccount(account.Key))
@@ -374,7 +406,7 @@ func (m harborModel) accountsPage() (uiPage, bool) {
 	footer := newUIPage(m.width, 10000)
 	actions := m.accountActions()
 	footer.shortcuts(actions, m.uiFocus)
-	if m.screen != "accounts-reset-confirm" && m.screen != "accounts-resetting" {
+	if m.screen != "accounts-busy" && m.screen != "accounts-reset-confirm" && m.screen != "accounts-resetting" && m.screen != "accounts-signout-confirm" {
 		footer.Hint = scrollHint
 	}
 	if m.screen == "accounts" {
@@ -388,6 +420,9 @@ func (m harborModel) accountActivate(id string) (tea.Model, tea.Cmd) {
 		return m.activateSessions(id)
 	}
 	if m.screen == "accounts" && (id == "account:i" || strings.HasPrefix(id, accountRowPrefix)) {
+		if id == accountRowPrefix {
+			return m.updateAccounts("o")
+		}
 		if strings.HasPrefix(id, accountRowPrefix) {
 			m.accountRow = strings.TrimPrefix(id, accountRowPrefix)
 		}
@@ -398,6 +433,22 @@ func (m harborModel) accountActivate(id string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch id {
+	case "account:cancel-wait":
+		if m.accountWaiting == nil {
+			return m, nil
+		}
+		m.accountWaiting.login.close()
+		m.accountWaiting, m.accountWaitReason = nil, ""
+		m.screen, m.scroll = "accounts", m.accountListScroll
+		m.reconcileAccountRow()
+		return m, m.loadAccountUsage()
+	case "account:o", "account:signout-shortcut":
+		return m.updateAccounts("o")
+	case "account:confirm-signout":
+		return m.runAccountAction("signed-out", "")
+	case "account:cancel-signout":
+		m.screen, m.scroll = "accounts", m.accountListScroll
+		return m, nil
 	case "account:use-reset":
 		return m.reviewAccountReset()
 	case "account:confirm-reset":
@@ -409,10 +460,11 @@ func (m harborModel) accountActivate(id string) (tea.Model, tea.Cmd) {
 	case "account:?":
 		return m.Update(uiKey("?"))
 	case "account:back":
-		if m.screen == "accounts-detail" {
+		if m.screen == "accounts-detail" || m.screen == "accounts-result" {
 			m.screen = "accounts"
 			m.scroll = m.accountListScroll
 			m.uiFocus = accountRowPrefix + m.accountRow
+			m.reconcileAccountRow()
 			return m, nil
 		}
 		m.scroll = 0
@@ -420,8 +472,6 @@ func (m harborModel) accountActivate(id string) (tea.Model, tea.Cmd) {
 	}
 	for _, a := range m.accountActions() {
 		if a.ID == id {
-			m.scroll = 0
-			m.uiFocus = ""
 			return m.updateAccounts(a.Key)
 		}
 	}
@@ -429,9 +479,12 @@ func (m harborModel) accountActivate(id string) (tea.Model, tea.Cmd) {
 }
 
 func (m *harborModel) reconcileAccountRow() {
+	if m.accountSnapshot == nil {
+		return
+	}
 	if _, ok := m.selectedAccount(); !ok {
 		m.accountRow = ""
-		if m.accountSnapshot != nil {
+		if m.uiFocus != accountRowPrefix && m.accountSnapshot.State != "signed-out" {
 			for _, a := range m.accountSnapshot.Accounts {
 				if a.Key != "" && (m.accountRow == "" || m.currentAccount(a.Key)) {
 					m.accountRow = a.Key
@@ -439,23 +492,18 @@ func (m *harborModel) reconcileAccountRow() {
 			}
 		}
 	}
-	if m.accountRow != "" {
-		m.uiFocus = accountRowPrefix + m.accountRow
-	}
+	m.uiFocus = accountRowPrefix + m.accountRow
 }
 
 func (m *harborModel) moveAccountRow(delta int) bool {
 	if m.accountSnapshot == nil {
 		return false
 	}
-	var rows []string
+	rows := []string{""}
 	for _, a := range m.accountSnapshot.Accounts {
 		if a.Key != "" {
 			rows = append(rows, a.Key)
 		}
-	}
-	if len(rows) == 0 {
-		return false
 	}
 	index := 0
 	for i, key := range rows {
@@ -526,6 +574,13 @@ func (m *harborModel) applyAccountRead(read appAccountRead) tea.Cmd {
 }
 
 func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	if retry, ok := msg.(appAccountRetry); ok {
+		if m.screen != "accounts-busy" || m.accountWaiting != retry.operation {
+			return m, nil, true
+		}
+		m.accountWaiting, m.accountWaitReason = nil, ""
+		return m, runAccountOperation(retry.operation), true
+	}
 	if status, ok := msg.(appAccountStatus); ok {
 		if status.generation != m.accountGeneration || m.accountProfile == nil || status.profile != *m.accountProfile {
 			return m, nil, true
@@ -551,11 +606,27 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return m, cmd, true
 	}
 	if done, ok := msg.(appAccountDone); ok {
-		if done.profile != nil && (m.accountProfile == nil || *done.profile != *m.accountProfile) {
+		if m.screen != "accounts-busy" || done.profile != nil && (m.accountProfile == nil || *done.profile != *m.accountProfile) {
+			if done.snapshot != nil {
+				done.snapshot.login.close()
+			}
+			if done.operation != nil {
+				done.operation.login.close()
+			}
 			return m, nil, true
 		}
-		if m.screen != "accounts-busy" {
-			return m, nil, true
+		if done.operation != nil {
+			if done.err == nil && done.snapshot.login != nil {
+				done.operation.login = done.snapshot.login
+				done.snapshot.login = nil
+				return m, tea.Batch(tea.EnableMouseAllMotion, runAccountOperation(done.operation)), true
+			}
+			var pending *accountTurnPending
+			if errors.As(done.err, &pending) {
+				m.accountWaiting, m.accountWaitReason = done.operation, pending.Error()
+				return m, retryAccountOperation(done.operation), true
+			}
+			done.operation.login.close()
 		}
 		var cmd tea.Cmd
 		if done.snapshot != nil && m.accountProfile != nil && done.snapshot.State != "" {
@@ -581,6 +652,13 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	}
 	switch v := msg.(type) {
 	case tea.MouseMsg:
+		if m.screen == "accounts-busy" && m.accountWaiting != nil && v.Action == tea.MouseActionPress && v.Button == tea.MouseButtonLeft {
+			page, _ := m.accountsPage()
+			if page.target(v.X, v.Y) == "account:cancel-wait" {
+				next, cmd := m.accountActivate("account:cancel-wait")
+				return next, cmd, true
+			}
+		}
 		if m.screen == "accounts-busy" || m.screen == "accounts-resetting" {
 			return m, nil, true
 		}
@@ -609,6 +687,10 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	case tea.KeyMsg:
+		if m.screen == "accounts-busy" && m.accountWaiting != nil && v.String() == "esc" {
+			next, cmd := m.accountActivate("account:cancel-wait")
+			return next, cmd, true
+		}
 		if m.screen == "accounts-busy" || m.screen == "accounts-resetting" {
 			return m, nil, true
 		}
@@ -630,9 +712,15 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			target := m.uiFocus
 			if m.screen == "accounts" && !strings.HasPrefix(target, "nav:") {
 				target = "account:i"
+				if m.uiFocus == accountRowPrefix {
+					target = accountRowPrefix
+				}
 			}
 			if m.screen == "accounts-reset-confirm" {
 				target = "account:cancel-reset"
+			}
+			if m.screen == "accounts-signout-confirm" {
+				target = "account:cancel-signout"
 			}
 			n, c := m.accountActivate(target)
 			return n, c, true
@@ -641,10 +729,16 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			if m.screen == "accounts-reset-confirm" {
 				target = "account:cancel-reset"
 			}
+			if m.screen == "accounts-signout-confirm" {
+				target = "account:cancel-signout"
+			}
 			n, c := m.accountActivate(target)
 			return n, c, true
 		case "i":
 			n, c := m.accountActivate("account:i")
+			return n, c, true
+		case "s", "o":
+			n, c := m.updateAccounts(key)
 			return n, c, true
 		default:
 			for _, a := range m.accountActions() {

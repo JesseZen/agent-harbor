@@ -87,6 +87,30 @@ binary in a terminal with the isolated environment described below and
 5. Press `?` for the page shortcuts. In Sessions search or a text editor,
    type `hjkl` to verify the text stays in the field.
 
+## Accounts popup
+
+```sh
+python3 bridge/tests/accounts_popup.py --binary HARBOR --herdr HERDR \
+  --codex NATIVE_CODEX --codex-auth CODEX_AUTH
+```
+
+Uses Herdr and tmux with isolated homes and the pinned codex-auth binary.
+The fixture imports two synthetic identities and tests A → Not signed in → B,
+cancellation, and account details at 160×45, 100×30, 80×24 and 60×24. This
+checks stored login selection and retained saved accounts. The fixture retains
+sanitized ANSI captures.
+
+Add `--live-switch native` for a real Codex window and a loopback Responses
+provider, or `--live-switch magpie --magpie MAGPIE` for a signed-in Magpie
+window and a loopback Chat Completions provider. These runs require Python
+3.14+ for compressed Codex requests. Both use synthetic accounts, Herdr and
+the default owned App Server. The fixture pauses a turn, checks that the
+Profile still uses A, cancels once, then finishes the turn and verifies B
+without changing the pane, processes, Conversation, or model. Native verifies
+the next model request uses B; joined Magpie verifies its provider credential
+stays the same and the official quota request uses B. These checks do not
+replace validation with two real authorized accounts.
+
 ## Terminal visual evidence
 
 Remote workspace fixtures default to `NO_COLOR` on both hosts for text-based
@@ -162,14 +186,12 @@ original histories and routes. Use the locally patched development candidate
 described in `docs/herdr-integration.md`; this is not evidence of official
 upstream acceptance or release.
 
-To exercise the opt-in App Server launch topology with the same isolated UI
-fixture, add `--experimental-codex-accounts`. This fixture uses only a
-synthetic API key; it does not establish live ChatGPT account switching.
+Native sessions exercise the owned App Server in this fixture by default.
 `TestAccountRefreshVerifiesIdentityAndReadsOfficialQuota` checks the RPC
 sequence, including failed refresh and identity mismatch. Live account
 evidence must be reported separately.
 
-The experimental App Server recovered both native and caller-only Magpie
+The owned App Server recovered both native and caller-only Magpie
 conversations in isolated macOS testing. Immediately after stopping a
 background pane, Herdr may briefly retain its old agent observation. Harbor
 retries that specific stale observation for up to three seconds before refusing
@@ -250,10 +272,9 @@ arguments below. It allocates its own loopback discovery address, drives the
 real Herdr popup and checks saved configuration, same-Conversation Native and
 Magpie routing-group recovery, two different catalog capacities, and Codex's
 reported permissions, reasoning and window. It also edits the stopped Native
-session and verifies the changed window on the next launch. Add
-`--experimental-codex-accounts` to check the Native journey with an owned App
-Server instead of the ordinary CLI. No real accounts or upstream providers are
-used in either variant.
+session and verifies the changed window on the next launch. Native uses an
+owned App Server and API-only Magpie uses the ordinary CLI. No real accounts
+or upstream providers are used.
 
 `TestSessionClientForegroundHandoff` uses a Python 3 PTY to check that a
 managed client starts in the foreground and that Harbor regains terminal
@@ -310,11 +331,10 @@ separate mandatory acceptance records.
 
 `TestProfileAccountsScopeAndSignedOut` uses the real Profile resolver and lock
 with controlled native tool subprocesses. It checks scoped selection, explicit
-sign-out retaining the list, failed login rereading, A/B separation, uncertain
-live activity and the production not-ready gate. This does not enable or prove
-the missing Profile runtime. Stale Profile UI results and default account-page
-keyboard/mouse controls have separate tests. Experimental refresh RPC tests
-remain separate.
+sign-out retaining the list, failed authorization, A/B separation and uncertain
+live activity. Other Go tests verify Herdr run ownership despite Conversation
+conflicts, omission of API-only sessions, cancellation, stale UI results and
+refresh failure.
 
 Package installation acceptance includes codex-auth version execution without
 installing it on PATH, archive allowlisting and saved-account-data retention on

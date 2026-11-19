@@ -26,7 +26,9 @@ unchanged when the flag is absent.
 
 Groups with third-party members work. A Magpie stored Codex-account member
 cannot currently act as the caller's official account, and is refused in this
-mode. Account switching is not implemented by this patch. Cache entries and
+mode. Harbor changes its Profile login and refreshes the official App Server for
+a signed-in Codex window; the gateway, route and provider credentials stay the
+same. Independent API sessions do not participate. Cache entries and
 model listings do not prove the current account is eligible for every model.
 The policy has synthetic identity and real-client evidence; it has not yet
 completed the full multi-account and platform acceptance described in the

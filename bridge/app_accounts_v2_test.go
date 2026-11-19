@@ -9,7 +9,6 @@ import (
 )
 
 func TestAccountsV2ControlsAndResults(t *testing.T) {
-	t.Setenv("AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS", "1")
 	for _, size := range [][2]int{{160, 45}, {100, 30}, {60, 20}} {
 		m := newHarborModel(&fakeApplicationService{})
 		m.screen = "accounts"
@@ -19,6 +18,12 @@ func TestAccountsV2ControlsAndResults(t *testing.T) {
 		if !ok || !strings.Contains(p.view(), "Select a Profile") {
 			t.Fatal("missing evidence state")
 		}
+		binding := profileBinding{ProfileID: "A"}
+		m.accountProfile = &binding
+		m.cacheAccountSnapshot(walkthroughAccounts(binding))
+		m.accountRow = "backup"
+		m.reconcileAccountRow()
+		p, _ = m.accountsPage()
 		for _, a := range []string{"account:i", "account:s", "account:?"} {
 			found := false
 			for _, r := range p.Hits {
@@ -39,12 +44,8 @@ func TestAccountsV2ControlsAndResults(t *testing.T) {
 			}
 			next, _ := m.Update(uiKey("?"))
 			help := next.(harborModel)
-			if help.screen != "help" || !strings.Contains(help.helpView(), "Not signed in") {
+			if help.screen != "help" || !strings.Contains(help.helpView(), "Sign out") {
 				t.Fatal("hidden action missing from help")
-			}
-			next, _ = m.Update(uiKey("o"))
-			if next.(harborModel).screen != "accounts-result" {
-				t.Fatal("hidden action lost its shortcut")
 			}
 		}
 		m.screen = "accounts-busy"
@@ -63,7 +64,7 @@ func TestAccountsV2ControlsAndResults(t *testing.T) {
 		n, _, _ = m.accountsPageInput(uiKey("pgdown"))
 		m = n.(harborModel)
 		p, _ = m.accountsPage()
-		if !strings.Contains(p.view(), "Unknown") || strings.Contains(p.view(), "Select saved login") {
+		if !strings.Contains(p.view(), "Unknown") || strings.Contains(p.view(), "Use selected login") {
 			t.Fatal("wrong result context")
 		}
 		found := false
@@ -81,7 +82,6 @@ func TestAccountsV2ControlsAndResults(t *testing.T) {
 	}
 }
 func TestAccountsV2HiddenAndStale(t *testing.T) {
-	t.Setenv("AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS", "")
 	m := newHarborModel(&fakeApplicationService{})
 	m.screen = "sessions"
 	if !strings.Contains(m.View(), "Accounts") {

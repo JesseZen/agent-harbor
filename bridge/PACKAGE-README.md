@@ -99,12 +99,14 @@ Enter on a saved account opens Details. A ticket marks available
 reset cards. In Details, `u` opens a confirmation and `y` redeems one card
 through bundled codex-auth, which chooses the card.
 
-`n` adds and selects a login through official Codex, `s` selects a saved login,
-and `o` selects Not signed in while retaining the saved list. Unknown or active
-session activity blocks login changes without clearing the displayed account.
-Stop the named session explicitly before retrying when its activity cannot be
-inspected, or use a separate isolated Profile for the other login. Existing
-environments may also affect external clients sharing that home.
+`n` adds and selects a login through official Codex. Highlight a saved account
+and press `s` to use it. Not signed in is in the same list: select it and
+press Enter, then confirm to sign out without deleting any saved account.
+`o` also opens that confirmation. The check mark shows the Profile's stored
+login. Accounts waits for affected Codex windows to finish their turns before
+changing it; Esc cancels the wait. If Herdr cannot verify a window's activity,
+Accounts names that window and leaves the login unchanged. Existing environments
+may also affect external clients sharing that home.
 
 Profile runtime and account integration are implemented together. The maintainer
 reported macOS manual acceptance on 2026-11-16; the [acceptance record](../docs/issues-19-20-acceptance.md)
@@ -120,22 +122,21 @@ The archive checksum is verified before extraction; MIT notices travel in
 `licenses/codex-auth-MIT.txt`. Uninstall removes the package executable and
 preserves Codex/codex-auth account and conversation data in their client homes.
 
-### Experimental running-session refresh
+### Switching an open Codex window
 
-Set `AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS=1` only to try the dedicated App
-Server topology and in-place refresh. Basic account-page visibility does not
-enable this behavior.
+New Native and signed-in Magpie Codex sessions automatically use a private
+official App Server. No configuration or version allowlist is required.
+Independent Magpie API sessions keep their provider and do not participate.
+If the server does not start, Codex still opens with its original settings.
 
-New native and joined Magpie Codex sessions use a dedicated official App
-Server while this option is enabled. Harbor verifies the selected identity in
-each reachable owned server and reads the active account's official rate
-limits. Existing embedded or external sessions cannot be verified by this
-flow; check any session reported as unconfirmed before continuing. The
-in-place refresh uses an undocumented side effect of an experimental Codex
-request, not an upstream authentication-reload contract. Its behavior can
-change with Codex versions; plugin/account notifications and switching during
-a turn are not established. Turning the option off keeps the prior launch
-behavior for new sessions.
+Wait for the Accounts result before sending another prompt. It shows the saved
+Profile login and whether each affected window confirmed the switch. An idle
+older window does not prevent saving, but it may keep using the old login.
+For a window whose switch was not confirmed, reopen the same Conversation
+explicitly to use the stored login. Harbor never restarts a window for you.
+Selecting Not signed in changes the stored login, not a confirmed live sign-out.
+The refresh relies on an undocumented effect of `app/list`; Harbor checks the
+resulting identity instead of assuming all Codex versions reload it.
 
 For native Codex, Harbor shows the model and provider set in Codex's home configuration when creating or reviewing a session, and flags a configured OpenAI base URL override without displaying it. Project settings and profiles may override home defaults. The original route or login may have changed since the conversation started; check both before resuming. If that configuration already points to Magpie, Harbor does not silently change it. Review and restore the intended client settings explicitly.
 

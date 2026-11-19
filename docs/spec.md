@@ -98,20 +98,32 @@ after server/environment loss are distinct operations. Environment recycling is
 controlled by the host platform; surviving processes and retained client history
 must not be assumed after recreation. See [remote workspaces](remote-workspaces.md).
 
-An opt-in experimental Codex account integration may use `codex-auth` to save
-and manually select logins and dedicated Codex App Servers to keep Harbor
-sessions open during a switch. Refreshing an already-running server currently
-depends on an undocumented side effect of `app/list`; show that limitation and
-report each session whose selected identity cannot be verified. Switch only
-between turns. The selection applies to the displayed Profile’s Codex home, and Magpie must
-continue forwarding the selected caller's identity without automatic rotation.
+Accounts selects the login for the displayed Profile's Codex home; Connections
+selects where model requests go. Accounts offers official login through bundled
+`codex-auth`, saved logins, and “Not signed in” in the same list. Sign-out
+requires confirmation and retains saved accounts. The check mark represents the
+stored login, not the login in an already-running window.
 
-The account page is available by default and operates on an explicitly selected
-Profile/client environment. It offers official Codex login through bundled
-codex-auth, saved-login selection and “Not signed in” while retaining saved
-accounts. Account mutations coordinate with launch and refuse active or unknown
-session activity. Each affected session reports its outcome; ordinary account
-management does not restart processes or depend on experimental refresh.
+New Native and signed-in caller-only Magpie Codex runs use a private official
+App Server automatically, without a switch or version allowlist. If the server
+cannot start, open the original CLI with the same launch settings. Independent
+Magpie API sessions do not start a dedicated server or block account changes.
+
+Account changes coordinate with launch. Herdr activity is trusted only for a
+verified foreground run in the captured Profile, independently of its saved
+Conversation identity. A busy window defers the change and the user can cancel
+the wait. Unknown activity prevents writing the login and names the window.
+Adding a login completes authorization in a private temporary home before this
+check. Harbor rechecks before writing the login and before requesting a refresh;
+these checks cannot lock out new input to Codex.
+
+Harbor reports the stored login separately from each affected window's result.
+`app/list` refresh uses an undocumented Codex side effect. Verify the selected
+identity in the owned App Server before reporting a live switch. A verified idle
+older window without a dedicated server does not block saving. Older windows,
+failed refreshes and live sign-out are reported as not confirmed. Do not restart
+any window automatically or change its Conversation, model, or connection.
+Magpie keeps its providers and does not rotate the caller's official account.
 Opening Accounts loads saved Codex logins for the selected Profile and
 automatically refreshes 5-hour and weekly availability and reset cards
 through bundled codex-auth. Previously displayed API quota stays visible while
@@ -132,10 +144,6 @@ of subsequent login changes. An expired or unconfirmed login requires repair or
 explicit sign-out. API-only catalogs do not include cached official choices.
 The integrated Profile-bound creation candidate is covered by that maintainer
 acceptance report; per-scenario automated evidence remains separately recorded.
-
-Opt-in running App Server refresh still relies on an undocumented side effect
-of `app/list`. It is separate from basic account management and reports each
-session whose identity cannot be verified.
 
 The proposed [Codex and Magpie architecture](magpie-codex-architecture.md) and
 [coordination spec](magpie-codex-coordination-spec.md) describe a

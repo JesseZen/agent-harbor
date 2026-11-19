@@ -206,8 +206,7 @@ func TestQuotaRemainingRole(t *testing.T) {
 	}
 }
 
-func TestExperimentalAccountEntryAndResult(t *testing.T) {
-	t.Setenv("AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS", "1")
+func TestAccountEntryAndResult(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	m = next.(harborModel)
@@ -216,7 +215,7 @@ func TestExperimentalAccountEntryAndResult(t *testing.T) {
 	}
 	detail := m
 	detail.screen = "accounts-detail"
-	if !strings.Contains(detail.View(), "between replies") || !strings.Contains(detail.View(), "undocumented") {
+	if !strings.Contains(detail.View(), "between replies") {
 		t.Fatalf("account entry lacks switching guidance: %s", m.View())
 	}
 	m.screen = "accounts-busy"
@@ -281,6 +280,59 @@ func TestAccountsUseRereadRosterAfterFailedAction(t *testing.T) {
 	m = next.(harborModel)
 	if m.currentAccount("primary") || m.accountSnapshot.State != "unconfirmed" || len(m.accountSnapshot.Accounts) != 2 {
 		t.Fatal("failed verification retained the old current login or lost the reread roster")
+	}
+}
+
+func TestAccountsOffersNoLoginAlongsideSavedAccounts(t *testing.T) {
+	for _, width := range []int{54, 74, 94, 154} {
+		m := newHarborModel(&walkthroughService{fakeApplicationService: &fakeApplicationService{}})
+		binding := profileBinding{ProfileID: "A"}
+		m.screen, m.accountProfile, m.width = "accounts", &binding, width
+		snapshot := walkthroughAccounts(binding)
+		snapshot.Accounts[0].Usage = walkthroughUsage(18, 32)
+		m.cacheAccountSnapshot(snapshot)
+		m.reconcileAccountRow()
+		noLoginRow := func(model harborModel) string {
+			for _, line := range model.accountContent().Lines {
+				if strings.Contains(line, "Not signed in") {
+					return ansi.Strip(line)
+				}
+			}
+			t.Fatalf("no login choice missing at width %d", width)
+			return ""
+		}
+		if strings.Contains(noLoginRow(m), "✓") {
+			t.Fatal("signed-in Profile marked signed out")
+		}
+		next, _ := m.Update(uiKey("up"))
+		m = next.(harborModel)
+		if !strings.HasPrefix(noLoginRow(m), "> Not signed in") {
+			t.Fatal("no login choice cannot be focused")
+		}
+		next, cmd := m.Update(uiKey("enter"))
+		m = next.(harborModel)
+		if cmd != nil || m.screen != "accounts-signout-confirm" || !strings.Contains(m.View(), "Saved logins stay available") {
+			t.Fatal("activating sign-out skipped its review")
+		}
+		next, cmd = m.Update(uiKey("esc"))
+		m = next.(harborModel)
+		if cmd != nil || m.screen != "accounts" || !m.currentAccount("primary") || !strings.HasPrefix(noLoginRow(m), "> Not signed in") {
+			t.Fatal("cancelling sign-out changed the login or lost the cursor")
+		}
+		next, _ = m.Update(uiKey("s"))
+		next, cmd = next.(harborModel).Update(uiKey("y"))
+		m = next.(harborModel)
+		if cmd == nil || m.screen != "accounts-busy" {
+			t.Fatal("confirming sign-out did not start the operation")
+		}
+		signedOut := walkthroughAccounts(binding)
+		signedOut.State, signedOut.Selected = "signed-out", ""
+		next, _ = m.Update(appAccountDone{profile: &binding, snapshot: &signedOut})
+		next, _ = next.(harborModel).Update(uiKey("esc"))
+		m = next.(harborModel)
+		if !strings.Contains(noLoginRow(m), " ✓") || !strings.Contains(ansi.Strip(m.View()), "82%") || len(m.accountSnapshot.Accounts) != 2 {
+			t.Fatal("confirmed sign-out lost the current marker, saved logins, or quota")
+		}
 	}
 }
 

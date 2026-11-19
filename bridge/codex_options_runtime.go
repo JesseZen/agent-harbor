@@ -210,8 +210,16 @@ func (o codexOptions) checkPermissions(rpc *codexConfigPipe, read codexConfigRea
 }
 
 func codexOptionLaunchArguments(ctx context.Context, binary string, env profileClientEnvironment, s session, kind launchKind, connectionArgs []string, options codexOptions, remoteTUI bool) ([]string, []string, error) {
+	local, remote, server, err := codexOptionLaunchPlans(ctx, binary, env, s, kind, connectionArgs, options)
+	if remoteTUI {
+		return remote, server, err
+	}
+	return local, server, err
+}
+
+func codexOptionLaunchPlans(ctx context.Context, binary string, env profileClientEnvironment, s session, kind launchKind, connectionArgs []string, options codexOptions) ([]string, []string, []string, error) {
 	if err := options.validate(s.CLI, true); err != nil || options.empty() {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var inheritedDirs []string
 	var resumeModel string
@@ -251,18 +259,18 @@ func codexOptionLaunchArguments(ctx context.Context, binary string, env profileC
 		return options.validateEffort(choices.Model, choices.Efforts)
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	server := options.arguments(true, inheritedDirs)
-	if remoteTUI {
-		options.SandboxMode = ""
-		options.ApprovalPolicy = ""
-		options.WritableDirs = nil
-	}
-	tui := options.arguments(remoteTUI, nil)
+	local := options.arguments(false, nil)
+	options.SandboxMode = ""
+	options.ApprovalPolicy = ""
+	options.WritableDirs = nil
+	remote := options.arguments(true, nil)
 	if resumeModel != "" {
-		tui = codexConfigArg(tui, "model", strconv.Quote(resumeModel))
+		local = codexConfigArg(local, "model", strconv.Quote(resumeModel))
+		remote = codexConfigArg(remote, "model", strconv.Quote(resumeModel))
 		server = codexConfigArg(server, "model", strconv.Quote(resumeModel))
 	}
-	return tui, server, nil
+	return local, remote, server, nil
 }

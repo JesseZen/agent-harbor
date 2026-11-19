@@ -19,7 +19,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
-// Each experimental session owns a private official App Server. Its socket is
+// Each eligible session owns a private official App Server. Its socket is
 // published only in that run's Harbor record, never in the user's Codex config.
 type ownedCodexServer struct {
 	cmd       *exec.Cmd
@@ -53,7 +53,7 @@ func startOwnedCodexServer(binary string, settings []string, directory string, e
 	s.cmd.Dir, s.cmd.Env = directory, env
 	if err := s.cmd.Start(); err != nil {
 		_ = os.RemoveAll(tmp)
-		return nil, errors.New("could not start the experimental Codex App Server")
+		return nil, errors.New("could not start the private Codex App Server")
 	}
 	go func() { s.done <- s.cmd.Wait() }()
 	deadline := time.NewTimer(15 * time.Second)
@@ -64,12 +64,20 @@ func startOwnedCodexServer(binary string, settings []string, directory string, e
 		select {
 		case <-s.done:
 			_ = os.RemoveAll(tmp)
-			return nil, errors.New("experimental Codex App Server exited before it was ready")
+			return nil, errors.New("Codex App Server exited before it was ready")
 		case <-deadline.C:
 			s.Close()
-			return nil, errors.New("experimental Codex App Server did not become ready")
+			return nil, errors.New("Codex App Server did not become ready")
 		case <-ticker.C:
 			if s.socketID = codexSocketIdentity(s.socket); s.socketID != "" {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				rpc, err := connectCodexRPC(ctx, s.socket)
+				cancel()
+				if err != nil {
+					s.Close()
+					return nil, err
+				}
+				_ = rpc.conn.CloseNow()
 				return s, nil
 			}
 		}

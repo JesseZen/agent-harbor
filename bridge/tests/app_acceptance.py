@@ -26,8 +26,8 @@ def main():
     p.add_argument('--session-names',action='store_true',help='exercise one-time Codex title capture and manual Herdr display names')
     p.add_argument('--model-picker',action='store_true',help='exercise Magpie models, Codex effort and profile recovery')
     p.add_argument('--codex-options',action='store_true',help='exercise Profile defaults, remembered launch options and native/Codex-format Magpie recovery')
-    p.add_argument('--experimental-codex-accounts',action='store_true',help='start eligible Codex sessions through the experimental owned App Server')
-    p.add_argument('--experimental-account-recovery',choices=['native','magpie'],help='exercise same-conversation recovery with the experimental App Server')
+    p.add_argument('--synthetic-api-login',action='store_true',help='seed a fixture API login instead of starting signed out')
+    p.add_argument('--owned-server-recovery',choices=['native','magpie'],help='exercise same-conversation recovery with the owned App Server')
     for name in ('binary','herdr','magpie','codex'): p.add_argument('--'+name,required=True)
     p.add_argument('--codex-auth',help='native codex-auth when testing an unpackaged Harbor executable')
     p.add_argument('--onboarding',choices=['local','managed','external'],default='local')
@@ -55,8 +55,7 @@ def main():
     if auth.is_file():
         shutil.copy2(auth,root/'bin/codex-auth');(root/'bin/codex-auth').chmod(0o700)
     if a.replacement:env['AGENT_HARBOR_REPLACEMENT_CANDIDATE']='1'
-    if a.experimental_codex_accounts:
-        env['AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS']='1'
+    if a.synthetic_api_login:
         env['OPENAI_API_KEY']='sk-harbor-fixture'
     binary=root/'bin/agent-harbor'; tmux=shutil.which('tmux'); sock=str(root/'tmux.sock')
     servers=[]
@@ -154,8 +153,7 @@ def main():
         (root/'codex/config.toml').write_text(config)
         # Explicit signed-out API connections use the fixture gateway credential.
         # A synthetic API key cannot stand in for a confirmed ChatGPT account.
-        # Experimental App Server account tests retain their separate key path.
-        if a.experimental_codex_accounts:
+        if a.synthetic_api_login:
             run([root/'bin/codex','login','--with-api-key'],input='sk-harbor-fixture\n')
         else:
             run([root/'bin/codex','logout'])
@@ -417,11 +415,11 @@ def main():
             key('Escape');key('q')
             resume(native_record,'AH_LOCAL_FIRST','AH_LOCAL_SECOND',native)
             resume(native_record,'AH_LOCAL_SECOND','AH_LOCAL_C',native,dict(expected,model_context_window=16000),'15.2K')
-            if a.experimental_codex_accounts:
-                assert native_record.get('codex_server_pid'), 'experimental launch did not use an owned App Server'
-            else:
+            assert native_record.get('codex_server_pid'), 'Native launch did not use an owned App Server'
+            if not a.synthetic_api_login:
                 gateway_record=assert_run(create('Options Magpie','ui-group'),'AH_RELAY_B',(relay_a,relay_b))
                 assert gateway_record['codex_connection']=='api'
+                assert not gateway_record.get('codex_server_pid'), 'API-only Magpie started an owned App Server'
                 catalog_request=urllib.request.Request(gateway_record['magpie_url']+'/v1/codex/models',headers={'Authorization':'Bearer magpie-agent-harbor'})
                 with urllib.request.urlopen(catalog_request,timeout=5) as response:
                     catalog={model['slug']:model['context_window'] for model in json.load(response)['models']}
@@ -429,7 +427,7 @@ def main():
                     'relay-a/test-model':32000,'relay-b/test-model':64000,'group/ui-group':64000},catalog
                 resume(gateway_record,'AH_RELAY_B','AH_RESUME_B',(relay_a,relay_b))
             assert stable_profile_config()==user_config,'per-session options rewrote Profile defaults'
-            topology='owned App Server' if a.experimental_codex_accounts else 'Native and Magpie routing group'
+            topology='owned App Server' if a.synthetic_api_login else 'Native App Server and API-only Magpie routing group'
             print('PASS remembered Options, Profile defaults, effective window and exact recovery via '+topology,root,flush=True)
             return 0
         if a.profiles:
@@ -602,9 +600,8 @@ def main():
             assert tomllib.loads(profile_a.read_text())==saved_a,'one session changed another session profile'
         wait(lambda:notify_count()>notify_before,'existing notify after second managed turn')
         three=create('UI-Native');notify_before=notify_count();turn('AH_LOCAL_C',native)
-        if a.experimental_codex_accounts:
-            current=next(r for r in records() if r['name']=='UI-Native')
-            assert current.get('codex_server_pid') and current.get('codex_server_socket_identity'), 'native session has no owned App Server'
+        current=next(r for r in records() if r['name']=='UI-Native')
+        assert current.get('codex_server_pid') and current.get('codex_server_socket_identity'), 'native session has no owned App Server'
         wait(lambda:notify_count()>notify_before,'existing notify after native turn')
         wait(lambda:len(records())==3 and all(r.get('codex_session_id') for r in records()),'three captured IDs')
         if a.replacement:
@@ -648,13 +645,14 @@ def main():
             comparisons.append({'client':rec['cli'],'herdr':row['agent_status'],'harbor':view['runtime']['activity']})
         (root/'runtime-comparison.json').write_text(json.dumps(comparisons,indent=2))
         print('PASS real Herdr agent.list matches Harbor CLI list/show for three native clients',flush=True)
-        if a.experimental_account_recovery:
-            assert a.experimental_codex_accounts and a.replacement, 'account recovery requires both experimental flags'
+        if a.owned_server_recovery:
+            assert a.replacement, 'owned server recovery requires the Herdr query candidate'
             name,first,marker,relay=({'native':('UI-Native','AH_LOCAL_C','AH_RESUME_C',native),
-                                      'magpie':('UI-A','AH_LOCAL_FIRST','AH_LOCAL_SECOND',relay_a)}[a.experimental_account_recovery])
+                                      'magpie':('UI-A','AH_LOCAL_FIRST','AH_LOCAL_SECOND',relay_a)}[a.owned_server_recovery])
             before=next(r for r in records() if r['name']==name)
+            assert before.get('codex_server_pid'), 'fixture session has no owned App Server'
             popup();key('/');text(name);key('Enter');key('s');screen('Stop process');reviewed_confirm()
-            wait(lambda:not next(r for r in records() if r['name']==name).get('process_group'),'experimental session stopped')
+            wait(lambda:not next(r for r in records() if r['name']==name).get('process_group'),'session stopped')
             def herdr_released_conversation():
                 agents=json.loads(run([wrapper,'agent','list']).stdout)['result']['agents']
                 return not any((agent.get('agent_session') or {}).get('value')==before['codex_session_id'] for agent in agents)
@@ -662,10 +660,10 @@ def main():
             if 'Harbor · Profile:' in capture():key('q')
             popup();key('/');text(name);key('Enter');screen('Resume conversation');reviewed_confirm()
             screen('Ask Codex');turn(marker,relay)
-            wait(lambda:any(first in marks and marker in marks for _,marks in relay.observed),'experimental recovery history')
+            wait(lambda:any(first in marks and marker in marks for _,marks in relay.observed),'owned server recovery history')
             after=next(r for r in records() if r['name']==name)
             assert after['codex_session_id']==before['codex_session_id'] and after.get('codex_server_pid') and after['codex_server_pid']!=before['codex_server_pid']
-            print('PASS experimental App Server resumes the same conversation and history:',name,flush=True)
+            print('PASS owned App Server resumes the same conversation and history:',name,flush=True)
         external_session_id=None
         if a.full_state:
             previous={x['pane_id'] for x in json.loads(run([wrapper,'pane','list']).stdout)['result']['panes']}

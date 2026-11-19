@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -144,5 +145,17 @@ func TestAccountRefreshVerifiesIdentityAndReadsOfficialQuota(t *testing.T) {
 				t.Fatalf("quota read after unverified selection: %s", joined)
 			}
 		})
+	}
+}
+
+func TestAccountRefreshRechecksActivityBeforeAppList(t *testing.T) {
+	socket, seen := accountFixtureServer(t, "account-b", false)
+	becameBusy := errors.New("window became busy")
+	_, err := refreshCodexAccountWithCheck(context.Background(), socket, "/fixture/project", "user::account-b", func() error { return becameBusy })
+	if !errors.Is(err, becameBusy) {
+		t.Fatalf("refresh continued after activity changed: %v", err)
+	}
+	if got := strings.Join(<-seen, ","); got != "initialize,thread/start" {
+		t.Fatalf("account refresh was sent to a busy window: %s", got)
 	}
 }

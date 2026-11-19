@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -20,14 +21,16 @@ type accountExec struct {
 	profile  profileBinding
 	snapshot profileAccountResult
 	action   string
+	selected string
 	input    io.Reader
 	output   io.Writer
 	errors   io.Writer
 	result   string
+	login    *stagedCodexLogin
 }
 
 func (e *accountExec) Run() error {
-	result, err := e.service.ProfileCodexAccounts(context.Background(), codexAccountRequest{Profile: e.profile, Action: e.action}, e.input, e.output, e.errors)
+	result, err := e.service.ProfileCodexAccounts(context.Background(), codexAccountRequest{Profile: e.profile, Action: e.action, Selected: e.selected, login: e.login}, e.input, e.output, e.errors)
 	e.snapshot = result
 	e.result = accountResultText(result)
 	return err
@@ -37,10 +40,27 @@ func (e *accountExec) SetStdout(w io.Writer) { e.output = w }
 func (e *accountExec) SetStderr(w io.Writer) { e.errors = w }
 
 type appAccountDone struct {
-	result   string
-	profile  *profileBinding
-	snapshot *profileAccountResult
-	err      error
+	result    string
+	profile   *profileBinding
+	snapshot  *profileAccountResult
+	err       error
+	operation *accountExec
+}
+
+type appAccountRetry struct{ operation *accountExec }
+
+func runAccountOperation(operation *accountExec) tea.Cmd {
+	done := func(err error) tea.Msg {
+		return appAccountDone{result: operation.result, err: err, profile: &operation.profile, snapshot: &operation.snapshot, operation: operation}
+	}
+	if operation.action == "login" && operation.login == nil {
+		return tea.Exec(operation, done)
+	}
+	return func() tea.Msg { return done(operation.Run()) }
+}
+
+func retryAccountOperation(operation *accountExec) tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg { return appAccountRetry{operation} })
 }
 
 func (m harborModel) updateAccounts(key string) (tea.Model, tea.Cmd) {
@@ -69,40 +89,47 @@ func (m harborModel) updateAccounts(key string) (tea.Model, tea.Cmd) {
 	if m.screen != "accounts" || (key != "s" && key != accountLoginKey && key != "o" && key != "r") {
 		return m, nil
 	}
-	service, ok := m.service.(profileAccountService)
-	if !ok {
-		m.accountResult = "Account management is unavailable in this environment."
-		m.screen = "accounts-result"
-		return m, nil
-	}
-	if m.accountProfile == nil {
-		m.accountResult = "Select a Profile with p before managing accounts."
-		m.screen = "accounts-result"
-		return m, nil
-	}
 	if key == "r" {
 		cmd := m.beginAccountInspect()
 		return m, cmd
 	}
-	if key == "s" && !m.accountUsagePending && m.accountSnapshot != nil && len(m.accountSnapshot.Accounts) == 0 {
-		m.accountResult = "No saved logins. Return and press " + accountLoginKey + " to add a login."
-		m.screen = "accounts-result"
+	m.accountListScroll = m.scroll
+	switch key {
+	case accountLoginKey:
+		return m.runAccountAction("login", "")
+	case "s":
+		if account, ok := m.selectedAccount(); ok {
+			if m.currentAccount(account.Key) {
+				return m, nil
+			}
+			return m.runAccountAction("switch", account.Key)
+		}
+		if m.uiFocus != accountRowPrefix {
+			return m, nil
+		}
+	}
+	if !m.canSignOutAccount() {
 		return m, nil
 	}
-	action := "switch"
-	if key == accountLoginKey {
-		action = "login"
-	}
-	if key == "o" {
-		action = "signed-out"
+	m.screen, m.scroll = "accounts-signout-confirm", 0
+	return m, nil
+}
+
+func (m harborModel) runAccountAction(action, selected string) (tea.Model, tea.Cmd) {
+	service, ok := m.service.(profileAccountService)
+	if !ok || m.accountProfile == nil {
+		m.accountResult = "Select a Profile with p before managing accounts."
+		if !ok {
+			m.accountResult = "Account management is unavailable in this environment."
+		}
+		m.screen, m.scroll = "accounts-result", 0
+		return m, nil
 	}
 	m.accountGeneration++
 	captured := *m.accountProfile
-	operation := &accountExec{service: service, action: action, profile: captured}
-	m.screen = "accounts-busy"
-	return m, tea.Exec(operation, func(err error) tea.Msg {
-		return appAccountDone{result: operation.result, err: err, profile: &captured, snapshot: &operation.snapshot}
-	})
+	operation := &accountExec{service: service, action: action, selected: selected, profile: captured}
+	m.screen, m.scroll = "accounts-busy", 0
+	return m, runAccountOperation(operation)
 }
 
 func (m *harborModel) beginAccountInspect() tea.Cmd {
@@ -203,6 +230,10 @@ func (m harborModel) currentAccount(key string) bool {
 	return key != "" && m.accountSnapshot != nil && m.accountSnapshot.State == "selected" && key == m.accountSnapshot.Selected
 }
 
+func (m harborModel) canSignOutAccount() bool {
+	return m.accountProfile != nil && m.accountSnapshot != nil && m.accountSnapshot.State != "signed-out" && m.accountSnapshot.State != "unavailable"
+}
+
 func (m harborModel) selectedAccount() (savedCodexAccount, bool) {
 	if m.accountSnapshot != nil {
 		for _, a := range m.accountSnapshot.Accounts {
@@ -242,9 +273,20 @@ func (m harborModel) submitAccountReset() (tea.Model, tea.Cmd) {
 func accountResultText(result profileAccountResult) string {
 	var lines []string
 	if result.ProfileName != "" {
-		lines = append(lines, "Profile: "+result.ProfileName, "Codex home: "+result.Home)
+		lines = append(lines, "Profile: "+result.ProfileName)
 	}
-	if result.State != "" {
+	switch result.State {
+	case "selected":
+		for _, account := range result.Accounts {
+			if account.Key == result.Selected {
+				lines = append(lines, "Saved login: "+accountName(account))
+				break
+			}
+		}
+	case "signed-out":
+		lines = append(lines, "Saved login: Not signed in")
+	case "":
+	default:
 		lines = append(lines, "Login: "+result.State)
 	}
 	for _, s := range result.Sessions {

@@ -39,6 +39,9 @@ func TestMain(m *testing.M) {
 
 	if executable, err := os.Executable(); err == nil {
 		if _, err := os.Stat(executable + ".fixture"); err == nil {
+			if len(os.Args) > 1 && os.Args[1] == "app-server" {
+				os.Exit(1)
+			}
 			cmd := exec.Command(executable+".fixture", os.Args[1:]...)
 			cmd.Env = os.Environ()
 			cmd.Stdin = os.Stdin
@@ -53,6 +56,9 @@ func TestMain(m *testing.M) {
 
 	if os.Getenv("BRIDGE_NATIVE_CLIENT") == "1" && !strings.HasPrefix(os.Args[1], "-test.") {
 		args := os.Args[1:]
+		if args[0] == "app-server" {
+			os.Exit(1)
+		}
 		if len(args) == 1 && args[0] == "--version" {
 			os.Stdout.WriteString("codex-cli 0.167.0\n")
 			os.Exit(0)

@@ -355,6 +355,9 @@ func (h harborService) RenameObserved(expected sessionView, name string) error {
 	if expected.Runtime.Presence != "observed" || (!expected.Runtime.Associated && !expected.Runtime.RunVerified) {
 		return nil
 	}
+	if expected.Runtime.RunVerified && conversationAssociationWarning(expected.session, expected.Runtime.Reference) != "" {
+		return nil
+	}
 	// The public agent target accepts pane IDs; the terminal identity was checked above.
 	var result map[string]any
 	if err := agentRPC(expected.HerdrSocket, "agent.rename", map[string]any{"target": expected.HerdrPane, "name": agentName(name, expected.ID)}, &result); err != nil {

@@ -139,6 +139,21 @@ func agentObservation(a herdrAgent, at time.Time, associated bool) runtimeObserv
 	return runtimeObservation{Reference: a.Reference, Activity: activity, Presence: "observed", Source: "herdr.agent.list", ObservedAt: at, Workspace: a.Workspace, Terminal: a.Terminal, LaunchPending: a.LaunchPending, InteractiveReady: a.InteractiveReady, Associated: associated}
 }
 
+func conversationAssociationWarning(s session, ref *herdrIdentity) string {
+	if ref != nil && (s.Conversation != nil && s.Conversation.Reference != *ref || s.CodexSessionID != "" && (ref.Kind != "id" || ref.Value != s.CodexSessionID)) {
+		return "Current conversation differs from the saved one."
+	}
+	if s.Conversation != nil {
+		switch s.Conversation.Status {
+		case "conflict":
+			return "Conversation identity conflicts with the saved record."
+		case "invalid_report":
+			return "Conversation identity report is invalid."
+		}
+	}
+	return ""
+}
+
 // A conversation reference may not exist before the client's first turn.
 // Herdr's foreground process group and the runner's token can independently
 // establish which live terminal contains this run, without establishing the
@@ -151,12 +166,6 @@ func verifiedForegroundRun(ctx context.Context, socket, identity string, agent h
 	for i := range views {
 		s := views[i].session
 		if s.HerdrSocket != socket || s.HerdrSocketIdentity != identity || s.HerdrPane != agent.Pane || s.HerdrTab == "" || s.HerdrTab != agent.Tab || s.CLI != agent.Client || s.RunToken == "" || s.ProcessGroup <= 1 {
-			continue
-		}
-		if s.Conversation != nil && (s.Conversation.Status == "conflict" || s.Conversation.Status == "invalid_report" || agent.Reference != nil && s.Conversation.Reference != *agent.Reference) {
-			continue
-		}
-		if agent.Reference != nil && s.CodexSessionID != "" && (agent.Reference.Kind != "id" || agent.Reference.Value != s.CodexSessionID) {
 			continue
 		}
 		candidates = append(candidates, i)
@@ -257,6 +266,9 @@ func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, 
 			v.Runtime.SnapshotAt, v.Runtime.Instance, v.Runtime.RunVerified = at, identity, true
 			v.Running = true
 			v.Status = runtimeLabel(v.Runtime)
+			if warning := conversationAssociationWarning(v.session, agent.Reference); warning != "" {
+				v.Reason, v.Health = warning, "needs_review"
+			}
 			continue
 		}
 		name := agent.Name

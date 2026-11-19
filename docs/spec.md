@@ -6,6 +6,13 @@ A session records a stable Profile binding, project, client, conversation refere
 
 On restart or recovery Harbor must preserve the intended conversation and connection. If either cannot be established, show the uncertainty and require explicit review; never silently substitute a client, account, route or conversation. External Herdr agents may be listed and focused without claiming ownership or inferring their connection.
 
+If a live client reports a different Conversation, Harbor can still verify the
+unique foreground run using the terminal and process evidence. Sessions shows
+one focusable managed row with the live activity and a Conversation warning.
+The saved Conversation and connection stay unchanged, and verifying the run
+does not authorize recovery or reassociation. Unverified or ambiguous runs
+remain separate from saved records.
+
 Use documented upstream integration interfaces. Unsupported operations must be presented clearly. Keep user credentials and conversations out of logs and test fixtures.
 
 Before a managed Codex launch, Harbor checks Herdr's identity integration in the

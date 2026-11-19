@@ -127,6 +127,9 @@ func sessionAttention(s sessionView) string {
 	if s.DiscoveryWarning != "" {
 		return s.DiscoveryWarning
 	}
+	if s.Runtime.RunVerified && s.Reason != "" {
+		return s.Reason
+	}
 	if s.Conversation == nil && s.Started {
 		if s.Running {
 			return "Conversation identity pending; approve the client identity hook if prompted."

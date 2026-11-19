@@ -4,16 +4,14 @@ import (
 	"encoding/json"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 )
 
 func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
-	for _, scenario := range []string{"automatic", "manual-harbor", "manual-herdr", "wrong-conversation", "unobserved", "wrong-run", "wrong-home", "unfinished-index", "no-identity", "no-identity-wrong-process", "no-identity-unindexed-title", "no-identity-manual"} {
+	for _, scenario := range []string{"automatic", "manual-harbor", "manual-herdr", "wrong-conversation", "conflict", "unobserved", "wrong-run", "wrong-home", "unfinished-index", "no-identity", "no-identity-wrong-process", "no-identity-unindexed-title", "no-identity-manual"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := visibilityTestRoot(t)
 			t.Setenv(originalEnvKey, "")
@@ -28,16 +26,14 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 			defer listener.Close()
 			s := session{Version: 3, ID: "0123456789abcdef0123456789abcdef", CLI: "codex", Name: "project · local", AutoNamePending: true, RunToken: "run", CodexHome: os.Getenv("CODEX_HOME"), HerdrPane: "w1:p1", HerdrTab: "w1:t1", HerdrSocket: socket, HerdrSocketIdentity: socketIdentity(socket)}
 			s.Conversation = &conversationEvidence{Reference: ref, Status: "observed", RunToken: s.RunToken, Pane: s.HerdrPane, SocketIdentity: s.HerdrSocketIdentity}
+			if strings.HasPrefix(scenario, "no-identity") || scenario == "conflict" {
+				s.ProcessGroup = startSessionProcessGroupFixture(t, root, map[string]string{"AH_SESSION_RUN_TOKEN": s.RunToken})
+			}
 			if strings.HasPrefix(scenario, "no-identity") {
 				s.Conversation = nil
-				child := exec.Command("sleep", "30")
-				child.Env = append(os.Environ(), "AH_SESSION_RUN_TOKEN="+s.RunToken)
-				child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-				if err := child.Start(); err != nil {
-					t.Fatal(err)
-				}
-				t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
-				s.ProcessGroup = child.Process.Pid
+			}
+			if scenario == "conflict" {
+				s.Conversation.Status = "conflict"
 			}
 			if scenario == "unobserved" {
 				s.Conversation.Status = "initial_unverified"
@@ -79,7 +75,7 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 								copy := ref
 								observed = &copy
 							}
-							if scenario == "wrong-conversation" {
+							if scenario == "wrong-conversation" || scenario == "conflict" {
 								observed.Value = "other"
 							}
 							title := "修复登录页面 | project"

@@ -1,9 +1,8 @@
-Changes in v0.1.0-dev.7:
+Changes in v0.1.0-dev.8:
 
-- The new-session form recalls the most recent Native or Magpie choice for the current Profile. Magpie setup still asks for an instance and model.
-- Accounts keeps the last quota visible during background refresh. Press `n` to add a login.
-- Click a row to move the cursor, then click the current row to perform its Enter action. Arrow keys and `hjkl` navigate the main tabs, lists, and forms. Tab and Shift+Tab no longer cycle focus.
-- Removed the Connections default-instance shortcut and obsolete first-run choice code.
+- Sessions keeps one focusable row when the same verified terminal run reports a different conversation. Harbor shows the conflict without changing the saved conversation or connection.
+- When a running session blocks a login change, Accounts explains which session blocked it and why, and keeps the displayed accounts and quota when you return.
+- Accounts shows cached quota while refreshing and keeps the last API quota visible until the next result arrives.
 
 Native development candidate for macOS and Linux, arm64 and amd64.
 

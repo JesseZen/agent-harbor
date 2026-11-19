@@ -15,10 +15,23 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// The client's first conversation reference may arrive only after its first
-// turn. A verified foreground run is still focusable without asserting that
-// its conversation identity has been observed.
-func TestFreshManagedRunIsOneFocusableTargetBeforeConversationReport(t *testing.T) {
+func startSessionProcessGroupFixture(t *testing.T, root string, variables map[string]string) int {
+	t.Helper()
+	child := exec.Command(mustExecutable(t), "-test.run=^TestFactsHelperProcess$")
+	child.Env = []string{"AH_FACTS_HELPER=1", "AH_FACTS_STOP=" + filepath.Join(root, "stop")}
+	for key, value := range variables {
+		child.Env = append(child.Env, key+"="+value)
+	}
+	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	waitForProcessFacts(t, child.Process.Pid, variables)
+	return child.Process.Pid
+}
+
+func TestManagedRunIsOneFocusableTargetAcrossConversationReports(t *testing.T) {
 	root := visibilityTestRoot(t)
 	socket := filepath.Join(root, "herdr", "state.sock")
 	if err := os.MkdirAll(filepath.Dir(socket), 0700); err != nil {
@@ -31,18 +44,18 @@ func TestFreshManagedRunIsOneFocusableTargetBeforeConversationReport(t *testing.
 	defer l.Close()
 	t.Setenv("HERDR_SOCKET_PATH", socket)
 	const token = "fixture-current-run"
-	child := exec.Command("sleep", "30")
-	child.Env = replaceEnvironment(os.Environ(), map[string]*string{"AH_SESSION_RUN_TOKEN": new(token)})
-	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := child.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = child.Process.Kill(); _ = child.Wait() }()
+	home := filepath.Join(root, "codex")
+	binding := profileBinding{WorkspaceID: "workspace", ProfileID: "profile", EnvironmentID: "environment", Client: "codex"}
+	group := startSessionProcessGroupFixture(t, root, map[string]string{
+		"AH_SESSION_RUN_TOKEN": token, "CODEX_HOME": home,
+		"AH_PROFILE_WORKSPACE": binding.WorkspaceID, "AH_PROFILE_ID": binding.ProfileID, "AH_PROFILE_ENVIRONMENT": binding.EnvironmentID,
+	})
 	var foreground atomic.Int64
-	foreground.Store(int64(child.Process.Pid))
+	foreground.Store(int64(group))
 	var focused atomic.Int32
 	var renamed atomic.Int32
 	var reportConflict atomic.Bool
+	reported := herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: "other"}
 	go func() {
 		for {
 			conn, e := l.Accept()
@@ -62,7 +75,7 @@ func TestFreshManagedRunIsOneFocusableTargetBeforeConversationReport(t *testing.
 				case "agent.list":
 					agent := map[string]any{"terminal_id": "term", "workspace_id": "w1", "pane_id": "w1:p1", "tab_id": "w1:t1", "agent": "codex", "agent_status": "idle"}
 					if reportConflict.Load() {
-						agent["agent_session"] = herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: "other"}
+						agent["agent_session"] = reported
 					}
 					result = map[string]any{"agents": []any{agent}}
 				case "pane.process_info":
@@ -80,10 +93,14 @@ func TestFreshManagedRunIsOneFocusableTargetBeforeConversationReport(t *testing.
 			}()
 		}
 	}()
-	s := session{ID: "0123456789abcdef0123456789abcdef", Name: "Fresh", CLI: "codex", Mode: "local", Started: true, ProcessGroup: child.Process.Pid, RunToken: token, HerdrPane: "w1:p1", HerdrTab: "w1:t1", HerdrSocket: socket, HerdrSocketIdentity: socketIdentity(socket)}
-	if err := withSessions(func([]session) ([]session, error) { return []session{s}, nil }); err != nil {
-		t.Fatal(err)
+	s := session{Version: 3, ID: "0123456789abcdef0123456789abcdef", Name: "Fresh", CLI: "codex", Mode: "local", Started: true, ProcessGroup: group, RunToken: token, HerdrPane: "w1:p1", HerdrTab: "w1:t1", HerdrSocket: socket, HerdrSocketIdentity: socketIdentity(socket), Profile: &binding, CodexHome: home}
+	writeSessions := func(records ...session) {
+		t.Helper()
+		if err := withSessions(func([]session) ([]session, error) { return records, nil }); err != nil {
+			t.Fatal(err)
+		}
 	}
+	writeSessions(s)
 	h := harborService{}
 	views, err := h.List()
 	if err != nil || len(views) != 1 {
@@ -119,7 +136,7 @@ func TestFreshManagedRunIsOneFocusableTargetBeforeConversationReport(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	foreground.Store(int64(child.Process.Pid + 1))
+	foreground.Store(int64(group + 1))
 	if err := h.FocusObserved(v); err == nil {
 		t.Fatal("focused after foreground process changed")
 	}
@@ -127,23 +144,16 @@ func TestFreshManagedRunIsOneFocusableTargetBeforeConversationReport(t *testing.
 	if err != nil || len(views) != 2 || !views[1].External {
 		t.Fatalf("unverified replacement was claimed: %+v %v", views, err)
 	}
-	foreground.Store(int64(child.Process.Pid))
+	foreground.Store(int64(group))
 	wrong := s
 	wrong.RunToken = "another-run"
-	_ = withSessions(func([]session) ([]session, error) { return []session{wrong}, nil })
+	writeSessions(wrong)
 	views, err = h.List()
 	if err != nil || len(views) != 2 || !views[1].External {
 		t.Fatalf("wrong process token claimed terminal: %+v %v", views, err)
 	}
-	duplicate := s
-	duplicate.ID = "fedcba9876543210fedcba9876543210"
-	_ = withSessions(func([]session) ([]session, error) { return []session{s, duplicate}, nil })
-	views, err = h.List()
-	if err != nil || len(views) != 3 || !views[2].External {
-		t.Fatalf("ambiguous records claimed terminal: %+v %v", views, err)
-	}
 	s.Conversation = &conversationEvidence{Reference: herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: "original"}, Status: "association_lost"}
-	_ = withSessions(func([]session) ([]session, error) { return []session{s}, nil })
+	writeSessions(s)
 	views, err = h.List()
 	if err != nil || len(views) != 1 || !views[0].Runtime.RunVerified || views[0].Runtime.Associated {
 		t.Fatalf("transport loss was hidden as verified conversation identity: %+v %v", views, err)
@@ -151,12 +161,76 @@ func TestFreshManagedRunIsOneFocusableTargetBeforeConversationReport(t *testing.
 	if queryReferenceCheck(views[0].session) == nil {
 		t.Fatal("verified foreground run bypassed conversation recovery review")
 	}
-	s.Conversation = &conversationEvidence{Reference: herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: "original"}, Status: "conflict"}
-	_ = withSessions(func([]session) ([]session, error) { return []session{s}, nil })
+	s.CodexSessionID = s.Conversation.Reference.Value
+	s.Conversation.Provenance = "herdr-pane-observation"
+	s.Conversation.ObservedAt = time.Now().UTC()
+	s.Conversation.RunToken = s.RunToken
+	s.Conversation.SocketIdentity = s.HerdrSocketIdentity
+	s.Conversation.Pane = s.HerdrPane
+	s.Conversation.Status = "observed"
+	writeSessions(s)
 	reportConflict.Store(true)
 	views, err = h.List()
+	if err != nil || len(views) != 1 || !views[0].Runtime.RunVerified || views[0].Runtime.Associated {
+		t.Fatalf("changed live reference must not duplicate the run before the observer records the conflict: %+v %v", views, err)
+	}
+	s.Conversation.Status = "conflict"
+	s.Conversation.ObservedReference = &reported
+	writeSessions(s)
+	views, err = h.List()
+	if err != nil || len(views) != 1 {
+		t.Fatalf("recorded conflict duplicated the managed run: %+v %v", views, err)
+	}
+	v = views[0]
+	if v.ID != s.ID || v.External || !v.Running || v.Status != "Idle" || !v.Runtime.RunVerified || v.Runtime.Associated || v.Runtime.Reference == nil || *v.Runtime.Reference != reported || !sameSession(v.session, s) {
+		t.Fatalf("conflict must keep live activity and both identities separate: %+v", v)
+	}
+	model := newHarborModel(h)
+	model.sessions = views
+	if !strings.Contains(model.details(v), "differs from the saved") {
+		t.Fatal("live conversation conflict is not visible")
+	}
+	for _, width := range []int{60, 80, 100, 160} {
+		model.width, model.height = width, 24
+		if view := cleanUI(model.View()); !strings.Contains(view, "Current conversation differs") || strings.Contains(view, "External · connection unknown") {
+			t.Fatalf("at width %d: live conflict has no warning or shows an external row", width)
+		}
+	}
+	if err := h.FocusObserved(v); err != nil || focused.Load() != 2 {
+		t.Fatalf("verified run with a conflict cannot be focused: %v", err)
+	}
+	if queryReferenceCheck(v.session) == nil || validateLaunchState(v.session) == nil {
+		t.Fatal("foreground evidence bypassed recovery or duplicate launch protection")
+	}
+	if err := h.RenameObserved(v, "Saved name"); err != nil || renamed.Load() != 3 {
+		t.Fatalf("renaming the saved record should not rename the conflicting live target: %v", err)
+	}
+	got, err := getSession(s.ID)
+	if err != nil || got.Name != "Saved name" || got.Conversation == nil || got.Conversation.Reference != s.Conversation.Reference {
+		t.Fatalf("rename did not preserve the saved record's identity: %+v %v", got, err)
+	}
+	legacy := s
+	legacy.Conversation = nil
+	writeSessions(legacy)
+	views, err = h.List()
+	if err != nil || len(views) != 1 || !views[0].Runtime.RunVerified || views[0].Runtime.Associated || !strings.Contains(sessionAttention(views[0]), "differs from the saved") {
+		t.Fatalf("legacy reference disagreement must not duplicate the run or look like a pending first report: %+v %v", views, err)
+	}
+	wrong = s
+	wrong.CodexHome = filepath.Join(root, "another-home")
+	writeSessions(wrong)
+	views, err = h.List()
 	if err != nil || len(views) != 2 || !views[1].External {
-		t.Fatalf("conflicting conversation claimed terminal: %+v %v", views, err)
+		t.Fatalf("wrong Profile home claimed the terminal despite conflicting identity: %+v %v", views, err)
+	}
+	duplicate := s
+	duplicate.ID = "fedcba9876543210fedcba9876543210"
+	duplicate.Conversation = nil
+	duplicate.CodexSessionID = ""
+	writeSessions(s, duplicate)
+	views, err = h.List()
+	if err != nil || len(views) != 3 || !views[2].External {
+		t.Fatalf("ambiguous records claimed terminal: %+v %v", views, err)
 	}
 }
 

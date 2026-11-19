@@ -121,9 +121,12 @@ func captureAutomaticSessionName(id, token string) {
 				pane.Pane.ID != s.HerdrPane || pane.Pane.Tab != s.HerdrTab {
 				return nil, nil
 			}
+			if conversationAssociationWarning(s, pane.Pane.Reference) != "" {
+				return nil, nil
+			}
 			name := ""
 			if observed {
-				if pane.Pane.Reference == nil || *pane.Pane.Reference != s.Conversation.Reference {
+				if pane.Pane.Reference == nil {
 					return nil, nil
 				}
 				name = names[s.Conversation.Reference.Value]

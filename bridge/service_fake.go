@@ -175,8 +175,15 @@ func (f *fakeApplicationService) ManagementContext() (string, error) {
 func (f *fakeApplicationService) PreviousPane(s session) (previousPane, error) {
 	return previousPane{Session: s, PaneID: s.HerdrPane, Label: s.Name}, f.call("previous-pane " + s.ID)
 }
+func (f *fakeApplicationService) ViewPreviousPane(p previousPane) error {
+	return f.call("view-previous-pane " + p.Session.ID)
+}
 func (f *fakeApplicationService) ClosePreviousPane(p previousPane) error {
 	return f.call("close-previous-pane " + p.Session.ID)
+}
+
+func (*fakeApplicationService) RecoveryMetadata(session) (map[string]string, string, error) {
+	return nil, "", nil
 }
 
 func (f *fakeApplicationService) Reassociate(a sessionApproval, r herdrIdentity, reason string) error {

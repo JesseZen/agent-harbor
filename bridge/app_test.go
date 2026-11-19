@@ -154,7 +154,9 @@ func TestHarborResumeShowsServiceRefusals(t *testing.T) {
 	for _, size := range [][2]int{{60, 20}, {100, 30}, {160, 45}} {
 
 		for _, reason := range []string{"directory missing", "instance changed", "identity unknown", "model missing", "gateway offline", "ID ambiguous", "conversation open elsewhere"} {
-			f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", Conversation: savedReviewFixture().Conversation, Started: true, WorkingDirectory: "/projects/api", Mode: "local", CodexSessionID: "01912345-6789-7abc-8def-0123456789ab"}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Exited"}}}
+			row := savedReviewFixture()
+			row.ID, row.Mode = "one", "local"
+			f := &fakeApplicationService{Sessions: []sessionView{row}}
 			m := newHarborModel(f)
 			var model tea.Model = m
 			model, _ = model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
@@ -175,7 +177,9 @@ func TestHarborResumeShowsServiceRefusals(t *testing.T) {
 }
 
 func TestHarborLongRefusalIsReadable(t *testing.T) {
-	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "one", Name: "API", Conversation: savedReviewFixture().Conversation, Started: true}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}, Status: "Exited"}}}
+	row := savedReviewFixture()
+	row.ID, row.Mode = "one", "local"
+	f := &fakeApplicationService{Sessions: []sessionView{row}}
 	m := newHarborModel(f)
 	var model tea.Model = m
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
@@ -362,7 +366,7 @@ func TestHarborCancelledCatalogResponseCannotReplaceNewInstance(t *testing.T) {
 }
 
 func TestHarborFocusesLiveSessionDespiteConnectionWarning(t *testing.T) {
-	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "a", Name: "A"}, Runtime: runtimeObservation{Presence: "observed", Activity: "working"}, Running: true, Status: "Needs attention", Reason: "gateway offline"}}}
+	f := &fakeApplicationService{Sessions: []sessionView{{session: session{ID: "a", Name: "A"}, Runtime: runtimeObservation{Presence: "observed", Activity: "working", RunVerified: true, Terminal: "term-1"}, Running: true, Status: "Needs attention", Reason: "gateway offline"}}}
 	m := newHarborModel(f)
 	var model tea.Model = m
 	model, _ = model.Update(m.Init()())

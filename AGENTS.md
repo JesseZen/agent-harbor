@@ -16,6 +16,8 @@ If `AGENTS.local.md` exists at the repository root, read it for machine-specific
 - Inspect Git status and worktrees first. Preserve unrelated user changes and protect credentials, conversations and private material.
 - Match tests to the changed behavior. For runtime, packaging or acceptance work, follow [bridge/tests/README.md](bridge/tests/README.md) and use isolated homes, configuration, state, ports and processes. Do not disturb existing user-managed services.
 - Report what was actually tested and any missing platform, real-client or upstream evidence. Keep secrets, local state, build artifacts and private planning material out of commits.
+- When a planned approach fails, report the reproduction, affected user behavior and recommended alternative promptly. Get the user's agreement before changing the workflow, supported scope or acceptance criteria. Ask for specific real-client, endpoint or account access when it is required and isolated fixtures cannot answer the question.
+- Lead user updates with the result or blocker. State directly what works, what failed and what remains to verify.
 
 ## TUI changes
 

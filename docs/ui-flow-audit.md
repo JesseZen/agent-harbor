@@ -1,5 +1,19 @@
 # UI 实机走查 — 2026-11-17
 
+## Enter 恢复（#21 决定 1）
+
+Sessions 显示 Enter 将进入终端、恢复对话或选择恢复目标。原运行已结束时，Enter 先只读检查旧 pane。能核实原 shell 时直接进入一次确认，恢复后旧 shell 仍在。无法确认时正文显示原因和 Recheck。只有已核实目标 pane 才显示 View old terminal。
+
+旧冲突在同一页列出 Originally saved 和 Last reported。上下键或 j/k 选择，Enter 确认，Esc 回原选中行。鼠标首次点击选中，再点当前行等同 Enter。完整引用与原始证据放 Details。确认前重查目标、运行、Profile 和连接。交接终端前检测到的启动失败可在同页 Retry recovery，保留已选目标。客户端接管终端后的报错显示在新终端。
+
+macOS arm64 上用隔离 Herdr 0.9.5 和 Codex 0.170.0 在外层 60×24（无色）、80×24、100×30 和 160×45 实机通过。覆盖 Sessions 活会话单行、既有 Stop process 确认和取消、旧 shell 保留、确认过期、禁用 hooks 和冲突选择。160×45 的已选目标在缩到 60×24 再放大后仍在。此前 100×30 的并行验收有一次 Codex 0.169.0 在交接后报 `Interrupted system call`，用 0.170.0 串行复跑未复现。[验收步骤](../bridge/tests/README.md#enter-recovery-21-decision-1)
+
+用 Magpie 0.1.3528-harbor-dev 停止隔离网关，确认错误留在恢复页。网关重启后按 Enter 重试，恢复同一对话、Profile 和连接，保留旧 shell。验收使用合成提供方。
+
+## 不停机升级 Harbor 弹窗（2026-11-19）
+
+已有工作区第一次运行新版 `ah` 时迁移可识别的快捷键、状态命令和插件入口。macOS arm64 隔离实测从 Harbor dev.8 升级到本地候选，最终复测使用 Herdr 0.9.5 和 Codex 0.170.0。脚本路径运行生产安装器和 `ah update`，并验证热加载及插件注册失败后的回滚。Homebrew 7.0.15 在独立前缀实跑 `brew install`、`brew upgrade`、`brew cleanup`，确认旧 keg 已删除。两种路径均验证旧弹窗继续运行，关闭重开后使用新版，Herdr 与 Codex PID、原 pane 和未发送草稿保留，自定义快捷键仍可用，并能从新版弹窗启动受管 Codex。Linux 的不停机升级实测仍待验证。[验收步骤](../bridge/tests/README.md#live-popup-upgrade)
+
 ## Accounts 登录被阻止（2026-11-19）
 
 已修复：同一 Profile 的会话活动无法确认时，登录仍在调用 codex-auth 前被阻止。结果页先说明哪个会话阻止了操作及原因；未检查登录时不显示 `Login: unconfirmed`。返回 Accounts 保留原账号和额度；若操作已开始并实际重查，则使用重查结果。

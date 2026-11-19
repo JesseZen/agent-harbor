@@ -11,14 +11,15 @@ import (
 )
 
 type conversationEvidence struct {
-	ObservedReference *herdrIdentity `json:"observed_reference,omitempty"`
-	Reference         herdrIdentity  `json:"reference"`
-	Provenance        string         `json:"provenance"`
-	ObservedAt        time.Time      `json:"observed_at"`
-	Pane              string         `json:"pane"`
-	SocketIdentity    string         `json:"socket_identity"`
-	RunToken          string         `json:"run_token"`
-	Status            string         `json:"status"`
+	PrimarySelection  *primarySelectionEvidence `json:"primary_selection,omitempty"`
+	ObservedReference *herdrIdentity            `json:"observed_reference,omitempty"`
+	Reference         herdrIdentity             `json:"reference"`
+	Provenance        string                    `json:"provenance"`
+	ObservedAt        time.Time                 `json:"observed_at"`
+	Pane              string                    `json:"pane"`
+	SocketIdentity    string                    `json:"socket_identity"`
+	RunToken          string                    `json:"run_token"`
+	Status            string                    `json:"status"`
 }
 type resumeCommandPlan struct {
 	Version int      `json:"version"`

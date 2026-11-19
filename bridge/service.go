@@ -29,6 +29,7 @@ type sessionDraft struct {
 	CodexConnection                                      string
 }
 type sessionApproval struct {
+	Recovery                 *recoveryApproval
 	Observation              *runtimeObservation
 	Session                  session
 	MagpieSelection          *codexSelection
@@ -63,7 +64,9 @@ type applicationService interface {
 	ValidateProfileResult(profileBinding, profileBinding) error
 	Reassociate(sessionApproval, herdrIdentity, string) error
 	PreviousPane(session) (previousPane, error)
+	ViewPreviousPane(previousPane) error
 	ClosePreviousPane(previousPane) error
+	RecoveryMetadata(session) (map[string]string, string, error)
 	ManagementContext() (string, error)
 	AuxiliaryAcknowledged(string) (bool, error)
 	AcknowledgeAuxiliary(string) error

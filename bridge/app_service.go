@@ -112,7 +112,7 @@ type recoveryOpenError struct {
 func (e *recoveryOpenError) Error() string { return e.err.Error() }
 func (e *recoveryOpenError) Unwrap() error { return e.err }
 
-func (harborService) Open(a sessionApproval) (err error) {
+func (h harborService) Open(a sessionApproval) (err error) {
 	reviewed := false
 	defer func() {
 		if err != nil && reviewed {
@@ -129,7 +129,19 @@ func (harborService) Open(a sessionApproval) (err error) {
 	if a.Session.Profile == nil {
 		return errors.New("legacy session requires explicit review of its original Profile environment before launch")
 	}
-	if err := validateApprovalRuntime(a); err != nil {
+	if a.Recovery != nil {
+		updated, err := h.approveEnterRecovery(a)
+		if err != nil {
+			return err
+		}
+		reviewed = true
+		a.Session = updated
+		if a.Observation.Presence == "confirmed_exit" && updated.Ended != nil && updated.Ended.Source == idleRecoverySource {
+			observation := *a.Observation
+			observation.Presence = "not_observed"
+			a.Observation = &observation
+		}
+	} else if err := validateApprovalRuntime(a); err != nil {
 		return err
 	}
 	if err := waitForLaunchState(a.Session); err != nil {
@@ -157,8 +169,14 @@ func (harborService) Open(a sessionApproval) (err error) {
 		if !a.QueryUncertaintyAccepted {
 			return errors.New("query proves syntax only; explicitly accept conversation, login and external writer uncertainty")
 		}
-		if _, err := queryResume(a.Session); err != nil {
+		plan, err := queryResume(a.Session)
+		if err != nil {
 			return err
+		}
+		if a.Recovery != nil {
+			if err := checkEnterRecoveryPlan(a.Session, plan); err != nil {
+				return err
+			}
 		}
 		if a.Session.Mode == "magpie" && a.Session.CLI == "codex" {
 			if err := verifyCodexSelection(context.Background(), a.Session, a.MagpieSelection); err != nil {
@@ -167,6 +185,9 @@ func (harborService) Open(a sessionApproval) (err error) {
 		}
 		if err := checkSessionSelection(a.Session, resumeConversation, a.OverrideReason, a.MagpieSelection); err != nil {
 			return err
+		}
+		if a.Recovery != nil {
+			return openPaneOptions(a.Session, launchKind("query"), a.OverrideReason, a.MagpieSelection, a.Recovery)
 		}
 		return openQueryPane(a.Session, a.OverrideReason, a.MagpieSelection)
 	}

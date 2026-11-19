@@ -5,15 +5,16 @@ import (
 	"testing"
 )
 
-func TestRecoverMissingReferenceStopsBeforeReview(t *testing.T) {
+func TestRecoverMissingReferenceShowsBlockedReview(t *testing.T) {
 	row := sessionView{session: session{ID: "missing", Name: "Finished", CLI: "codex", Mode: "local", Started: true, RunToken: "run"}, Runtime: runtimeObservation{Presence: "historical_exit"}}
 	f := &fakeApplicationService{Sessions: []sessionView{row}}
 	m := newHarborModel(f)
 	m.sessions = []sessionView{row}
 	m = appKey(m, "enter").(harborModel)
-	if m.screen != "sessions" || !strings.Contains(m.notice, "Conversation identity was not captured") {
-		t.Fatalf("missing identity entered recovery review: screen=%s notice=%s", m.screen, m.notice)
+	if m.screen != "confirm" || !strings.Contains(m.recoveryBlocked, "Conversation identity was not captured") {
+		t.Fatalf("missing identity did not explain the block: screen=%s reason=%s", m.screen, m.recoveryBlocked)
 	}
+	m = appKey(m, "enter").(harborModel)
 	if strings.Contains(strings.Join(f.Calls, "|"), "open ") {
 		t.Fatal("missing identity launched")
 	}

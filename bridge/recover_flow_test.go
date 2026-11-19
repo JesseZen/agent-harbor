@@ -28,7 +28,7 @@ func TestRecoverSingleDecisionAndRetryFocus(t *testing.T) {
 	m.reviewOpenedAt = time.Time{}
 	f.Err = errors.New("synthetic recover failure")
 	m = appKey(m, "enter").(harborModel)
-	if f.LastApproval == nil || !f.LastApproval.QueryUncertaintyAccepted || !f.LastApproval.SavedReferenceAccepted {
+	if f.LastApproval == nil || !f.LastApproval.QueryUncertaintyAccepted || f.LastApproval.Recovery == nil || f.LastApproval.Recovery.Target != row.Conversation.Reference {
 		t.Fatal("Resume did not submit the displayed conversation as one decision")
 	}
 	if m.screen != "confirm" || m.uiFocus != "review:enter" || !strings.Contains(m.notice, "synthetic recover failure") {

@@ -33,6 +33,9 @@ class MockResponses(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+        self.respond(body)
+
+    def respond(self, body):
         content = json.dumps(body)
         self.server.observed.append((self.path, [marker for marker in (FIRST, SECOND) if marker in content]))
         answer = ANSWER

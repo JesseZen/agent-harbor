@@ -1,11 +1,68 @@
 # Product acceptance gates
 
+## Live popup upgrade
+
+Build the candidate in an isolated Go environment. Run the two package paths
+sequentially with the same old dev.8 package executables and native Codex.
+
+```sh
+for method in script homebrew; do
+  python3 bridge/tests/popup_upgrade.py --method "$method" \
+    --old-libexec /opt/homebrew/opt/agent-harbor/libexec \
+    --binary CANDIDATE_HARBOR --codex NATIVE_CODEX || break
+done
+```
+
+The script gate serves checksum-verified release archives on a temporary port
+and runs the production installer and `ah update`. It injects a partial reload
+acknowledgment and blocks the plugin registry write, verifying rollback after
+each fault. The default Homebrew gate reproduces the formula's Cellar and `opt`
+layout with real dev.8 binaries and removes the fixture's old keg. To run the
+actual `brew install`, `brew upgrade` and `brew cleanup` commands, also pass
+`--brew FIXTURE_PREFIX/bin/brew`. Use a fresh, working Homebrew clone in a
+writable directory outside `/tmp` on macOS. Give its prefix a file named
+`.harbor-brew-fixture` containing `agent-harbor-brew-fixture-v1` and a final
+newline. The fixture checks the prefix and uses a local tap generated from the
+release formula template and two checksum-verified loopback archives.
+
+Both package paths exercise the old popup, new popup,
+custom shortcuts, unchanged Herdr/Codex PIDs, pane and unsent draft, and a new
+managed Codex launch. The runner reserves `127.0.0.1:3425` exclusively and exits
+77 if it cannot bind. Run it apart from other fixtures using port 3425. It uses
+fixture-owned tmux, HOME, XDG and client state, and stops only its own workspace.
+
 The primary acceptance baseline is the current upstream Codex client release.
 Results from older clients are historical evidence, not a pass for a newer
 release. The joined connection additionally requires the local Magpie
 caller-only candidate described in [the integration guide](../../docs/magpie-caller-integration.md).
 Report the exact client and dependency versions tested, and distinguish these
 gates from upstream acceptance or release.
+
+## Immediate Codex primary selection
+
+Build the [Codex and Herdr candidates](../../docs/herdr-integration.md#immediate-codex-primary-selection-candidate)
+and point the fixture at the three native binaries.
+
+```sh
+python3 bridge/tests/primary_selection_real.py --binary HARBOR --herdr HERDR_CANDIDATE --codex CODEX_CANDIDATE
+```
+
+The fixture runs real interactive clients in isolated homes and processes with
+a loopback Responses provider. It saves A, seeds B under the same Profile,
+then reopens A through the Harbor popup. It cancels one `/resume`, selects B
+with the popup closed and checks the durable reference before restarting the
+workspace. It recovers B through Harbor and checks A's history, the original
+Profile and Connection Intent, and that neither switch nor recovery sent a
+model request. `--quick-exit` submits `/exit` as soon as B is visible and
+checks that exit reports leave B in place. `--consecutive` selects C after B in
+the same run, recovers C and selects B in a new run while retaining evidence
+from the previous run. `--subagent` creates a child through the fixture
+provider after recovery and opens its actual thread through `/subagents`.
+Use `--stock` with stock Codex and Herdr to check that the visible selection of
+B leaves the saved reference A. Receiver tests cover duplicated, out-of-order
+and mismatched events, pending startup identity, and passive observations. The
+real gate also verifies Herdr rejects a report sent from a process outside the
+pane's foreground group.
 
 ## Interactive TUI walkthrough
 
@@ -132,6 +189,44 @@ Setup tests cover approval, skip, cancellation, explicit
 hooks disablement, installation failure, repeated launches and an unrelated
 ambient Codex home. Missing-reference UI tests stop before confirmation; normal
 identity reminders must not be rendered as list warnings.
+
+### Enter recovery (#21, decision 1)
+
+Build the candidate and run the popup gate with the native Codex executable and
+the Herdr query candidate. The fixture uses dynamic discovery and provider ports,
+an owned tmux server, and a separate Profile home and history.
+
+```sh
+python3 bridge/tests/query_recovery_real.py --enter-recovery --width 60 --height 24 \
+  --binary HARBOR --herdr HERDR --magpie MAGPIE --codex NATIVE_CODEX --work-root ISOLATED_DIR
+```
+
+Repeat with `--color` at 80×24, 100×30 and 160×45 for rendered comparison.
+The keyboard path checks one live row and focus from another tab, cancellation
+from the existing Stop process confirmation, the blocked
+reason and View old terminal action when the restored shell has foreground work,
+Esc before persistence, configuration changes before Enter, exact Native history
+and Profile, and the original terminal ID after recovery. It replays legacy
+conflict evidence with the last reported ID from a real Codex history. The
+fixture verifies an unselected Enter writes nothing and choosing Last reported
+recovers that history. The 160×45 run shrinks to 60×24 and back with a target
+selected. Go tests cover either choice, two-click confirmation, incomplete
+evidence, same-target retry, and occupancy across evidence sources.
+
+For real Magpie failure and retry run the Profile gate with `--recovery-review
+--dynamic-discovery`. It temporarily stops the fixture-owned gateway, then
+retries from the same confirmation and checks the original Profile, instance,
+conversation history and restored terminal ID.
+
+Confirmation compares the bound Profile, scoped Codex configuration and
+file-backed login, plus the recorded connection and available Herdr runtime.
+Recovery checks the existing Codex hook setup in the bound Profile. If it needs
+preparation, the popup shows what to repair and offers Recheck.
+Codex's effective provider and keyring state, Magpie group membership, and
+writers outside the discoverable workspace remain client or gateway concerns.
+The popup can retry failures detected before terminal handoff. Recovery readiness
+inside Codex is checked by exercising the resumed history in the fixture. A
+client-side error after handoff appears in the new terminal.
 
 Add `--model-picker` to exercise the real Magpie catalog in Codex, save a model
 and reasoning effort for one Harbor session, make a temporary choice in a second

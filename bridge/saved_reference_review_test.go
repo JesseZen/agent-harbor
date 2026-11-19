@@ -27,7 +27,7 @@ func (f *savedReviewService) Reassociate(a sessionApproval, ref herdrIdentity, r
 func savedReviewFixture() sessionView {
 	ref := herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: "11111111-1111-4111-8111-111111111111"}
 	return sessionView{
-		session: session{ID: "fixture", Version: 3, Name: "API", CLI: "codex", Mode: "magpie", Started: true,
+		session: session{ID: "fixture", Version: 3, Name: "API", CLI: "codex", Mode: "magpie", Started: true, Profile: &profileBinding{Client: "codex"},
 			WorkingDirectory: "/fixture/project", CodexSessionID: ref.Value, InstanceID: "managed",
 			MagpieURL: "http://127.0.0.1:3435", MagpieModel: "relay-a/test-model",
 			Conversation: &conversationEvidence{Reference: ref, Provenance: "herdr-pane-observation", Status: "missing"}},

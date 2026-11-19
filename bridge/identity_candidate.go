@@ -58,6 +58,12 @@ func candidateIdentityCapture(id, token, client string) (func(), func() error) {
 				if s.RunToken != token {
 					return nil, nil
 				} // a newer run or explicit choice owns the record
+				if s.Conversation != nil && s.Conversation.PrimarySelection != nil && s.Conversation.PrimarySelection.RunToken == token {
+					if !observeAfterPrimarySelection(s, ref) {
+						return nil, nil
+					}
+					return all, nil
+				}
 				s.IdentityWarning = warning
 				currentSocket := socketIdentity(socket)
 				recordChanged := s.ProcessGroup != 0 && (s.HerdrPane != pane || s.HerdrSocket != socket)

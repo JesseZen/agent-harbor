@@ -21,6 +21,7 @@ def main():
     p.add_argument('--state-probe',action='store_true',help='stop after real runtime state comparison')
     p.add_argument('--renamed-codex',action='store_true',help='exercise native Codex symlink with a nonstandard target basename')
     p.add_argument('--recovery-review',action='store_true',help='replay an unavailable final identity observation and test one-action recovery plus retry')
+    p.add_argument('--dynamic-discovery',action='store_true',help='use an isolated dynamic Magpie discovery port')
     p.add_argument('--profiles',action='store_true',help='run the Profile A/B UI, runtime and recovery journey with isolated native clients')
     p.add_argument('--session-names',action='store_true',help='exercise one-time Codex title capture and manual Herdr display names')
     p.add_argument('--model-picker',action='store_true',help='exercise Magpie models, Codex effort and profile recovery')
@@ -119,8 +120,11 @@ def main():
     discovery=None;started=False;external=None
     try:
         # Never probe the user's standard discovery service.
-        try:discovery=http.server.ThreadingHTTPServer(('127.0.0.1',3425),NoGateway)
+        try:discovery=http.server.ThreadingHTTPServer(('127.0.0.1',0 if a.dynamic_discovery else 3425),NoGateway)
         except OSError:print('SKIP discovery port occupied',flush=True);return 77
+        if a.dynamic_discovery:
+            magpie_config=root/'config/magpie';magpie_config.mkdir()
+            (magpie_config/'settings.json').write_text(json.dumps({'port':discovery.server_port}))
         threading.Thread(target=discovery.serve_forever,daemon=True).start()
         relay_a,relay_b,native=server(ChatRelay),server(ChatRelay),server(MCPProbe if a.mcp else NativeRelay)
         native.tool_output,native.tool_error='',''
@@ -189,23 +193,38 @@ def main():
         def create(name,model=None):
             expected_name=name or ('project · magpie' if model else 'project · local')
             popup();key('n');screen('New session')
+            click('Connection')
+            if 'Choose instance and model' not in capture():key('Enter')
+            screen('Choose instance and model')
             if model:
-                click('Connection');screen('Choose instance and model');click('Choose instance and model');click('Select');screen('Choose instance')
+                click('Choose instance and model')
+                if 'Choose instance and model' in capture():key('Enter')
+                screen('Choose instance')
                 key('/');text('managed');key('Enter');key('Enter');screen('Model or routing group')
                 key('/');text(model);key('Enter')
                 if 'Acknowledge & apply' in capture():click('Acknowledge & apply')
                 else:click('Apply selection')
                 screen('New session')
             else:
-                click('Connection');screen('Choose instance and model');click('Native');click('Select');screen('New session')
-            click('Name');screen('Session name');text(name);click('Apply');screen('New session')
-            click('Create')
-            wait(lambda:any(label in capture() for label in ('Ask Codex','Hooks need review','Conversation recovery')), 'Codex prompt or identity setup')
-            if 'Conversation recovery' in capture():
+                click('Native')
+                if 'Choose instance and model' in capture():key('Enter')
+                screen('New session')
+            click('Name')
+            if 'Session name' not in capture():key('Enter')
+            screen('Session name');text(name);key('Enter');screen('New session')
+            key('C-s')
+            def startup_screen(*labels):
+                frame=capture()
+                return frame if any(label in frame for label in labels) else None
+            frame=wait(lambda:startup_screen('Ask Codex','Hooks need review','Conversation recovery'), 'Codex prompt or identity setup')
+            if 'Conversation recovery' in frame:
                 key('s' if a.session_names else 'y')
-                wait(lambda:'Ask Codex' in capture() or 'Hooks need review' in capture(), 'Codex prompt or hook review')
-            if 'Hooks need review' in capture():
-                key('Down','Enter')
+                frame=wait(lambda:startup_screen('Ask Codex','Hooks need review'), 'Codex prompt or hook review')
+            if 'Hooks need review' in frame:
+                screen('Trust all and continue')
+                key('Down')
+                wait(lambda:re.search(r'[›>]\s+2\. Trust all and continue',capture()), 'trust option selected')
+                key('Enter')
             screen('Ask Codex');time.sleep(1)
             wait(lambda:any(r['name']==expected_name and r.get('process_group',0)>0 for r in records()),'running '+expected_name)
             rec=next(r for r in records() if r['name']==expected_name)
@@ -289,8 +308,7 @@ def main():
                 before=next(r for r in records() if r['id']==first['id'])
                 run([binary,'stop']);tm('kill-session','-t','app')
                 open_workspace();screen('Harbor ^B a')
-                popup();key('/');text('PF-A-one');key('Enter');key('c');screen('Close inspected shell');reviewed_confirm();time.sleep(.5)
-                if 'Harbor · Profile:' in capture():key('q')
+                restored=next(value for value in json.loads(run([root/'harbor/herdr/bin/herdr','pane','list']).stdout)['result']['panes'] if value['pane_id']==before['herdr_pane'])
                 # Replay the user's persisted final-read failure using the exact
                 # reference captured from this fixture's real first turn. No ID,
                 # Profile, connection or exit evidence is invented or changed.
@@ -306,14 +324,16 @@ def main():
                 wait(lambda:len(next(r for r in records() if r['id']==first['id']).get('reassociations',[]))==1,'saved reference reviewed by Resume')
                 screen('Resume conversation');time.sleep(.5)
                 failed=capture();(root/'recovery-retry-screen.txt').write_text(failed)
-                assert '↵ Resume conversation' in failed and '›↵' not in failed,'failure lost the direct Resume shortcut'
+                (root/'recovery-retry-screen.ansi').write_text(tm('capture-pane','-pe','-t','app:0.0'))
+                assert '↵ Retry recovery' in failed and '›↵' not in failed,'failure lost the direct retry shortcut'
                 assert 'conversation observation needs review' not in failed,'same identity review dead end'
                 run([binary,'magpie','start']);started=True
-                click('Resume conversation');screen('Ask Codex');time.sleep(1);turn('AH_LOCAL_SECOND',relay_a)
+                key('Enter');screen('Ask Codex');time.sleep(1);turn('AH_LOCAL_SECOND',relay_a)
                 wait(lambda:any('AH_LOCAL_FIRST' in marks and 'AH_LOCAL_SECOND' in marks for _,marks in relay_a.observed),'same conversation after combined review and retry')
                 current=next(r for r in records() if r['id']==first['id'])
                 assert all(current.get(k)==before.get(k) for k in ('profile','codex_home','codex_session_id','instance_id','mode','codex_connection'))
                 assert len(current.get('reassociations',[]))==1,'retry repeated identity acceptance'
+                assert any(value['terminal_id']==restored['terminal_id'] for value in json.loads(run([root/'harbor/herdr/bin/herdr','pane','list']).stdout)['result']['panes']), 'recovery closed the restored shell'
                 print('PASS one-action saved-reference recovery, real gateway failure with Resume focus retained, same-page retry and exact original Magpie conversation',root,flush=True)
                 return 0
             profile_select('PF Beta')
@@ -338,7 +358,7 @@ def main():
                 agents=json.loads(run([wrapper,'agent','list']).stdout)['result']['agents']
                 return not any((agent.get('agent_session') or {}).get('value')==a1['codex_session_id'] for agent in agents)
             wait(a_conversation_released,'Herdr releases stopped A Conversation',timeout=15)
-            popup();key('/');text('PF-A-one');key('Enter');key('Enter');screen('Resume conversation');key('a');key('Enter')
+            popup();key('/');text('PF-A-one');key('Enter');key('Enter');screen('Resume conversation');reviewed_confirm()
             screen('Ask Codex');time.sleep(1);turn('AH_LOCAL_SECOND',relay_a)
             wait(lambda:any('AH_LOCAL_FIRST' in marks and 'AH_LOCAL_SECOND' in marks for _,marks in relay_a.observed),'A recovered original history')
             resumed=next(r for r in records() if r['id']==a1['id'])
@@ -364,7 +384,7 @@ def main():
             open_workspace();screen('Harbor ^B a')
             for visible,name,marker,relay,first_marker in [('PF Alpha','PF-B-one','AH_RESUME_B',relay_b,'AH_RELAY_B'),('PF Beta','PF-A-one','AH_RESUME_C',relay_a,'AH_LOCAL_FIRST')]:
                 profile_select(visible)
-                popup();key('/');text(name);key('Enter');key('Enter');screen('Resume conversation');key('a');key('Enter')
+                popup();key('/');text(name);key('Enter');key('Enter');screen('Resume conversation');reviewed_confirm()
                 screen('Ask Codex');time.sleep(1);turn(marker,relay)
                 wait(lambda:any(first_marker in marks and marker in marks for _,marks in relay.observed),'post-restart original history '+name)
                 current=next(r for r in records() if r['name']==name);prior=snapshot[name]
@@ -493,7 +513,7 @@ def main():
                 return not any((agent.get('agent_session') or {}).get('value')==before['codex_session_id'] for agent in agents)
             wait(herdr_released_conversation,'Herdr releases stopped conversation',timeout=15)
             if 'Harbor · Profile:' in capture():key('q')
-            popup();key('/');text(name);key('Enter');screen('Resume conversation');key('a');key('Enter')
+            popup();key('/');text(name);key('Enter');screen('Resume conversation');reviewed_confirm()
             screen('Ask Codex');turn(marker,relay)
             wait(lambda:any(first in marks and marker in marks for _,marks in relay.observed),'experimental recovery history')
             after=next(r for r in records() if r['name']==name)

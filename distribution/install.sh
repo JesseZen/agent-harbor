@@ -115,4 +115,4 @@ done
 echo "Installed $release. Run: ah (or agent-harbor)"
 case ":$PATH:" in *":$bin_dir:"*) ;; *) printf 'Add to your shell profile: export PATH="%s:$PATH"\n' "$bin_dir" ;; esac
 echo 'Update: ah update   Uninstall: ah uninstall'
-echo 'Existing workspaces keep their running version; restart them explicitly when ready.'
+echo 'Run ah, then close and reopen the popup to use the updated Harbor. Restart the workspace explicitly to replace its Herdr server.'

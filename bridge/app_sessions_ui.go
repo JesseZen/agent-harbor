@@ -43,17 +43,23 @@ func (m harborModel) sessionActions(more bool) []uiAction {
 	if !ok {
 		return actions
 	}
-	label := "Review target"
+	label := "Check recovery"
 	switch s.Runtime.Presence {
 	case "observed":
-		label = "Enter session"
+		label = "Enter terminal"
 	case "not_started":
 		label = "Start session"
 	case "historical_exit", "confirmed_exit":
-		label = "Review recovery"
+		label = "Resume conversation"
+	}
+	if s.Runtime.Presence != "observed" && recoveryConflict(s.session) {
+		label = "Choose recovery target"
 	}
 	if s.External {
-		label = "Enter external"
+		label = "Enter terminal"
+	}
+	if m.width < 50 {
+		label = map[string]string{"Enter terminal": "Terminal", "Start session": "Start", "Resume conversation": "Resume", "Choose recovery target": "Choose target", "Check recovery": "Recovery"}[label]
 	}
 	reason := s.DiscoveryWarning
 	main := []uiAction{{ID: "action:enter", Label: label, Key: "enter", Primary: true, Disabled: reason}, {ID: "action:i", Label: "Details", Key: "i"}, {ID: "more", Label: "More…", Key: "."}}

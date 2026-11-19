@@ -310,8 +310,8 @@ func TestNativeCodexReviewShowsHomeDefaultsWithoutSecrets(t *testing.T) {
 func TestNativeRecoveryReviewShowsRouteUncertaintyAndNavigation(t *testing.T) {
 	for _, size := range [][2]int{{60, 20}, {100, 30}, {160, 45}} {
 		row := sessionView{session: session{
-			ID: "native", Name: "Native", WorkingDirectory: "/project", CLI: "codex", Mode: "local", Started: true,
-			Conversation: &conversationEvidence{Reference: herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: "fixture-conversation"}},
+			ID: "native", Version: 3, Name: "Native", WorkingDirectory: "/project", CLI: "codex", Mode: "local", Started: true, Profile: &profileBinding{Client: "codex"},
+			Conversation: &conversationEvidence{Status: "missing", Reference: herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: "11111111-1111-4111-8111-111111111111"}},
 		}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}}
 		service := &fakeApplicationService{Sessions: []sessionView{row}}
 		m := newHarborModel(service)

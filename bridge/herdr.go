@@ -70,12 +70,11 @@ func prepareHerdr(root string, env []string, snapshot string) error {
 	if err != nil {
 		return err
 	}
-	bin, err = filepath.Abs(bin)
+	entry, err := packageEntryFor(bin)
 	if err != nil {
 		return err
 	}
-	configPath := filepath.Join(root, "herdr", "config", "herdr.toml")
-	pluginDir := filepath.Join(root, "herdr", "plugin")
+	files := workspacePopupFiles(root)
 	preferences, err := readShortcuts(root)
 	if err != nil {
 		return err
@@ -83,7 +82,6 @@ func prepareHerdr(root string, env []string, snapshot string) error {
 	if _, e := os.Stat(filepath.Join(root, "shortcuts.pending")); !os.IsNotExist(e) {
 		return errors.New("unfinished settings save; close workspace and run agent-harbor settings-recover")
 	}
-	config := configWithShortcuts(bin, preferences)
 	digest := sha256.Sum256([]byte(snapshot))
 	fingerprint := hex.EncodeToString(digest[:])
 	fingerprintPath := filepath.Join(root, "herdr", "environment.sha256")
@@ -96,32 +94,18 @@ func prepareHerdr(root string, env []string, snapshot string) error {
 		if err != nil || string(previous) != fingerprint {
 			return errors.New("the managed Herdr server uses different user paths; run stop before reopening")
 		}
-		previous, err = os.ReadFile(configPath)
-		if err != nil || string(previous) != config && !(preferences == defaultShortcuts() && string(previous) == legacyHerdrConfig(bin)) {
-			return errors.New("the managed Herdr configuration changed; run stop before reopening")
-		}
-	} else {
-		if err := writePrivate(configPath, []byte(config)); err != nil {
-			return err
-		}
-		if err := writePrivate(fingerprintPath, []byte(fingerprint)); err != nil {
-			return err
-		}
 	}
-	if err := os.MkdirAll(pluginDir, 0700); err != nil {
+	if err := files.prepare(root, env, entry, bin, preferences, running); err != nil {
 		return err
 	}
-	if err := writePrivate(filepath.Join(pluginDir, "herdr-plugin.toml"), []byte(herdrManifest(bin))); err != nil {
+	if err := writeHerdrWrapper(root, env, entry); err != nil {
 		return err
-	}
-	if err := writeHerdrWrapper(root, env); err != nil {
-		return err
-	}
-	if err := herdrCommand(env, "--session", herdrSession, "plugin", "link", pluginDir).Run(); err != nil {
-		return fmt.Errorf("cannot register bridge in isolated Herdr: %w", err)
 	}
 	if running {
 		return nil
+	}
+	if err := writePrivate(fingerprintPath, []byte(fingerprint)); err != nil {
+		return err
 	}
 	server := herdrCommand(env, "--session", herdrSession, "server")
 	server.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -155,7 +139,7 @@ func prepareHerdr(root string, env []string, snapshot string) error {
 }
 
 // Third-party MCP tools can use this executable without discovering another Herdr server.
-func writeHerdrWrapper(root string, env []string) error {
+func writeHerdrWrapper(root string, env []string, entry packageEntry) error {
 	dir := filepath.Join(root, "herdr", "bin")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -165,30 +149,33 @@ func writeHerdrWrapper(root string, env []string) error {
 	if err != nil {
 		return err
 	}
-	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 	var script strings.Builder
 	script.WriteString("#!/bin/sh\n")
 	executable, err := resolvedExecutable()
 	if err != nil {
 		return err
 	}
+	command := shellQuote(path)
+	if entry.selector != "" {
+		if path == filepath.Join(filepath.Dir(executable), "herdr") {
+			command = shellQuote(workspacePackageEntry(root)) + " _workspace-herdr"
+		}
+		executable = workspacePackageEntry(root)
+	}
 	config, err := managedConfigContext(root)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(&script, "%s _herdr-config-check %s %s || exit 1\n", quote(executable), quote(root), quote(config))
+	fmt.Fprintf(&script, "%s _herdr-config-check %s %s || exit 1\n", shellQuote(executable), shellQuote(root), shellQuote(config))
 	for _, pair := range env {
 		key, value, ok := strings.Cut(pair, "=")
 		if ok && (key == "XDG_CONFIG_HOME" || key == "XDG_STATE_HOME" || key == "XDG_DATA_HOME" || key == "XDG_CACHE_HOME" || key == "XDG_RUNTIME_DIR" || key == "HERDR_CONFIG_PATH") {
-			fmt.Fprintf(&script, "export %s=%s\n", key, quote(value))
+			fmt.Fprintf(&script, "export %s=%s\n", key, shellQuote(value))
 		}
 	}
-	fmt.Fprintf(&script, "unset HERDR_SOCKET_PATH\nexec %s --session %s \"$@\"\n", quote(path), quote(herdrSession))
+	fmt.Fprintf(&script, "unset HERDR_SOCKET_PATH\nexec %s --session %s \"$@\"\n", command, shellQuote(herdrSession))
 	wrapper := filepath.Join(dir, "herdr")
-	if err := writePrivate(wrapper, []byte(script.String())); err != nil {
-		return err
-	}
-	return os.Chmod(wrapper, 0700)
+	return writeOwnedFile(wrapper, []byte(script.String()), 0700)
 }
 
 func herdrCommand(env []string, args ...string) *exec.Cmd {
@@ -299,12 +286,19 @@ func herdrManifest(bin string) string {
 }
 
 func writePrivate(path string, data []byte) error {
+	return writeOwnedFile(path, data, 0600)
+}
+
+func writeOwnedFile(path string, data []byte, mode os.FileMode) error {
 	f, err := os.CreateTemp(filepath.Dir(path), ".bridge-*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(f.Name())
-	if _, err = f.Write(data); err == nil {
+	if err = f.Chmod(mode); err == nil {
+		_, err = f.Write(data)
+	}
+	if err == nil {
 		err = f.Sync()
 	}
 	if closeErr := f.Close(); err == nil {

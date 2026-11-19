@@ -2,10 +2,12 @@ package main
 
 import (
 	"errors"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
+	"strconv"
 	"strings"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type appReviewedResult struct {
@@ -16,6 +18,13 @@ type appReviewedResult struct {
 
 func (m harborModel) reviewActions() []uiAction {
 	out := []uiAction{}
+	if m.isEnterRecovery() && m.recoveryBlocked != "" {
+		out = append(out, uiAction{ID: "review:r", Key: "r", Label: "Recheck", Primary: true})
+		if m.previousPane.PaneID != "" {
+			out = append(out, uiAction{ID: "review:o", Key: "o", Label: "View old terminal"})
+		}
+		return append(out, uiAction{ID: "evidence", Key: "i", Label: "Details"}, uiAction{ID: "review:esc", Key: "esc", Label: "Cancel"})
+	}
 	if m.action == "review-reference" && !m.referenceAccepted {
 		out = append(out, uiAction{ID: "review:a", Key: "a", Label: "Use saved conversation"})
 	}
@@ -30,8 +39,14 @@ func (m harborModel) reviewActions() []uiAction {
 	if (m.action == "query-resume" || m.action == "resume") && m.reviewed.Mode == "magpie" && m.reviewed.CLI == "codex" && !joinedCodex(m.reviewed) && m.reviewedSelection == nil {
 		disabled = "Resolve the session model before recovery"
 	}
-	if (m.action == "query-resume" || m.action == "resume") && m.reviewed.Conversation == nil {
+	if !m.isEnterRecovery() && (m.action == "query-resume" || m.action == "resume") && m.reviewed.Conversation == nil {
 		disabled = missingConversationRecovery
+	}
+	if m.isEnterRecovery() && m.recoveryCursor < 0 {
+		disabled = "Choose a recovery target"
+	}
+	if m.recoveryRetry && m.isEnterRecovery() {
+		label = "Retry recovery"
 	}
 	return append(out, uiAction{ID: "review:enter", Key: "enter", Label: label, Primary: true, Disabled: disabled}, uiAction{ID: "evidence", Key: "i", Label: "Details"}, uiAction{ID: "review:esc", Key: "esc", Label: "Cancel"})
 }
@@ -44,11 +59,28 @@ func (m harborModel) reviewEvidence() []string {
 }
 func (m harborModel) reviewLayout() uiPage {
 	p := newUIPage(m.width, m.height)
-	p.line(paint(fg("brand"), "⚓ Harbor › "+reviewActionLabel(m.action)))
+	title := reviewActionLabel(m.action)
+	if m.isEnterRecovery() && m.recoveryBlocked != "" {
+		title = "Recovery blocked"
+	} else if m.choosingRecoveryTarget() {
+		title = "Choose recovery target"
+	}
+	p.line(paint(fg("brand"), "⚓ Harbor › "+title))
 	if m.screen == "confirm-evidence" {
 		return secondaryDocument(m.width, m.height, reviewActionLabel(m.action)+" · Details", strings.Join(m.reviewEvidence(), "\n"), []uiAction{{ID: "review-back", Label: "Back to decision", Key: "esc"}}, "review-back", m.scroll)
 	}
-	p.line(paint(fg("text"), cleanUI(m.reviewed.Name)))
+	if !m.isEnterRecovery() || len(m.recoveryCandidates) < 2 {
+		p.line(paint(fg("text"), cleanUI(m.reviewed.Name)))
+	}
+	if m.isEnterRecovery() {
+		if m.notice != "" && m.notice != m.recoveryBlocked {
+			for _, line := range strings.Split(ansi.Wrap(cleanUI(m.notice), max(1, m.width-2), ""), "\n") {
+				p.line(paint(fg("warn"), line))
+			}
+		}
+		m.recoveryBody(&p)
+		p.field("", "", "Profile", cleanUI(m.profileDisplayLabel(m.reviewed.Profile)), false, false)
+	}
 	p.field("", "📂", "Project", cleanUI(m.reviewed.WorkingDirectory), false, false)
 	p.field("", "🤖", "Client", cleanUI(m.reviewed.CLI), false, false)
 	connection := m.reviewed.Mode
@@ -77,7 +109,7 @@ func (m harborModel) reviewLayout() uiPage {
 	if m.reviewed.Conversation != nil {
 		conversation = m.reviewed.Conversation.Reference.Value
 	}
-	if m.action != "start" {
+	if m.action != "start" && !m.isEnterRecovery() {
 		p.field("", "💬", "Conversation", orUnknown(conversation), false, false)
 	}
 	impact := map[string]string{"start": "", "stop": "The conversation stays resumable.", "remove": "Codex history is kept. Remove only the Harbor record.", "review-reference": "Save this review only. This does not resume the conversation.", "query-resume": "", "resume": "", "close-previous": "Close only the inspected idle shell; keep conversation and record."}[m.action]
@@ -90,7 +122,7 @@ func (m harborModel) reviewLayout() uiPage {
 		for _, line := range strings.Split(ansi.Wrap("Current login and other writers: unverified.", max(1, m.width-2), ""), "\n") {
 			p.line(paint(fg("warn"), line))
 		}
-		if m.reviewed.Conversation != nil && m.reviewed.Conversation.Status != "observed" {
+		if !m.isEnterRecovery() && m.reviewed.Conversation != nil && m.reviewed.Conversation.Status != "observed" {
 			p.field("", "", "Saved identity", m.reviewed.Conversation.Status, false, false)
 		}
 	}
@@ -105,16 +137,22 @@ func (m harborModel) reviewLayout() uiPage {
 	if m.selectionReviewErr != nil && m.reviewedSelection == nil {
 		p.line(paint(fg("warn"), ansi.Truncate("Model unavailable: "+cleanUI(m.selectionReviewErr.Error()), max(1, m.width-2), "…")))
 	}
-	if m.notice != "" {
+	if m.notice != "" && !m.isEnterRecovery() {
 		p.line(paint(fg("warn"), ansi.Truncate(cleanUI(m.notice), max(1, m.width-2), "…")))
 	}
 
 	actions := m.reviewActions()
 	p.shortcuts(actions, m.uiFocus)
 	p.Hint = ""
+	if m.choosingRecoveryTarget() {
+		p.Hint = "↑↓/jk select"
+	}
 	layout := p.finish(m.scroll)
 	if layout.MaxScroll > 0 {
 		p.Hint = scrollHint
+		if m.choosingRecoveryTarget() {
+			p.Hint = "↑↓/jk select · PgUp/PgDn scroll"
+		}
 		return p.finish(m.scroll)
 	}
 	return layout
@@ -135,6 +173,15 @@ func (m harborModel) activateReview(id string) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(id, "review:") {
 		return m.Update(uiKey(strings.TrimPrefix(id, "review:")))
 	}
+	if index, ok := strings.CutPrefix(id, "recovery-candidate:"); ok {
+		value, err := strconv.Atoi(index)
+		if err == nil && m.choosingRecoveryTarget() {
+			if value == m.recoveryCursor {
+				return m.Update(uiKey("enter"))
+			}
+			return m.chooseRecoveryCandidate(value), nil
+		}
+	}
 	return m, nil
 }
 func (m harborModel) updateReviewUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
@@ -143,12 +190,12 @@ func (m harborModel) updateReviewUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	}
 	if mouse, ok := msg.(tea.MouseMsg); ok {
 		if mouse.Button == tea.MouseButtonWheelDown || mouse.Button == tea.MouseButtonWheelUp {
-			key := tea.KeyDown
+			delta := 1
 			if mouse.Button == tea.MouseButtonWheelUp {
-				key = tea.KeyUp
+				delta = -1
 			}
-			next, cmd := m.Update(tea.KeyMsg{Type: key})
-			return next, cmd, true
+			m.scroll = max(0, min(m.reviewLayout().MaxScroll, m.scroll+delta))
+			return m, nil, true
 		}
 		if mouse.Action != tea.MouseActionPress || mouse.Button != tea.MouseButtonLeft {
 			return m, nil, true
@@ -164,6 +211,16 @@ func (m harborModel) updateReviewUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, false
 	}
 	k := key.String()
+	if m.screen == "confirm" && m.choosingRecoveryTarget() {
+		switch k {
+		case "1", "up", "k":
+			m.scroll = 0
+			return m.chooseRecoveryCandidate(0), nil, true
+		case "2", "down", "j":
+			m.scroll = 0
+			return m.chooseRecoveryCandidate(1), nil, true
+		}
+	}
 	if m.screen == "confirm" && (k == "tab" || k == "shift+tab") {
 		return m, nil, true
 	}

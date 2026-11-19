@@ -131,10 +131,24 @@ func saveShortcuts(p shortcutPreferences) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(root, "herdr", "config", "herdr.toml")
+	entry, err := packageEntryFor(bin)
+	if err != nil {
+		return err
+	}
+	files := workspacePopupFiles(root)
+	path := files.config
 	prior, err := os.ReadFile(path)
 	if err != nil {
 		return errors.New("open the Harbor workspace before saving settings")
+	}
+	if entry.selector != "" && string(prior) == configWithShortcuts(workspacePackageEntry(root), old) {
+		bin = workspacePackageEntry(root)
+		if !regularContent(bin, entry.workspaceScript()) || workspaceEntryMode(bin) != nil {
+			return errors.New("workspace Harbor entry changed; settings were not changed")
+		}
+	}
+	if _, err := os.Lstat(files.pending); !os.IsNotExist(err) {
+		return errors.New("finish the workspace popup upgrade by reopening Harbor before saving settings")
 	}
 	if string(prior) != configWithShortcuts(bin, old) && !(old == defaultShortcuts() && string(prior) == legacyHerdrConfig(bin)) {
 		return errors.New("owned Herdr configuration differs; settings were not changed")
@@ -151,20 +165,8 @@ func saveShortcuts(p shortcutPreferences) error {
 		}
 	}
 	next := []byte(configWithShortcuts(bin, p))
-	temp, err := os.CreateTemp(filepath.Dir(path), ".settings-check-*")
-	if err != nil {
-		return err
-	}
-	checkPath := temp.Name()
-	defer os.Remove(checkPath)
-	if _, err = temp.Write(next); err != nil {
-		temp.Close()
-		return err
-	}
-	temp.Close()
-	checkEnv := replaceEnvironment(env, map[string]*string{"HERDR_CONFIG_PATH": &checkPath})
-	if out, e := herdrCommand(checkEnv, "config", "check").CombinedOutput(); e != nil || strings.TrimSpace(string(out)) != "config: ok" {
-		return errors.New("Herdr rejected shortcut configuration; old settings retained")
+	if err := checkHerdrConfig(env, path, next); err != nil {
+		return fmt.Errorf("old settings retained: %w", err)
 	}
 	prefsPath := filepath.Join(root, "shortcuts.json")
 	oldPrefs, e := os.ReadFile(prefsPath)
@@ -200,6 +202,24 @@ func saveShortcuts(p shortcutPreferences) error {
 		}
 	}
 	return os.Remove(journal)
+}
+
+func checkHerdrConfig(env []string, path string, config []byte) error {
+	temp, err := os.CreateTemp(filepath.Dir(path), ".config-check-*")
+	if err != nil {
+		return err
+	}
+	checkPath := temp.Name()
+	defer os.Remove(checkPath)
+	_, writeErr := temp.Write(config)
+	if err := errors.Join(writeErr, temp.Close()); err != nil {
+		return err
+	}
+	checkEnv := replaceEnvironment(env, map[string]*string{"HERDR_CONFIG_PATH": &checkPath})
+	if out, err := herdrCommand(checkEnv, "config", "check").CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != "config: ok" {
+		return errors.New("Herdr rejected the generated configuration")
+	}
+	return nil
 }
 
 type shortcutBackup struct {

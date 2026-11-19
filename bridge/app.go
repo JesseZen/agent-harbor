@@ -13,7 +13,12 @@ import (
 type appRefreshTick struct{}
 type appSessionInspected struct {
 	expected, current sessionView
+	recheck           bool
 	nativeConfig      string
+	fingerprint       string
+	candidates        []recoveryCandidate
+	pane              previousPane
+	blocked           error
 	selection         *codexSelection
 	selectionErr      error
 	err               error
@@ -85,6 +90,11 @@ type harborModel struct {
 	detailScroll        int
 	picker              directoryPicker
 	previousPane        previousPane
+	recoveryCandidates  []recoveryCandidate
+	recoveryCursor      int
+	recoveryBlocked     string
+	recoveryRetry       bool
+	recoveryFingerprint string
 	directoryChoices    []string
 	directoryCursor     int
 	scroll              int
@@ -375,57 +385,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.refreshContext.Err() != nil || m.screen != "busy" || m.reviewed.ID != msg.expected.ID {
 			return m, nil
 		}
-		found := false
-		for _, row := range m.sessions {
-			if row.ID == msg.expected.ID {
-				found = true
-				if !sameRuntimeTarget(row.Runtime, msg.current.Runtime) || !sameSession(row.session, msg.current.session) {
-					msg.err = errors.New("target changed during inspection; refresh and review")
-				}
-			}
-		}
-		if !found {
-			msg.err = errors.New("target disappeared during inspection; refresh and select again")
-		}
-
-		if msg.err != nil || !sameSession(msg.expected.session, msg.current.session) || !sameRuntimeTarget(msg.expected.Runtime, msg.current.Runtime) {
-			m.screen = "sessions"
-			m.notice = "Target changed or is unavailable; refresh and review again."
-			if msg.err != nil {
-				m.notice = msg.err.Error()
-			}
-			return m, nil
-		}
-		s := msg.current
-		if s.Runtime.Presence == "observed" {
-			return m, func() tea.Msg { return appOpened{m.service.FocusObserved(s)} }
-		}
-		m.screen = "sessions"
-		if s.Runtime.Presence != "not_started" && s.Runtime.Presence != "historical_exit" && s.Runtime.Presence != "confirmed_exit" {
-			m.notice = "Runtime unknown or not confirmed ended; use c to inspect a restored shell, then review recovery."
-			return m, nil
-		}
-		if s.Started && s.Conversation == nil {
-			m.notice = missingConversationRecovery
-			return m, nil
-		}
-		m.reviewed = s.session
-		m.nativeReview = msg.nativeConfig
-		m.reviewedSelection = msg.selection
-		m.selectionReviewErr = msg.selectionErr
-		m.selectionFallback = false
-		observation := s.Runtime
-		m.reviewedObservation = &observation
-		m.action = "resume"
-		if s.Conversation != nil {
-			m.action = "query-resume"
-		}
-		if !s.Started {
-			m.action = "start"
-		}
-		m.scroll = 0
-		m.screen = "confirm"
-		return m, nil
+		return m.finishEnterInspection(msg)
 	case appReviewedResult:
 		if m.screen != "busy" || msg.generation != m.generation || msg.target != m.reviewed.ID {
 			return m, nil
@@ -443,6 +403,14 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if errors.As(err, &recoveryErr) {
 				m.reviewed = recoveryErr.approval.Session
 				m.reviewedObservation = recoveryErr.approval.Observation
+			}
+			if m.action == "query-resume" && len(m.recoveryCandidates) > 0 {
+				if errors.Is(err, errRecoveryStale) {
+					m.recoveryBlocked = err.Error()
+				} else {
+					m.recoveryRetry = true
+				}
+				m.scroll = 0
 			}
 			m.notice = err.Error()
 			m.reviewOpenedAt = time.Now()
@@ -860,16 +828,36 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if key == "esc" {
 			m.screen = "sessions"
+			if m.isEnterRecovery() {
+				m.restoreSearchSelection(m.reviewed.ID)
+			}
 			m.notice = ""
 			return m, nil
 		}
 		if m.screen == "confirm" {
+			if m.isEnterRecovery() {
+				switch key {
+				case "r":
+					if m.recoveryBlocked != "" {
+						return m.inspectEnter(sessionView{session: m.reviewed}, true)
+					}
+				case "o":
+					if m.recoveryBlocked != "" && m.previousPane.PaneID != "" {
+						pane := m.previousPane
+						return m, func() tea.Msg { return appOpened{m.service.ViewPreviousPane(pane)} }
+					}
+				case "enter":
+					if m.recoveryBlocked != "" || m.recoveryCursor < 0 || m.recoveryCursor >= len(m.recoveryCandidates) {
+						return m, nil
+					}
+				}
+			}
 			if (m.action == "query-resume" || m.action == "resume") && m.reviewed.Mode == "magpie" && m.reviewed.CLI == "codex" && m.selectionReviewErr != nil && key == "b" {
 				if !errors.Is(m.selectionReviewErr, errCodexProfileMissing) {
 					m.notice = "Session profile is unavailable or conflicts; resolve it before recovery."
 					return m, nil
 				}
-				id, err := codexReference(m.reviewed)
+				id, err := codexReference(m.selectedRecoveryTarget())
 				if err != nil {
 					m.notice = err.Error()
 					return m, nil
@@ -893,11 +881,15 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if key != "enter" {
 				return m, nil
 			}
-			if (m.action == "query-resume" || m.action == "resume") && m.reviewed.Conversation == nil {
+			if !m.isEnterRecovery() && (m.action == "query-resume" || m.action == "resume") && m.reviewed.Conversation == nil {
 				m.notice = missingConversationRecovery
 				return m, nil
 			}
 			a := sessionApproval{Session: m.reviewed, MagpieSelection: m.reviewedSelection, Observation: m.reviewedObservation, Confirmed: true, DevelopmentQuery: m.action == "query-resume", QueryUncertaintyAccepted: m.action == "query-resume", SavedReferenceAccepted: m.action == "query-resume"}
+			if m.isEnterRecovery() {
+				a.Recovery = &recoveryApproval{Target: m.recoveryCandidates[m.recoveryCursor].Reference, Shell: m.previousPane, Fingerprint: m.recoveryFingerprint}
+				a.SavedReferenceAccepted = false
+			}
 			action := m.action
 			m.generation++
 			generation := m.generation
@@ -1078,25 +1070,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scroll = 0
 				m.screen = "confirm"
 			case "enter":
-				m.reviewed = s.session
-				m.screen = "busy"
-				return m, func() tea.Msg {
-					v, e := m.service.GetContext(m.refreshContext, s.ID)
-					summary := ""
-					var selection *codexSelection
-					var selectionErr error
-					if e == nil && v.Mode == "local" && v.CLI == "codex" && v.Runtime.Presence != "observed" {
-						summary = m.sessionNativeSummary(s.session)
-					}
-					if e == nil && v.Mode == "magpie" && v.CLI == "codex" && !joinedCodex(v.session) && v.Started && v.Runtime.Presence != "observed" {
-						value, selectionError := m.service.CodexSelection(m.refreshContext, v.session)
-						selectionErr = selectionError
-						if selectionError == nil {
-							selection = &value
-						}
-					}
-					return appSessionInspected{expected: s, current: v, nativeConfig: summary, selection: selection, selectionErr: selectionErr, err: e}
-				}
+				return m.inspectEnter(s, false)
 
 			}
 		}

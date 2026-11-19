@@ -48,6 +48,10 @@ func previousPaneCommand(s session, args ...string) ([]byte, error) {
 // session title match, the original CLI is gone, and the foreground is the
 // shell itself. No terminal contents or process argv are exposed to the UI.
 func (harborService) PreviousPane(s session) (previousPane, error) {
+	return inspectPreviousPane(s, true)
+}
+
+func inspectPreviousPane(s session, checkPending bool) (previousPane, error) {
 	result := previousPane{Session: s}
 	current, err := getSession(s.ID)
 	if err != nil {
@@ -56,11 +60,15 @@ func (harborService) PreviousPane(s session) (previousPane, error) {
 	if !sameSession(current, s) {
 		return result, errors.New("session changed; refresh and review again")
 	}
-	if processGroupActive(s.ProcessGroup) || sessionLaunchPending(s) {
+	if processGroupActive(s.ProcessGroup) || checkPending && sessionLaunchPending(s) {
 		return result, errors.New("session is running or starting; stop it before inspecting a previous pane")
 	}
 	if s.HerdrPane == "" || s.HerdrTab == "" {
 		return result, errors.New("no previous Herdr pane recorded")
+	}
+	identity := socketIdentity(s.HerdrSocket)
+	if identity == "" {
+		return result, errors.New("previous workspace is unavailable")
 	}
 	out, err := previousPaneCommand(s, "pane", "get", s.HerdrPane)
 	if err != nil {
@@ -76,8 +84,8 @@ func (harborService) PreviousPane(s session) (previousPane, error) {
 			} `json:"pane"`
 		}
 	}
-	if json.Unmarshal(out, &info) != nil || info.Result.Pane.ID != s.HerdrPane || info.Result.Pane.Tab != s.HerdrTab || info.Result.Pane.Agent != nil || info.Result.Pane.Terminal == "" {
-		return result, errors.New("previous pane cannot be verified as an idle shell")
+	if json.Unmarshal(out, &info) != nil || info.Result.Pane.ID != s.HerdrPane || info.Result.Pane.Tab != s.HerdrTab || info.Result.Pane.Terminal == "" {
+		return result, errors.New("previous pane identity could not be verified")
 	}
 	out, err = previousPaneCommand(s, "tab", "list")
 	if err != nil {
@@ -94,7 +102,6 @@ func (harborService) PreviousPane(s session) (previousPane, error) {
 	if json.Unmarshal(out, &tabs) != nil {
 		return result, errors.New("previous tab cannot be verified")
 	}
-	result.TerminalID = info.Result.Pane.Terminal
 	matched := false
 	for _, t := range tabs.Result.Tabs {
 		if t.ID == s.HerdrTab && t.Label == s.Name {
@@ -104,6 +111,13 @@ func (harborService) PreviousPane(s session) (previousPane, error) {
 	}
 	if !matched {
 		return result, errors.New("previous tab identity or title changed; inspect it in Herdr")
+	}
+	if socketIdentity(s.HerdrSocket) != identity {
+		return previousPane{Session: s}, errors.New("previous workspace changed during inspection")
+	}
+	result.PaneID, result.TabID, result.TerminalID, result.SocketIdentity = s.HerdrPane, s.HerdrTab, info.Result.Pane.Terminal, identity
+	if info.Result.Pane.Agent != nil {
+		return result, errors.New("Herdr still reports a client in the previous pane")
 	}
 	out, err = previousPaneCommand(s, "pane", "process-info", "--pane", s.HerdrPane)
 	if err != nil {
@@ -126,15 +140,26 @@ func (harborService) PreviousPane(s session) (previousPane, error) {
 	}
 	state := process.Result.Process
 	if state.Pane != s.HerdrPane || state.Shell < 2 || len(state.Foreground) != 1 || state.Foreground[0].PID != state.Shell {
-		return result, errors.New("previous pane has other foreground work; nothing will be closed")
+		return result, errors.New("previous pane has other foreground work")
 	}
 	switch filepath.Base(strings.TrimPrefix(state.Foreground[0].Name, "-")) {
 	case "sh", "bash", "zsh", "fish", "dash":
 	default:
 		return result, errors.New("previous pane is not a recognized idle shell")
 	}
-	result.PaneID, result.TabID, result.ShellPID, result.SocketIdentity = s.HerdrPane, s.HerdrTab, state.Shell, socketIdentity(s.HerdrSocket)
+	if socketIdentity(s.HerdrSocket) != identity {
+		return previousPane{Session: s}, errors.New("previous workspace changed during inspection")
+	}
+	result.ShellPID = state.Shell
 	return result, nil
+}
+
+func (h harborService) ViewPreviousPane(review previousPane) error {
+	current, _ := h.PreviousPane(review.Session)
+	if current.PaneID == "" || current.PaneID != review.PaneID || current.TabID != review.TabID || current.TerminalID != review.TerminalID || current.SocketIdentity != review.SocketIdentity {
+		return errors.New("previous pane changed; recheck before viewing")
+	}
+	return focusPaneAfterPopup(review.Session.HerdrSocket, review.SocketIdentity, review.PaneID, review.TerminalID)
 }
 func (h harborService) ClosePreviousPane(review previousPane) error {
 	current, err := h.PreviousPane(review.Session)

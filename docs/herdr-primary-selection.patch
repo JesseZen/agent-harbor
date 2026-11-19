@@ -1,0 +1,252 @@
+diff --git a/src/api/schema.rs b/src/api/schema.rs
+index 8077377..f9605d2 100644
+--- a/src/api/schema.rs
++++ b/src/api/schema.rs
+@@ -145,6 +145,7 @@ operations::define_operations! {
+     PluginPaneOpen(PluginPaneOpenParams) => "plugin.pane.open", true, false;
+     PluginPaneFocus(PluginPaneFocusParams) => "plugin.pane.focus", true, false;
+     PluginPaneClose(PluginPaneCloseParams) => "plugin.pane.close", true, false;
++    PaneReportPrimarySelection(PaneReportPrimarySelectionParams) => "pane.report_primary_selection", true, false;
+ }
+ 
+ #[cfg(test)]
+diff --git a/src/api/schema/operations.rs b/src/api/schema/operations.rs
+index a25de9a..2f0ab61 100644
+--- a/src/api/schema/operations.rs
++++ b/src/api/schema/operations.rs
+@@ -194,6 +194,7 @@ mod tests {
+             "pane.rename",
+             "pane.report_agent",
+             "pane.report_agent_session",
++            "pane.report_primary_selection",
+             "pane.report_metadata",
+             "pane.clear_agent_authority",
+             "pane.release_agent",
+diff --git a/src/api/schema/panes.rs b/src/api/schema/panes.rs
+index ab25c83..7730632 100644
+--- a/src/api/schema/panes.rs
++++ b/src/api/schema/panes.rs
+@@ -2,6 +2,19 @@ use std::collections::HashMap;
+ 
+ use serde::{Deserialize, Serialize};
+ 
++#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
++#[serde(deny_unknown_fields)]
++pub struct PaneReportPrimarySelectionParams {
++    pub pane_id: String,
++    pub run_token: String,
++    pub reason: String,
++    pub sequence: u64,
++    pub previous_id: String,
++    pub selected_id: String,
++    #[serde(skip)]
++    pub(crate) verified_peer_pid: Option<u32>,
++}
++
+ use crate::cli::pane::bindings as binding;
+ use crate::cli::projection::{Field, Input};
+ 
+diff --git a/src/api/server.rs b/src/api/server.rs
+index f59ba0e..f3abd35 100644
+--- a/src/api/server.rs
++++ b/src/api/server.rs
+@@ -347,7 +347,7 @@ fn handle_connection_with_stop(
+         return Ok(());
+     }
+ 
+-    let request = match serde_json::from_str::<Request>(line) {
++    let mut request = match serde_json::from_str::<Request>(line) {
+         Ok(request) => request,
+         Err(request_error) => {
+             // Recover correlation without relaxing typed request validation or accepting
+@@ -376,6 +376,10 @@ fn handle_connection_with_stop(
+         }
+     };
+ 
++    #[cfg(unix)]
++    if let Method::PaneReportPrimarySelection(params) = &mut request.method {
++        params.verified_peer_pid = crate::platform::local_stream_peer_pid(&stream);
++    }
+     let request_id = request.id.clone();
+     let method = api_method_name(&request.method);
+     let changes_ui = request_changes_ui(&request);
+diff --git a/src/app/api.rs b/src/app/api.rs
+index 067ec2f..a3eda17 100644
+--- a/src/app/api.rs
++++ b/src/app/api.rs
+@@ -6,6 +6,7 @@ mod env;
+ mod integrations;
+ mod layouts;
+ mod panes;
++mod primary_selection;
+ pub(crate) mod plugins;
+ pub(super) mod responses;
+ mod session;
+@@ -1195,6 +1196,9 @@ impl App {
+             Method::PaneReportAgentSession(params) => {
+                 return self.handle_pane_report_agent_session(request.id, params);
+             }
++            Method::PaneReportPrimarySelection(params) => {
++                return self.handle_pane_report_primary_selection(request.id, params);
++            }
+             Method::PaneReportMetadata(params) => {
+                 return self.handle_pane_report_metadata(request.id, params);
+             }
+diff --git a/src/app/api/primary_selection.rs b/src/app/api/primary_selection.rs
+new file mode 100644
+index 0000000..9efe787
+--- /dev/null
++++ b/src/app/api/primary_selection.rs
+@@ -0,0 +1,108 @@
++use crate::api::schema::{PaneReportPrimarySelectionParams, ResponseResult};
++use crate::app::App;
++
++use super::responses::{encode_error, encode_success};
++
++impl App {
++    pub(super) fn handle_pane_report_primary_selection(
++        &mut self,
++        id: String,
++        params: PaneReportPrimarySelectionParams,
++    ) -> String {
++        let result = self.accept_primary_selection(&params);
++        match result {
++            Ok(()) => encode_success(id, ResponseResult::Ok {}),
++            Err(message) => encode_error(id, "primary_selection_not_accepted", message),
++        }
++    }
++
++    #[cfg(not(unix))]
++    fn accept_primary_selection(
++        &mut self,
++        _params: &PaneReportPrimarySelectionParams,
++    ) -> Result<(), &'static str> {
++        Err("local primary selection is unavailable")
++    }
++
++    #[cfg(unix)]
++    fn accept_primary_selection(
++        &mut self,
++        params: &PaneReportPrimarySelectionParams,
++    ) -> Result<(), &'static str> {
++        let Some(pid) = params.verified_peer_pid.filter(|pid| *pid > 1) else {
++            return Err("local foreground process required");
++        };
++        if params.reason != "resume"
++            || params.sequence == 0
++            || params.run_token.len() != 48
++            || !params
++                .run_token
++                .bytes()
++                .all(|byte| byte.is_ascii_hexdigit())
++            || params.previous_id.len() != 36
++            || params.selected_id.len() != 36
++        {
++            return Err("invalid primary selection report");
++        }
++        let Some((workspace, pane)) = self.parse_pane_id(&params.pane_id) else {
++            return Err("foreground pane is unavailable");
++        };
++        let foreground = self
++            .lookup_runtime(workspace, pane)
++            .and_then(|(runtime, _)| runtime.child_pid())
++            .and_then(crate::detect::foreground_process_group_id);
++        if foreground != Some(pid) {
++            return Err("reporter does not own the pane's foreground process group");
++        }
++        let config = crate::config::config_dir();
++        let Some(workspace_config) = config.parent() else {
++            return Err("primary selection observer is unavailable");
++        };
++        let observer = workspace_config.join(format!(".as-{}", &params.run_token[..24]));
++        let report = serde_json::json!({
++            "source": "herdr:codex-primary-selection-v1",
++            "reason": params.reason,
++            "sequence": params.sequence,
++            "previous_id": params.previous_id,
++            "selected_id": params.selected_id,
++            "run_token": params.run_token,
++            "pane_id": params.pane_id,
++            "pid": pid,
++        });
++        forward_selection(&observer, &report)
++            .map_err(|_| "workspace did not durably accept this selection")?;
++        let seq = std::time::SystemTime::now()
++            .duration_since(std::time::UNIX_EPOCH)
++            .ok()
++            .and_then(|duration| u64::try_from(duration.as_nanos()).ok());
++        self.handle_internal_event(crate::events::AppEvent::AgentSessionReported {
++            pane_id: pane,
++            source: "herdr:codex".into(),
++            agent_label: "codex".into(),
++            session_ref: crate::agent_resume::AgentSessionRef::id(params.selected_id.clone()),
++            seq,
++            session_start_source: Some("resume".into()),
++        });
++        Ok(())
++    }
++}
++
++#[cfg(unix)]
++fn forward_selection(path: &std::path::Path, report: &serde_json::Value) -> std::io::Result<()> {
++    use std::io::{Read as _, Write as _};
++    use std::os::unix::net::UnixStream;
++    use std::time::Duration;
++
++    let mut connection = UnixStream::connect(path)?;
++    let timeout = Some(Duration::from_secs(1));
++    connection.set_read_timeout(timeout)?;
++    connection.set_write_timeout(timeout)?;
++    serde_json::to_writer(&mut connection, report)?;
++    connection.write_all(b"\n")?;
++    let mut reply = [0; 9];
++    connection.read_exact(&mut reply)?;
++    if &reply != b"accepted\n" {
++        return Err(std::io::Error::other("selection rejected"));
++    }
++    Ok(())
++}
+diff --git a/src/platform/mod.rs b/src/platform/mod.rs
+index c81c32b..c4dcab9 100644
+--- a/src/platform/mod.rs
++++ b/src/platform/mod.rs
+@@ -562,7 +562,8 @@ pub(crate) mod unix_image_files;
+ #[cfg(unix)]
+ pub(crate) use unix_common::{
+     begin_cli_output, end_cli_output, forward_remote_bridge_stdio, ignore_server_hangup,
+-    local_stream_peer_description, spawn_server_signal_monitor, ChildPipe, RemoteBridgeWake,
++    local_stream_peer_description, local_stream_peer_pid, spawn_server_signal_monitor, ChildPipe,
++    RemoteBridgeWake,
+ };
+ 
+ mod client_state;
+diff --git a/src/platform/unix_common.rs b/src/platform/unix_common.rs
+index 19d81d1..e992dd6 100644
+--- a/src/platform/unix_common.rs
++++ b/src/platform/unix_common.rs
+@@ -401,10 +401,7 @@ pub(crate) fn spawn_server_signal_monitor(
+ 
+ /// Describes the process on the other end of a local socket, for logs.
+ pub(crate) fn local_stream_peer_description(stream: &crate::ipc::LocalStream) -> Option<String> {
+-    use std::os::fd::{AsFd as _, AsRawFd as _};
+-
+-    let crate::ipc::LocalStream::UdSocket(socket) = stream;
+-    let pid = super::socket_peer_pid(socket.as_fd().as_raw_fd())?;
++    let pid = local_stream_peer_pid(stream)?;
+     let Some((name, parent)) = super::process_name_and_parent(pid) else {
+         return Some(format!("pid {pid}"));
+     };
+@@ -418,6 +415,13 @@ pub(crate) fn local_stream_peer_description(stream: &crate::ipc::LocalStream) ->
+     Some(description)
+ }
+ 
++pub(crate) fn local_stream_peer_pid(stream: &crate::ipc::LocalStream) -> Option<u32> {
++    use std::os::fd::{AsFd as _, AsRawFd as _};
++
++    let crate::ipc::LocalStream::UdSocket(socket) = stream;
++    super::socket_peer_pid(socket.as_fd().as_raw_fd())
++}
++
+ pub(crate) fn begin_cli_output() {
+     set_sigpipe_disposition(libc::SIG_DFL);
+ }

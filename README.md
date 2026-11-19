@@ -33,9 +33,12 @@ needs curl and tar; it does not need Go, Rust, Node or sudo. It supports
 `--version TAG`, `--prefix ABSOLUTE_PATH` and `--bin-dir ABSOLUTE_PATH`.
 Both command names must be free on first install. The default prefix is
 `~/.local/share/agent-harbor`; commands go in `~/.local/bin`.
-Updates retain previous executables; restart existing workspaces explicitly when
-ready. Uninstall keeps accounts, conversations, configuration, package ownership
-metadata, licenses and added files. Reinstall uses the same retained client data.
+Updates retain previous executables. Run `ah` after updating to migrate a
+recognized workspace's popup commands and plugin registration online. Close and
+reopen the popup to use the new version. Restart a workspace explicitly when
+you want to replace its running Herdr server. Uninstall keeps accounts,
+conversations, configuration, package ownership metadata, licenses and added
+files. Reinstall uses the same retained client data.
 
 Homebrew (macOS or Linux):
 

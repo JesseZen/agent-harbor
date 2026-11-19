@@ -75,7 +75,7 @@ func (m harborModel) details(s sessionView) string {
 	lines = append(lines, "", "💬 CONVERSATION", kv("Conversation", orUnknown(s.CodexSessionID)), kv("ID source", orUnknown(s.ConversationIDSource)), kv("Writer check", orUnknown(s.WriterLockCheck)))
 	lines = append(lines, "", "🛟 RECOVERY", kv("Herdr agent", orUnknown(s.HerdrAgentName)), kv("Recovery", orUnknown(s.Recovery)))
 	if s.HerdrPane != "" && !s.Running {
-		lines = append(lines, kv("Previous Herdr pane", s.HerdrPane), note("c inspects a possible restored shell before closing it."))
+		lines = append(lines, kv("Previous Herdr pane", s.HerdrPane), note("Enter checks whether the previous run ended before recovery."))
 	}
 	for _, c := range s.Candidates {
 		lines = append(lines, kv("Candidate", c.ID), kv("  Project", orUnknown(c.Directory)))
@@ -196,6 +196,27 @@ func (m harborModel) confirmView() string {
 		lines = append(lines, kv("Reference kind", orUnknown(reference.Kind)), kv("Conversation", orUnknown(reference.Value)))
 	} else {
 		lines = append(lines, kv("Conversation", orUnknown(m.reviewed.CodexSessionID)))
+	}
+	if m.isEnterRecovery() {
+		for _, candidate := range m.recoveryCandidates {
+			ref := candidate.Reference
+			lines = append(lines, "", recoveryCandidateText(candidate), kv("Source", ref.Source), kv("Kind", ref.Kind), kv("Reference", ref.Value))
+		}
+		if m.previousPane.PaneID != "" {
+			lines = append(lines, kv("Previous pane", m.previousPane.PaneID), kv("Terminal", m.previousPane.TerminalID))
+		}
+		if c := m.reviewed.Conversation; c != nil {
+			lines = append(lines, kv("Evidence", c.Status+" · "+c.Provenance))
+			if c.ObservedReference != nil {
+				lines = append(lines, kv("Reported source", c.ObservedReference.Source), kv("Reported reference", c.ObservedReference.Value))
+			}
+		}
+		for _, ref := range m.reviewed.CandidateIDs {
+			lines = append(lines, kv("Legacy candidate", ref))
+		}
+		if m.reviewed.ReportedCodexID != "" {
+			lines = append(lines, kv("Legacy reported ID", m.reviewed.ReportedCodexID))
+		}
 	}
 	lines = append(lines, "")
 	switch m.action {

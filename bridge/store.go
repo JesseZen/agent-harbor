@@ -32,6 +32,8 @@ type endedEvidence struct {
 	RunToken       string         `json:"run_token,omitempty"`
 	SocketIdentity string         `json:"socket_identity"`
 	Pane           string         `json:"pane"`
+	Terminal       string         `json:"terminal,omitempty"`
+	ShellPID       int            `json:"shell_pid,omitempty"`
 }
 
 type session struct {

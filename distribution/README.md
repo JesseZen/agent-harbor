@@ -57,12 +57,20 @@ This detects corrupt or mismatched downloads; it is not an independent signature
 It stages in the installation filesystem, serializes installers with a lock,
 keeps old release directories and atomically switches `current`. It never edits
 shell profiles, client credentials, histories, services or workspace state.
-Close/reopen workspaces explicitly when ready to adopt an update. Old versions
-are retained until uninstall because existing workspace configurations may pin
-them. Uninstall does not stop running processes.
+Run `ah` after updating to migrate a recognized older workspace. Harbor checks
+the generated configuration against the saved shortcuts, reloads it on the live
+server and registers the plugin online. If a step fails, Harbor restores the
+previous configuration and registration. Reopen the popup to use the new
+version. The workspace launcher follows the script installation's verified
+`current` selector. Old versions remain installed until uninstall. Uninstall does
+not stop running processes.
 
 Homebrew uses a formula in this repository's `Formula/` directory and downloads
-the same archives. Its lifecycle belongs to brew. No npm wrapper is published.
+the same archives. Its lifecycle belongs to brew. Homebrew workspaces follow
+the same formula's `opt` selector. Migration recognizes its generated
+configuration after Homebrew cleans up the old keg. An explicit workspace
+restart is still required to replace the running Herdr server. No npm wrapper
+is published.
 The binaries are not Apple Developer ID signed/notarized. Linux Herdr is a native
 glibc build requiring glibc 2.39 or newer. Real client/account/recovery acceptance
 is separate from native packaging and install/update/uninstall tests.

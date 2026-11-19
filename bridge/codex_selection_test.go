@@ -97,8 +97,8 @@ func TestCodexSelectionMustStillMatchAtRecovery(t *testing.T) {
 func TestMagpieRecoveryReviewUsesProfileOrExplicitOriginalChoice(t *testing.T) {
 	const id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const thread = "01912345-6789-7abc-8def-0123456789ab"
-	row := sessionView{session: session{ID: id, Name: "Fixture", CLI: "codex", Mode: "magpie", Started: true,
-		MagpieModel: "group/original", CodexSessionID: thread, Conversation: &conversationEvidence{Reference: herdrIdentity{Agent: "codex", Kind: "id", Value: thread}}},
+	row := sessionView{session: session{ID: id, Version: 3, Name: "Fixture", CLI: "codex", Mode: "magpie", Started: true, Profile: &profileBinding{Client: "codex"},
+		MagpieModel: "group/original", CodexSessionID: thread, Conversation: &conversationEvidence{Status: "missing", Reference: herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: thread}}},
 		Runtime: runtimeObservation{Presence: "historical_exit"}}
 	t.Run("profile", func(t *testing.T) {
 		service := &fakeApplicationService{Sessions: []sessionView{row}, Selection: &codexSelection{ThreadID: thread, Model: "relay/new", Effort: "high", ProfileHash: "hash"}}

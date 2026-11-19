@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"reflect"
 	"time"
 )
@@ -68,14 +69,11 @@ func validateLaunchState(s session) error {
 			return errors.New("live workspace state unavailable; recovery requires review")
 		}
 	default:
-		return errors.New("runtime is observed, unknown or not confirmed ended; refresh and review before launch")
-	}
-	for _, other := range all {
-		if other.Runtime.Presence == "observed" && s.Conversation != nil && other.Runtime.Reference != nil && *other.Runtime.Reference == s.Conversation.Reference {
-			return errConversationObserved
+		if v.Runtime.Presence == "observed" || !recoveryEndMatches(s, s.Ended) || s.Ended.Source != idleRecoverySource || s.Ended.SocketIdentity != v.Runtime.Instance {
+			return errors.New("runtime is observed, unknown or not confirmed ended; refresh and review before launch")
 		}
 	}
-	return nil
+	return recoveryOccupied(s, all)
 }
 
 func waitForLaunchState(s session) error {
@@ -107,16 +105,24 @@ func (h harborService) FocusObserved(expected sessionView) error {
 	if err != nil {
 		return err
 	}
-	if v.DiscoveryWarning != "" || !sameRuntimeTarget(expected.Runtime, v.Runtime) || v.Runtime.Presence != "observed" || v.Runtime.Terminal == "" || (!v.External && !v.Runtime.Associated && !v.Runtime.RunVerified) {
+	if v.DiscoveryWarning != "" || !sameFocusTarget(expected, v) || v.Runtime.Presence != "observed" || v.Runtime.Terminal == "" || (!v.External && !v.Runtime.Associated && !v.Runtime.RunVerified) {
 		return errors.New("runtime target unavailable or changed; refresh and review again")
 	}
 
-	if !v.External && !sameSession(v.session, expected.session) {
-		return errors.New("session changed; refresh and review again")
-	}
 	if socketIdentity(v.HerdrSocket) != v.Runtime.Instance {
 		return errors.New("workspace changed; refresh")
 	}
+	if os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") == "app" || os.Getenv("HERDR_ACTIVE_PANE_ID") != "" {
+		return focusPaneAfterPopup(v.HerdrSocket, v.Runtime.Instance, v.HerdrPane, v.Runtime.Terminal)
+	}
 	var result map[string]any
 	return agentRPC(v.HerdrSocket, "agent.focus", map[string]any{"target": v.HerdrPane}, &result)
+}
+
+func sameFocusTarget(expected, current sessionView) bool {
+	if expected.External || current.External {
+		return expected.External == current.External && sameRuntimeTarget(expected.Runtime, current.Runtime)
+	}
+	a, b := expected.Runtime, current.Runtime
+	return a.Presence == b.Presence && a.Instance == b.Instance && a.Workspace == b.Workspace && a.Terminal == b.Terminal && expected.HerdrPane == current.HerdrPane && expected.RunToken == current.RunToken && expected.ProcessGroup == current.ProcessGroup && sameProfileBinding(expected.Profile, current.Profile)
 }

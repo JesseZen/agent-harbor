@@ -8,7 +8,14 @@ import (
 	"path/filepath"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
+
+func selectionPeerPID(fd int) int {
+	pid, _ := unix.GetsockoptInt(fd, unix.SOL_LOCAL, unix.LOCAL_PEERPID)
+	return pid
+}
 
 // kern.procargs2 is the only unprivileged source of another process's
 // environment on macOS. The syscall package exposes control names but not

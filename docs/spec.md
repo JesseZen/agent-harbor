@@ -30,14 +30,25 @@ captured reference stop before recovery confirmation and require explicit
 association with the original Conversation. Normal identity observations do not
 produce warning banners; blocking summaries stay brief and details retain evidence.
 
-When recovery has a complete saved reference and no conflicting identity evidence,
-the Resume action confirms that exact reference and its recorded connection in
-one step. Evidence is optional detail, not a prerequisite navigation step. A failed
-launch retains the reviewed snapshot for retry; any intervening record or runtime
-change still requires a fresh review. Recovery uses Enter for Resume and Esc to cancel, with no footer focus or Tab step.
-Failure retains the same recovery context. Arrow keys scroll the
-evidence. Missing references and actual identity or connection conflicts remain
-blocking; recovery never substitutes another conversation.
+Sessions uses Enter to focus a verified live terminal or review recovery after
+the run ends. The recovery path checks the previous pane and can proceed with
+its verified idle shell still open. A complete saved reference and connection
+need one confirmation. A conversation conflict with two complete references
+requires an explicit choice between the originally saved and last reported
+conversations. Details shows the complete references and their evidence. If
+Harbor cannot verify the runtime or target, it explains the blocker and offers
+a recheck. A failed launch keeps the selected target for retry. Changes to the
+reviewed record, runtime or connection require fresh confirmation. Esc returns
+to the selected session without applying an unconfirmed choice.
+
+The latest primary conversation selected through Codex `/resume` can be a
+recovery target when the client and Herdr support immediate selection reports.
+Harbor accepts a report from the verified foreground run, persists the selected
+reference and preserves the prior evidence, Profile, project and connection.
+That capability requires a real candidate test where the user switches and
+exits without sending another turn or opening the Harbor popup. With older
+clients or without the integration, Harbor identifies the saved reference as
+the saved conversation.
 
 An explicit Session name takes precedence over automatic titles. New Codex
 Sessions created with an empty name initially show the project and connection,
@@ -130,8 +141,12 @@ acceptance boundaries; real-account and platform verification remain separate.
 Distribution uses versioned native GitHub release archives for macOS/Linux on
 arm64 and amd64. Script installations expose `ah` and `agent-harbor`, validate
 SHA-256 before switching the active package, and support explicit `update` and
-`uninstall`. Updates keep old executables for running workspaces and never restart
-client processes or migrate their configuration. Uninstall removes owned commands
+`uninstall`. A reopened popup can follow the workspace's verified package entry
+after an upgrade. Opening an existing workspace migrates recognized
+Harbor-generated popup configuration and registration under the workspace lock.
+The migration preserves shortcuts and rolls back on failure. Already open popups
+can finish on their current version. The running workspace, terminals and agent
+processes continue through popup migration. Uninstall removes owned commands
 and package executables while retaining client data, ownership metadata, licenses
 and user-added files. Homebrew owns its own installation lifecycle. The bundled
 Herdr and Magpie remain patched development candidates; distribution does not

@@ -1,0 +1,133 @@
+diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
+index 9e73ea4..65e6ab2 100644
+--- a/codex-rs/tui/src/app.rs
++++ b/codex-rs/tui/src/app.rs
+@@ -272,6 +272,7 @@ mod resume_preparation;
+ mod right_click_paste;
+ pub(crate) use right_click_paste::PasteEnvironment;
+ mod pane_motion;
++mod primary_selection;
+ mod safety_buffering;
+ mod safety_recourse;
+ mod server_version_notice;
+diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
+index eeebcba..fb786e0 100644
+--- a/codex-rs/tui/src/app/event_dispatch.rs
++++ b/codex-rs/tui/src/app/event_dispatch.rs
+@@ -618,7 +618,7 @@ impl App {
+                 {
+                     Ok(Some(target_session)) => {
+                         return self
+-                            .resume_target_session(tui, app_server, target_session)
++                            .resume_primary_selection(tui, app_server, target_session)
+                             .await;
+                     }
+                     Ok(None) => {
+diff --git a/codex-rs/tui/src/app/primary_selection.rs b/codex-rs/tui/src/app/primary_selection.rs
+new file mode 100644
+index 0000000..11fa8a7
+--- /dev/null
++++ b/codex-rs/tui/src/app/primary_selection.rs
+@@ -0,0 +1,89 @@
++use super::*;
++
++impl App {
++    pub(super) async fn resume_primary_selection(
++        &mut self,
++        tui: &mut tui::Tui,
++        app_server: &mut AppServerSession,
++        target: SessionTarget,
++    ) -> Result<AppRunControl> {
++        let previous = self.primary_thread_id;
++        let selected = target.thread_id;
++        let control = self.resume_target_session(tui, app_server, target).await?;
++        #[cfg(unix)]
++        if let Some(previous) = previous
++            && previous != selected
++            && self.primary_thread_id == Some(selected)
++            && matches!(control, AppRunControl::Continue)
++            && !self.chat_widget.is_external_writer_view()
++            && !self.chat_widget.has_provider_error()
++            && let Some(socket) = std::env::var_os("CODEX_TUI_PRIMARY_SELECTION_SOCKET")
++        {
++            match app_server
++                .thread_read(selected, /*include_turns*/ false)
++                .await
++            {
++                Ok(thread)
++                    if thread.parent_thread_id.is_some()
++                        || matches!(
++                            thread.source,
++                            codex_app_server_protocol::SessionSource::SubAgent(_)
++                        ) => {}
++                Ok(_) => {
++                    if emit(socket, previous, selected).await.is_err() {
++                        self.chat_widget.add_info_message(
++                            "The workspace did not confirm this conversation for recovery.".into(),
++                            /*hint*/ None,
++                        );
++                    }
++                }
++                Err(_) => self.chat_widget.add_info_message(
++                    "The workspace could not verify the selected main conversation for recovery."
++                        .into(),
++                    /*hint*/ None,
++                ),
++            }
++        }
++        Ok(control)
++    }
++}
++
++#[cfg(unix)]
++async fn emit(
++    socket: std::ffi::OsString,
++    previous: ThreadId,
++    selected: ThreadId,
++) -> std::io::Result<()> {
++    use std::sync::atomic::{AtomicU64, Ordering};
++    use std::time::Duration;
++    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
++
++    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
++    let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1;
++    let result = tokio::time::timeout(Duration::from_secs(3), async move {
++        let mut conn = tokio::net::UnixStream::connect(socket).await?;
++        let request = serde_json::json!({
++            "id": sequence.to_string(),
++            "method": "pane.report_primary_selection",
++            "params": {
++                "pane_id": std::env::var("HERDR_PANE_ID").unwrap_or_default(),
++                "run_token": std::env::var("AH_SESSION_RUN_TOKEN").unwrap_or_default(),
++                "reason": "resume",
++                "sequence": sequence,
++                "previous_id": previous.to_string(),
++                "selected_id": selected.to_string(),
++            },
++        });
++        conn.write_all(&serde_json::to_vec(&request)?).await?;
++        conn.write_all(b"\n").await?;
++        let mut reply = String::new();
++        BufReader::new(conn).read_line(&mut reply).await?;
++        let response: serde_json::Value = serde_json::from_str(&reply)?;
++        if response["id"] != sequence.to_string() || response["result"]["type"] != "ok" {
++            return Err(std::io::Error::other("primary selection was not accepted"));
++        }
++        Ok(())
++    })
++    .await;
++    result.map_err(std::io::Error::other)?
++}
+diff --git a/codex-rs/tui/src/app/session_picker.rs b/codex-rs/tui/src/app/session_picker.rs
+index 063a447..5cb81ac 100644
+--- a/codex-rs/tui/src/app/session_picker.rs
++++ b/codex-rs/tui/src/app/session_picker.rs
+@@ -98,7 +98,7 @@ impl App {
+                     self.capture_session_inputs(app_server.backend_id()).await;
+                 }
+                 if let AppRunControl::Exit(reason) = self
+-                    .resume_target_session(tui, app_server, target_session)
++                    .resume_primary_selection(tui, app_server, target_session)
+                     .await?
+                 {
+                     return Ok(AppRunControl::Exit(reason));

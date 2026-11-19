@@ -53,7 +53,7 @@ func TestNeutralRecoveryUsesSingleExplicitConfirmation(t *testing.T) {
 	m, _ := formFixture()
 	m.formActive = false
 	m.screen = "sessions"
-	m.sessions = []sessionView{{session: session{ID: "neutral", CLI: "future-kind", Started: true, Conversation: &conversationEvidence{Reference: herdrIdentity{Agent: "future-kind", Kind: "path", Value: "/opaque/conversation"}}}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}}}
+	m.sessions = []sessionView{{session: session{ID: "neutral", Version: 3, CLI: "future-kind", Started: true, Profile: &profileBinding{Client: "future-kind"}, Conversation: &conversationEvidence{Status: "missing", Reference: herdrIdentity{Source: "official:fixture", Agent: "future-kind", Kind: "path", Value: "/opaque/conversation"}}}, Runtime: runtimeObservation{Presence: "historical_exit", Activity: "unknown"}}}
 	m = appKey(m, "enter").(harborModel)
 	if !strings.Contains(m.View(), "Resume conversation") {
 		t.Fatal(m.View())
@@ -148,7 +148,7 @@ func (f *reviewedApprovalService) Open(a sessionApproval) error { f.approved = a
 func TestRecoveryConfirmationShowsSavedNeutralReferenceAndApprovesSameRecord(t *testing.T) {
 	for _, width := range []int{60, 100, 160} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
-			original := session{ID: "review-path", CLI: "future-kind", Name: "Saved path session", Mode: "local", Started: true, Conversation: &conversationEvidence{Reference: herdrIdentity{Source: "official:fixture", Agent: "future-kind", Kind: "path", Value: "/saved/project with spaces/chat.json"}}}
+			original := session{ID: "review-path", Version: 3, CLI: "future-kind", Name: "Saved path session", Mode: "local", Started: true, Profile: &profileBinding{Client: "future-kind"}, Conversation: &conversationEvidence{Status: "missing", Reference: herdrIdentity{Source: "official:fixture", Agent: "future-kind", Kind: "path", Value: "/saved/project with spaces/chat.json"}}}
 			f := &reviewedApprovalService{fakeApplicationService: &fakeApplicationService{}}
 			m := newHarborModel(f)
 			m.screen = "sessions"
@@ -183,7 +183,7 @@ func TestRecoveryConfirmationShowsSavedNeutralReferenceAndApprovesSameRecord(t *
 				t.Fatal("Resume confirmation cannot proceed")
 			}
 			cmd()
-			if !sameSession(original, f.approved.Session) || !f.approved.DevelopmentQuery || !f.approved.QueryUncertaintyAccepted || !f.approved.SavedReferenceAccepted || !f.approved.Confirmed {
+			if !sameSession(original, f.approved.Session) || !f.approved.DevelopmentQuery || !f.approved.QueryUncertaintyAccepted || f.approved.Recovery == nil || f.approved.Recovery.Target != original.Conversation.Reference || !f.approved.Confirmed {
 				t.Fatalf("approval changed the reviewed record: %+v", f.approved)
 			}
 		})

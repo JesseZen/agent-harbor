@@ -111,11 +111,13 @@ func sessionStamp(s session) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func openSessionPane(s session, action launchKind) error { return openPaneOptions(s, action, "", nil) }
-func openQueryPane(s session, override string, selection *codexSelection) error {
-	return openPaneOptions(s, launchKind("query"), override, selection)
+func openSessionPane(s session, action launchKind) error {
+	return openPaneOptions(s, action, "", nil, nil)
 }
-func openPaneOptions(s session, action launchKind, override string, selection *codexSelection) error {
+func openQueryPane(s session, override string, selection *codexSelection) error {
+	return openPaneOptions(s, launchKind("query"), override, selection, nil)
+}
+func openPaneOptions(s session, action launchKind, override string, selection *codexSelection, recovery *recoveryApproval) error {
 	if err := waitForLaunchState(s); err != nil {
 		return err
 	}
@@ -135,7 +137,25 @@ func openPaneOptions(s session, action launchKind, override string, selection *c
 		}
 		args = append(args, "--env", "AGENT_HARBOR_BRIDGE_SELECTION="+base64.RawURLEncoding.EncodeToString(data))
 	}
-	args = append(args, "--focus")
+	resultPath := ""
+	if recovery != nil {
+		root, err := bridgeHome()
+		if err != nil {
+			return err
+		}
+		file, err := os.CreateTemp(root, "recovery-result-")
+		if err != nil {
+			return err
+		}
+		resultPath = file.Name()
+		defer os.Remove(resultPath)
+		if err := file.Close(); err != nil {
+			return err
+		}
+		args = append(args, "--env", "AGENT_HARBOR_BRIDGE_RECOVERY_RESULT="+resultPath, "--env", "AGENT_HARBOR_BRIDGE_RECOVERY_FINGERPRINT="+recovery.Fingerprint)
+	} else {
+		args = append(args, "--focus")
+	}
 	cmd := exec.Command(herdr, args...)
 	out, err := cmd.Output()
 	if err != nil {
@@ -153,6 +173,11 @@ func openPaneOptions(s session, action launchKind, override string, selection *c
 	}
 	if json.Unmarshal(out, &result) != nil || result.Result.PluginPane.Pane.TabID == "" {
 		return errors.New("Herdr did not return the new session tab")
+	}
+	if resultPath != "" {
+		if err := awaitRecoveryLaunch(resultPath); err != nil {
+			return err
+		}
 	}
 	// The returned tab belongs to this just-opened plugin pane.
 	if err := exec.Command(herdr, "tab", "rename", result.Result.PluginPane.Pane.TabID, s.Name).Run(); err != nil {
@@ -178,28 +203,77 @@ func openPaneOptions(s session, action launchKind, override string, selection *c
 // Herdr restores the old client focus when a popup closes, so focus the new tab
 // only after the picker process has exited.
 func focusAfterPopup(args []string) error {
+	if len(args) == 5 {
+		return waitForPopupExit(args[0], func() error {
+			return focusVerifiedPane(args[1], args[2], args[3], args[4])
+		})
+	}
 	if len(args) != 2 {
 		return errors.New("invalid focus request")
 	}
-	pid, err := strconv.Atoi(args[0])
+	return waitForPopupExit(args[0], func() error {
+		herdr := os.Getenv("HERDR_BIN_PATH")
+		if herdr == "" || os.Getenv("HERDR_SOCKET_PATH") == "" {
+			return errors.New("managed Herdr context is missing")
+		}
+		return exec.Command(herdr, "tab", "focus", args[1]).Run()
+	})
+}
+
+func waitForPopupExit(parent string, focus func() error) error {
+	pid, err := strconv.Atoi(parent)
 	if err != nil || pid <= 1 {
 		return errors.New("invalid picker process")
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
-			herdr := os.Getenv("HERDR_BIN_PATH")
-			if herdr == "" || os.Getenv("HERDR_SOCKET_PATH") == "" {
-				return errors.New("managed Herdr context is missing")
-			}
-			return exec.Command(herdr, "tab", "focus", args[1]).Run()
+			return focus()
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	return errors.New("picker did not close")
 }
 
-func herdrPane() error {
+func focusPaneAfterPopup(socket, identity, pane, terminal string) error {
+	bin, err := resolvedExecutable()
+	if err != nil {
+		return err
+	}
+	helper := exec.Command(bin, "_focus", strconv.Itoa(os.Getpid()), socket, identity, pane, terminal)
+	helper.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := helper.Start(); err != nil {
+		return err
+	}
+	return helper.Process.Release()
+}
+
+func focusVerifiedPane(socket, identity, pane, terminal string) error {
+	root, err := bridgeHome()
+	if err != nil || !managedSocket(root, socket) || socketIdentity(socket) != identity {
+		return errors.New("workspace changed before focus")
+	}
+	var result struct {
+		Pane struct {
+			ID       string `json:"pane_id"`
+			Terminal string `json:"terminal_id"`
+		} `json:"pane"`
+	}
+	params := map[string]any{"pane_id": pane}
+	if err := agentRPC(socket, "pane.get", params, &result); err != nil || result.Pane.ID != pane || terminal == "" || result.Pane.Terminal != terminal || socketIdentity(socket) != identity {
+		return errors.New("pane changed before focus")
+	}
+	return agentRPC(socket, "pane.focus", params, &map[string]any{})
+}
+
+func herdrPane() (err error) {
+	if path := recoveryHandshakePath(); path != "" {
+		defer func() {
+			if err != nil && reportRecoveryLaunch(path, err) == nil {
+				err = nil
+			}
+		}()
+	}
 	id, action := os.Getenv("AGENT_HARBOR_BRIDGE_SESSION"), os.Getenv("AGENT_HARBOR_BRIDGE_ACTION")
 	if action != "new" && action != "resume" && action != "query" {
 		return errors.New("invalid pane action")
@@ -209,6 +283,9 @@ func herdrPane() error {
 		return err
 	}
 	if os.Getenv("AGENT_HARBOR_BRIDGE_EXPECTED") != sessionStamp(s) {
+		if recoveryHandshakePath() != "" {
+			return errRecoveryStale
+		}
 		return errors.New("session changed; open the menu and review it again")
 	}
 	fmt.Printf("Agent Harbor session %s\n\n", s.ID)

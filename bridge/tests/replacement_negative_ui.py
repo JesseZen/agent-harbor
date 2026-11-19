@@ -32,18 +32,18 @@ def exercise(root,binary,managed,run,popup,key,text,screen,capture,records,wait,
     # Fixture-owned persistence is the external input under fault injection;
     # outcomes and absence of execution are observed only through public APIs.
     record_file=root/'harbor/sessions.json'
-    # A complete missing final observation is now reviewable by explicit
-    # Resume. Refuse conflicting evidence instead of expecting that supported
-    # choice to remain blocked. Use another real fixture reference as conflict.
-    for status,reason in [('conflict','saved identity is already reviewed or has conflicting evidence'),('missing','identity evidence conflicts')]:
-        altered=copy.deepcopy(original)
-        target=next(r for r in altered if r['name']=='UI-A')
-        target['conversation']['status']=status
-        if status=='missing':
-            target['conversation']['observed_reference']=copy.deepcopy(next(r for r in original if r['name']=='UI-B')['conversation']['reference'])
-        record_file.write_text(json.dumps(altered))
-        try:refusal('UI-A',reason)
-        finally:record_file.write_text(json.dumps(original))
+    altered=copy.deepcopy(original)
+    target=next(r for r in altered if r['name']=='UI-A')
+    target['conversation']['status']='conflict'
+    target['conversation'].pop('observed_reference',None)
+    target.pop('reported_codex_session_id',None)
+    record_file.write_text(json.dumps(altered))
+    try:
+        popup();key('/');text('UI-A');key('Enter');key('Enter');screen('Recovery blocked');screen('last reported conversation is incomplete')
+        key('Enter');screen('Recheck')
+        assert records()==altered, 'incomplete conflict changed persisted identity'
+        key('Escape');key('q')
+    finally:record_file.write_text(json.dumps(original))
     # A complete saved reference with a missing final observation can be
     # explicitly reviewed in the UI; approval must not start a client or
     # claim the reference was freshly observed by Herdr.

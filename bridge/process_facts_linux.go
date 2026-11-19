@@ -7,7 +7,17 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
+
+func selectionPeerPID(fd int) int {
+	cred, err := unix.GetsockoptUcred(fd, unix.SOL_SOCKET, unix.SO_PEERCRED)
+	if err != nil || int(cred.Uid) != os.Getuid() {
+		return 0
+	}
+	return int(cred.Pid)
+}
 
 // processFacts reads the executable and selected environment variables of a
 // same-user process through /proc, which lists another user's process but

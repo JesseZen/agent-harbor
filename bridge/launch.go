@@ -23,6 +23,7 @@ func launchWithPlan(s session, kind launchKind, overrideReason string, query *re
 	return launchWithSelection(s, kind, overrideReason, query, nil)
 }
 func launchWithSelection(s session, kind launchKind, overrideReason string, query *resumeCommandPlan, selection *codexSelection) error {
+	resultPath := recoveryHandshakePath()
 	var releaseProfile func()
 	if s.Profile != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -40,6 +41,11 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 	}
 	if kind == resumeConversation && query == nil {
 		return errors.New("replacement recovery requires explicit upstream query; use resume --development-query")
+	}
+	if resultPath != "" && query != nil {
+		if err := checkEnterRecoveryPlan(s, query); err != nil {
+			return err
+		}
 	}
 	if kind == resumeConversation && s.Mode == "magpie" && s.CLI == "codex" && !joinedCodex(s) {
 		if err := verifyCodexSelection(context.Background(), s, selection); err != nil {
@@ -181,6 +187,9 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 			if errors.Is(catalogErr, errMagpieCodexModelHidden) || errors.Is(catalogErr, errMagpieCodexEffortHidden) {
 				return catalogErr
 			}
+			if resultPath != "" {
+				return fmt.Errorf("Magpie catalog unavailable for the confirmed model: %w", catalogErr)
+			}
 			fmt.Fprintln(os.Stderr, "Warning:", catalogErr, "; Codex's model picker may not show Magpie models. Review the instance before changing models.")
 			choice, readErr := readChoice(bufio.NewReader(os.Stdin), "Type continue to open with this limitation, or anything else to cancel: ")
 			if readErr != nil || choice != "continue" {
@@ -199,6 +208,11 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 		return err
 	}
 	cmd.Env = append(cmd.Env, "AH_SESSION_RUN_TOKEN="+plan.Token)
+	stopPrimarySelection, err := observePrimarySelection(s, plan, kind, cmd)
+	if err != nil {
+		return err
+	}
+	defer stopPrimarySelection()
 	if kind == resumeConversation && s.Mode == "magpie" && s.CLI == "codex" && !joinedCodex(s) {
 		if err := verifyCodexSelection(context.Background(), s, selection); err != nil {
 			return err
@@ -219,9 +233,32 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 			return err
 		}
 	}
-	if os.Getenv("HERDR_PLUGIN_ID") == "agent-harbor.bridge" {
+	if os.Getenv("HERDR_PLUGIN_ID") == "agent-harbor.bridge" && resultPath == "" {
 		if err := prepareCodexRecovery(s, environment, os.Getenv("HERDR_BIN_PATH"), cmd.Env, os.Stdin, os.Stdout); err != nil {
 			return err
+		}
+	}
+	if resultPath != "" {
+		if _, err := os.Stat(resultPath); err != nil {
+			return errRecoveryStale
+		}
+		if err := checkEnterRecoveryIntegration(s, environment, cmd.Env); err != nil {
+			return fmt.Errorf("%w: %v", errRecoveryStale, err)
+		}
+		if err := checkRecoveryFingerprint(s, os.Getenv("AGENT_HARBOR_BRIDGE_RECOVERY_FINGERPRINT")); err != nil {
+			return err
+		}
+		if recoveryEndMatches(s, s.Ended) && s.Ended.Source == idleRecoverySource && s.Ended.ShellPID > 0 {
+			pane, err := inspectPreviousPane(s, false)
+			if err != nil || pane.ShellPID != s.Ended.ShellPID || pane.TerminalID != s.Ended.Terminal || pane.SocketIdentity != s.Ended.SocketIdentity {
+				return fmt.Errorf("%w: previous shell changed", errRecoveryStale)
+			}
+		}
+		if err := validateLaunchState(s); err != nil {
+			if errors.Is(err, errConversationObserved) {
+				return err
+			}
+			return fmt.Errorf("%w: %v", errRecoveryStale, err)
 		}
 	}
 	if err := beginRun(s, kind, plan); err != nil {
@@ -303,6 +340,9 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 		_ = cmd.Wait()
 		return terminalErr
+	}
+	if resultPath != "" {
+		_ = reportRecoveryLaunch(resultPath, nil)
 	}
 	if current, e := getSession(s.ID); e == nil && current.HerdrPane != "" {
 		if e := reportSessionConnection(current); e != nil {

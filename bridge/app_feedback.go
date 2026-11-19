@@ -10,6 +10,9 @@ type appNoticeExpired struct{ id uint64 }
 
 // Text fields own printable input, including the details shortcut.
 func (m harborModel) editingText() bool {
+	if m.codexEditorText() {
+		return true
+	}
 	if m.screen == "new-directory" {
 		return !m.picker.list
 	}
@@ -249,7 +252,7 @@ func (m harborModel) feedbackLine() string {
 }
 
 func ordinaryNotice(s string) bool {
-	return s == "Directory selected" || s == "Directory selected. Enter continues." || strings.HasPrefix(s, "Original environment binding recorded;") || s == "Action completed" || s == "Magpie action completed" || s == "Directory ready. Enter continues." || s == "Profile saved" || strings.HasPrefix(s, "Profile selected:") || strings.HasPrefix(s, "Default saved;")
+	return s == "Directory selected" || s == "Directory selected. Enter continues." || strings.HasPrefix(s, "Original environment binding recorded;") || s == "Action completed" || s == "Magpie action completed" || s == "Directory ready. Enter continues." || s == "Profile saved" || strings.HasPrefix(s, "Profile selected:") || strings.HasPrefix(s, "Default saved;") || s == codexOptionsSaved
 }
 
 // Evidence belongs to the action that produced it. Documents are temporary

@@ -27,6 +27,7 @@ type sessionDraft struct {
 	Profile                                              *profileBinding
 	RecoveryChoice                                       string
 	CodexConnection                                      string
+	CodexOptions                                         *codexOptions
 }
 type sessionApproval struct {
 	Recovery                 *recoveryApproval
@@ -276,6 +277,9 @@ func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
 		if !found {
 			return d, errors.New("selected Magpie model or routing group is unavailable")
 		}
+	}
+	if err := h.validateDraftCodexOptions(d); err != nil {
+		return d, err
 	}
 	return d, nil
 }

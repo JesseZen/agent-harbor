@@ -50,7 +50,7 @@ func TestMouseFormAndBounds(t *testing.T) {
 		for _, r := range p.Hits {
 			if r.ID == "new-field:Name" {
 				m = mouseAt(m, r.X, r.Y)
-				if m.screen != "new-form" || m.formFocus != 4 {
+				if m.screen != "new-form" || m.formFocus != formName {
 					t.Fatal("first click should focus Name")
 				}
 				m = mouseAt(m, r.X, r.Y)
@@ -209,12 +209,12 @@ func TestMousePickerRenderedGeometry(t *testing.T) {
 }
 
 func TestMouseEveryFormControl(t *testing.T) {
-	for i, want := range []string{"new-directory", "new-cli", "new-connection", "new-form", "new-name", "busy", "sessions"} {
+	for i, want := range []string{"new-directory", "new-cli", "new-connection", "new-form", codexOptionsScreen, "new-name", "busy", "sessions"} {
 		for _, height := range []int{12, 24} {
 			m, _ := formFixture()
 			m.height = height
 			m.formFocus = 0
-			ids := []string{"new-field:Project", "new-field:Client", "new-field:Connection", "new-field:Model", "new-field:Name", "new-create", "new-cancel"}
+			ids := []string{"new-field:Project", "new-field:Client", "new-field:Connection", "new-field:Model", "new-field:Options", "new-field:Name", "new-create", "new-cancel"}
 			p, _ := m.newSessionPage()
 			x, y := -1, -1
 			for _, r := range p.Hits {
@@ -227,7 +227,7 @@ func TestMouseEveryFormControl(t *testing.T) {
 				t.Fatalf("missing control %s", ids[i])
 			}
 			n := mouseAt(m, x, y)
-			if i > 0 && i < 5 {
+			if i > formProject && i <= formName {
 				if n.screen != "new-form" || n.formFocus != i {
 					t.Fatalf("field %d first click did not only move focus", i)
 				}

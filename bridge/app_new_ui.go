@@ -66,21 +66,23 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 		if name == "" {
 			name = "Automatic · " + filepath.Base(m.draft.Directory)
 		}
-		values := []string{m.draft.Directory, m.selectedClient(), connection, model, name}
-		labels := []string{"Project", "Client", "Connection", "Model", "Name"}
-		icons := []string{"📂", "🤖", "🔌", "🧠", "💬"}
+		values := []string{m.draft.Directory, m.selectedClient(), connection, model, codexOptionsValue(m.draft.CodexOptions).summary(), name}
+		icons := []string{"📂", "🤖", "🔌", "🧠", "", "💬"}
 		for i := range values {
-			p.field("new-field:"+labels[i], icons[i], labels[i], values[i], m.formFocus == i, i != 3 || m.draft.Connection == "magpie")
+			if i == formOptions && m.selectedClient() != "codex" {
+				continue
+			}
+			p.field("new-field:"+formLabels[i], icons[i], formLabels[i], values[i], m.formFocus == i, i != formModel || m.draft.Connection == "magpie")
 		}
 		actions := []uiAction{{ID: "new-create", Label: "Create", Key: "ctrl+s", Primary: true}, {ID: "new-cancel", Label: "Cancel", Key: "esc"}}
 		if m.creating {
 			actions[0].Disabled = "Creating…"
 		}
 		focus := ""
-		if m.formFocus == 5 {
+		if m.formFocus == formCreate {
 			focus = "new-create"
 		}
-		if m.formFocus == 6 {
+		if m.formFocus == formCancel {
 			focus = "new-cancel"
 		}
 		p.shortcuts(actions, focus)
@@ -208,7 +210,7 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 				m.draft.RecoveryChoice = "skip"
 			}
 			m.screen = "new-form"
-			m.formFocus = 5
+			m.formFocus = formCreate
 			m.uiFocus = ""
 			n, c := m.updateForm(uiKey("enter"))
 			return n, c, true
@@ -237,7 +239,7 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 	activate := func(id string) (tea.Model, tea.Cmd, bool) {
 		switch {
 		case strings.HasPrefix(id, "new-field:"):
-			for i, label := range []string{"Project", "Client", "Connection", "Model", "Name"} {
+			for i, label := range formLabels {
 				if id == "new-field:"+label && m.formFocus != i {
 					m.formFocus = i
 					return m, nil, true
@@ -289,9 +291,9 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			n, c := m.update(uiKey("!"))
 			return n, c, true
 		case id == "new-create":
-			m.formFocus = 5
+			m.formFocus = formCreate
 		case id == "new-cancel":
-			m.formFocus = 6
+			m.formFocus = formCancel
 		case id == "new-back":
 			n, c := m.updateForm(uiKey("esc"))
 			return n, c, true
@@ -382,14 +384,14 @@ func activateClient(m harborModel, c clientCapability) (tea.Model, tea.Cmd, bool
 			}
 			binding.Client = c.Target
 			n.draft.Profile = &binding
-			n.draft.Client = c.Target
+			n.setDraftClient(c.Target)
 			n.screen = "new-form"
 			n.uiFocus = ""
 			n.notice = ""
 			return nil
 		})
 	}
-	m.draft.Client = c.Target
+	m.setDraftClient(c.Target)
 	m.screen = "new-form"
 	m.formFocus = 0
 	m.uiFocus = ""

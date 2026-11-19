@@ -16,6 +16,11 @@ func checkSessionBase(s session, kind launchKind, override string, checkModel bo
 	if err := validateProfileLaunch(s); err != nil {
 		return err
 	}
+	if s.CodexOptions != nil {
+		if err := s.CodexOptions.validate(s.CLI, true); err != nil {
+			return err
+		}
+	}
 	if err := neutralReferenceCheck(s); err != nil {
 		return err
 	}

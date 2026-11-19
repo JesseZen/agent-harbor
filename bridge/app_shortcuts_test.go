@@ -34,7 +34,7 @@ func TestShortcutFooterStaysAtBottom(t *testing.T) {
 
 func TestShortcutsKeepTextInputAndDirectActionsSeparate(t *testing.T) {
 	m, f := formFixture()
-	m.formFocus = 4
+	m.formFocus = formName
 	n, _ := m.Update(uiKey("enter"))
 	m = n.(harborModel)
 	n, _ = m.Update(uiKey("r"))

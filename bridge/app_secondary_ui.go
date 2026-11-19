@@ -19,10 +19,17 @@ func (m harborModel) secondaryContent() (string, string, []uiAction, bool) {
 		return "Preparing new session", "Loading project, client and connection choices.\nThe new session has not been created.", []uiAction{{ID: "secondary:esc", Label: "Cancel", Key: "esc"}}, true
 	case "detail":
 		body := "Selected session is unavailable. Return and select a session."
+		actions := []uiAction{back}
 		if s, ok := m.selected(); ok {
 			body = m.details(s)
+			if m.notice == codexOptionsSaved {
+				body = cleanUI(m.notice) + "\n\n" + body
+			}
+			if canEditCodexOptions(s) {
+				actions = append(actions, uiAction{ID: "secondary:o", Label: "Codex options", Key: "o"})
+			}
 		}
-		return "Session details", body, []uiAction{back}, true
+		return "Session details", body, actions, true
 	case "help":
 		return "Keyboard help", m.helpView(), []uiAction{back}, true
 	case "delete-history":
@@ -145,6 +152,12 @@ func (m harborModel) secondaryPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 	}
 	if key == "enter" && strings.HasPrefix(m.uiFocus, "secondary:") {
 		key = strings.TrimPrefix(m.uiFocus, "secondary:")
+	}
+	if m.screen == "detail" && key == "o" {
+		if selected, ok := m.selected(); ok && canEditCodexOptions(selected) {
+			m.openCodexOptions(codexOptionEditor{returnScreen: "detail", session: &selected, value: codexOptionsValue(selected.CodexOptions)})
+		}
+		return m, nil, true
 	}
 	if key == "down" || key == "j" || key == "up" || key == "k" || key == "pgdown" || key == "pgup" {
 		_, body, _, _ := m.secondaryContent()

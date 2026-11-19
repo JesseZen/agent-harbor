@@ -17,6 +17,7 @@ type appEnvironment struct {
 	Projects                           []string
 	Clients                            []clientCapability
 	ClientDiscovery                    string
+	CodexOptions                       codexOptions
 }
 
 func (h harborService) Environment() (appEnvironment, error) {
@@ -39,7 +40,7 @@ func (h harborService) ProfileEnvironment(binding profileBinding) (appEnvironmen
 	if active := os.Getenv("HERDR_ACTIVE_PANE_CWD"); active != "" && filepath.Clean(active) != filepath.Clean(os.Getenv("HOME")) {
 		cwd = active
 	}
-	selected, _, err := resolveProfileRecord(binding)
+	selected, client, err := resolveProfileRecord(binding)
 	if err != nil {
 		return appEnvironment{}, err
 	}
@@ -48,6 +49,9 @@ func (h harborService) ProfileEnvironment(binding profileBinding) (appEnvironmen
 		return appEnvironment{}, err
 	}
 	result := appEnvironment{Profile: &binding, CodexVersion: codexVersion(clientEnv.Environment), LocalHome: clientEnv.Home, Directory: cwd}
+	if binding.Client == "codex" && client.LastCodexOptions != nil {
+		result.CodexOptions = *client.LastCodexOptions
+	}
 	result.NativeConfig = nativeCodexConfigSummary(clientEnv.Environment)
 	result.Clients, result.ClientDiscovery = discoverClientSubset()
 	registry, err := loadMagpieRegistry()

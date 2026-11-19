@@ -41,14 +41,15 @@ type profileBinding struct {
 }
 
 type profileClientHome struct {
-	ID              string `json:"id"`
-	Client          string `json:"client"`
-	Home            string `json:"home"`
-	SQLite          string `json:"sqlite"`
-	Runtime         string `json:"runtime,omitempty"`
-	HomeIdentity    string `json:"home_identity"`
-	SQLiteIdentity  string `json:"sqlite_identity"`
-	RuntimeIdentity string `json:"runtime_identity,omitempty"`
+	ID               string        `json:"id"`
+	Client           string        `json:"client"`
+	Home             string        `json:"home"`
+	SQLite           string        `json:"sqlite"`
+	Runtime          string        `json:"runtime,omitempty"`
+	HomeIdentity     string        `json:"home_identity"`
+	SQLiteIdentity   string        `json:"sqlite_identity"`
+	RuntimeIdentity  string        `json:"runtime_identity,omitempty"`
+	LastCodexOptions *codexOptions `json:"last_codex_options,omitempty"`
 }
 
 type profile struct {
@@ -90,6 +91,7 @@ const (
 	profileInspect         profileClientOperation = "inspect"
 	profileAccountMutation profileClientOperation = "account-mutation"
 	profileLaunch          profileClientOperation = "launch"
+	profileConfig          profileClientOperation = "config"
 )
 
 type profileClientScope struct {
@@ -474,7 +476,7 @@ func withProfileClientLock(ctx context.Context, b profileBinding, fn func() erro
 }
 
 func (h harborService) WithProfileClient(ctx context.Context, req profileClientRequest, operation profileClientOperation, fn func(profileClientScope) error) error {
-	if operation != profileInspect && operation != profileAccountMutation && operation != profileLaunch {
+	if operation != profileInspect && operation != profileAccountMutation && operation != profileLaunch && operation != profileConfig {
 		return ErrProfileUnsupported
 	}
 	if _, _, err := resolveProfileRecord(req.Binding); err != nil {

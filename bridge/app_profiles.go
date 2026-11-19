@@ -59,6 +59,9 @@ func (m harborModel) profilePage() (uiPage, bool) {
 	p.field("", "", "Current", cleanUI(m.activeProfileLabel()), false, false)
 	p.line(paint(fg("section"), "Profiles"))
 	actions := []uiAction{{ID: "profile:enter", Label: "Select", Key: "enter", Primary: true}, {ID: "profile:n", Label: "Create", Key: "n"}, {ID: "profile:r", Label: "Rename", Key: "r"}, {ID: "profile:d", Label: "Magpie default", Key: "d"}, {ID: "profile:esc", Label: "Back", Key: "esc"}}
+	if m.profileCursor < len(m.profiles) {
+		actions = append(actions, uiAction{ID: "profile:c", Label: "Codex defaults", Key: "c"})
+	}
 	if s, ok := m.selected(); ok && !s.External && s.Profile == nil {
 		actions = append(actions, uiAction{ID: "profile:b", Label: "Bind reviewed original environment", Key: "b"})
 	}
@@ -343,6 +346,15 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			n.screen = "profile-default"
 			return nil
 		})
+	case "c":
+		if m.profileCursor < len(m.profiles) {
+			binding, err := bindingOf(m.profiles[m.profileCursor], "codex")
+			if err != nil {
+				m.notice = err.Error()
+				return m, nil, true
+			}
+			return m.loadCodexDefaults(binding, "", false)
+		}
 	case "b":
 		if s, ok := m.selected(); ok && !s.External && s.Profile == nil && m.profileCursor < len(m.profiles) {
 			b, err := bindingOf(m.profiles[m.profileCursor], s.CLI)

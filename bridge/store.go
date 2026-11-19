@@ -76,6 +76,7 @@ type session struct {
 	CLI                  string              `json:"cli"`
 	Mode                 string              `json:"mode"`
 	CodexConnection      string              `json:"codex_connection,omitempty"`
+	CodexOptions         *codexOptions       `json:"codex_options,omitempty"`
 	MagpieURL            string              `json:"magpie_url,omitempty"`
 	MagpieModel          string              `json:"magpie_model,omitempty"`
 	CodexSessionID       string              `json:"codex_session_id,omitempty"`
@@ -280,6 +281,10 @@ func createSessionWithInstance(dir, mode, address, model string, selected *magpi
 }
 
 func createSessionIntent(d sessionDraft, address string, selected *magpieInstance) (session, error) {
+	options := codexOptionsValue(d.CodexOptions)
+	if err := options.validate(d.Client, true); err != nil {
+		return session{}, err
+	}
 	if d.Profile != nil {
 		binding := *d.Profile
 		d.Profile = &binding
@@ -300,6 +305,7 @@ func createSessionIntent(d sessionDraft, address string, selected *magpieInstanc
 	}
 	s := session{Profile: d.Profile, Version: 2, Name: filepath.Base(dir) + " · " + mode, ID: hex.EncodeToString(id[:]), WorkingDirectory: dir, CLI: d.Client, Mode: mode, MagpieURL: address, MagpieModel: model, Recovery: "needs_id", CreatedAt: time.Now().UTC()}
 	s.RecoverySetupSkipped = d.RecoveryChoice == "skip"
+	s.CodexOptions = options.saved()
 	s.AutoNamePending = strings.TrimSpace(d.Name) == "" && d.Client == "codex"
 	if mode == "magpie" && d.Client == "codex" {
 		s.CodexConnection = "caller"

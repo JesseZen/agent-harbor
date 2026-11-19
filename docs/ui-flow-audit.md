@@ -14,6 +14,18 @@ macOS arm64 上用隔离 Herdr 0.9.5 和 Codex 0.170.0 在外层 60×24（无色
 
 已有工作区第一次运行新版 `ah` 时迁移可识别的快捷键、状态命令和插件入口。macOS arm64 隔离实测从 Harbor dev.8 升级到本地候选，最终复测使用 Herdr 0.9.5 和 Codex 0.170.0。脚本路径运行生产安装器和 `ah update`，并验证热加载及插件注册失败后的回滚。Homebrew 7.0.15 在独立前缀实跑 `brew install`、`brew upgrade`、`brew cleanup`，确认旧 keg 已删除。两种路径均验证旧弹窗继续运行，关闭重开后使用新版，Herdr 与 Codex PID、原 pane 和未发送草稿保留，自定义快捷键仍可用，并能从新版弹窗启动受管 Codex。Linux 的不停机升级实测仍待验证。[验收步骤](../bridge/tests/README.md#live-popup-upgrade)
 
+## Codex 启动选项与 Profile 默认值（2026-11-19）
+
+| 入口 | 操作与结果 |
+| --- | --- |
+| New session → Options | 在 Model 和 Name 之间进入独立字段页。上下键选择，Enter 编辑，Ctrl+S 应用并记忆，Ctrl+R 清为继承，Esc 取消未应用修改并返回 Options 行。Native 与 Magpie 共用同一环境绑定的记忆。 |
+| Profiles → Codex defaults | `c` 编辑所选 Codex 环境的三个窗口/压缩字段。`p` 选择要检查的项目，`r` 重读保存值。显示选中字段的生效来源；共享环境保存前确认作用范围。 |
+| Sessions → Details | 保存的窗口和 Codex 实际报告的窗口分别显示；无法核实对话和运行归属时不报猜测值。已确认停止的 Codex 会话可按 `o` 编辑下次启动参数，不改对话或连接。 |
+
+合入 Enter 恢复后，隔离 macOS arm64 Herdr/tmux 实走四种尺寸的新建表单与 Options，检查无效数字留在编辑器、推理候选随模型、应用后重开保留、取消不覆盖记忆、共享 Profile 默认值保存。80×24 复测了恢复目标选择和保留旧 shell。
+
+macOS arm64 和 Linux amd64 用 Herdr 0.9.5、Codex 0.170.0 和 Magpie 0.1.3528-harbor-dev，通过 Native、Magpie 路由组和 Native owned App Server 的同一对话恢复。两成员目录容量不同，恢复请求仍携带原对话历史。`/status` 报告 11,400 token 窗口、推理 high、workspace-write 的附加目录和 never；编辑停止的 Native 会话并恢复后报告 15,200。macOS 有一次路由组恢复在交接后、到达输入框前出现 `Interrupted system call`。串行重跑完整流程通过；尚未定位偶发退出的原因。使用合成提供方，不覆盖真实 ChatGPT 登录、joined 官方供应商或真实远端工作区。[验收步骤](../bridge/tests/README.md#codex-options-and-defaults)
+
 ## Accounts 登录被阻止（2026-11-19）
 
 已修复：同一 Profile 的会话活动无法确认时，登录仍在调用 codex-auth 前被阻止。结果页先说明哪个会话阻止了操作及原因；未检查登录时不显示 `Login: unconfirmed`。返回 Accounts 保留原账号和额度；若操作已开始并实际重查，则使用重查结果。

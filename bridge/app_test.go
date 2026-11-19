@@ -140,7 +140,7 @@ func TestHarborMagpieCatalogFiltersBeforeReview(t *testing.T) {
 		var model tea.Model = m
 		model, _ = model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 		model, _ = model.Update(m.Init()())
-		for _, k := range []string{"n", "up", "up", "up", "enter", "down", "enter", "enter", "/", "relay-b"} {
+		for _, k := range []string{"n", "down", "down", "enter", "down", "enter", "enter", "/", "relay-b"} {
 			model = appKey(model, k)
 		}
 		if view := cleanUI(model.View()); !strings.Contains(view, "relay-b/test") || strings.Contains(view, "relay-a/test") {
@@ -214,7 +214,7 @@ func TestHarborInstanceSelectionStaysVisible(t *testing.T) {
 			if wizard {
 				model = appKey(model, "esc")
 				f.KnownInstances = instances
-				for _, k := range []string{"n", "up", "up", "up", "enter", "down", "enter"} {
+				for _, k := range []string{"n", "down", "down", "enter", "down", "enter"} {
 					model = appKey(model, k)
 				}
 			} else {
@@ -331,7 +331,7 @@ func TestHarborCancelledCatalogResponseCannotReplaceNewInstance(t *testing.T) {
 	for _, changeInstance := range []bool{false, true} {
 		f := &fakeApplicationService{KnownInstances: []magpieInstance{{ID: "a", Name: "Gateway A"}, {ID: "b", Name: "Gateway B"}}, Models: []catalogModel{{ID: "shared-id", DisplayName: "OLD_CATALOG"}}}
 		var model tea.Model = newHarborModel(f)
-		for _, k := range []string{"n", "up", "up", "up", "enter", "down", "enter"} {
+		for _, k := range []string{"n", "down", "down", "enter", "down", "enter"} {
 			model = appKey(model, k)
 		}
 		model, cmdA := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -384,7 +384,7 @@ func TestHarborFiltersInstancesAndShowsCurrentIdentity(t *testing.T) {
 	for _, wizard := range []bool{false, true} {
 		var model tea.Model = newHarborModel(f)
 		if wizard {
-			for _, k := range []string{"n", "up", "up", "up", "enter", "down", "enter"} {
+			for _, k := range []string{"n", "down", "down", "enter", "down", "enter"} {
 				model = appKey(model, k)
 			}
 		} else {
@@ -435,7 +435,7 @@ func TestHarborInstanceRefreshCannotReopenCancelledScreen(t *testing.T) {
 func TestHarborFilteredWizardSelectsMatchingInstance(t *testing.T) {
 	f := &fakeApplicationService{Reports: []instanceReport{{magpieInstance: magpieInstance{ID: "a", Name: "Alpha"}, Health: instanceVerified}, {magpieInstance: magpieInstance{ID: "b", Name: "Beta"}, Health: instanceUnknown}}, Models: []catalogModel{{ID: "shared-model"}}}
 	var model tea.Model = newHarborModel(f)
-	for _, k := range []string{"n", "up", "up", "up", "enter", "down", "enter", "/", "Beta", "enter"} {
+	for _, k := range []string{"n", "down", "down", "enter", "down", "enter", "/", "Beta", "enter"} {
 		model = appKey(model, k)
 	}
 	if !strings.Contains(strings.Join(f.Calls, "|"), "catalog b") || model.(harborModel).draft.Instance != "b" {

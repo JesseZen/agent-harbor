@@ -83,7 +83,7 @@ func TestTicket04CancelAndReadonly(t *testing.T) {
 	n = creationClick(t, n, "new-field:Name")
 	n.input.SetValue("discard")
 	n = creationClick(t, n, "new-back")
-	if n.draft.Name != "keep" || n.formFocus != 4 {
+	if n.draft.Name != "keep" || n.formFocus != formName {
 		t.Fatal(n.draft)
 	}
 	n = creationClick(t, n, "new-field:Client")

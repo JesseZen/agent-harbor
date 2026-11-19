@@ -4,7 +4,7 @@ Only copied executables and fixture-owned processes, ports and homes are used.
 """
 import sys
 sys.dont_write_bytecode = True
-import argparse, io, tomllib, http.server, json, os, pathlib, re, shlex, shutil, socket, subprocess, tempfile, threading, time
+import argparse, io, tomllib, http.server, json, os, pathlib, re, shlex, shutil, socket, subprocess, tempfile, threading, time, urllib.request
 from e2e_package import MockResponses as ChatRelay
 from e2e_local import MockResponses as NativeRelay
 from fixture_process import stop_codex
@@ -25,6 +25,7 @@ def main():
     p.add_argument('--profiles',action='store_true',help='run the Profile A/B UI, runtime and recovery journey with isolated native clients')
     p.add_argument('--session-names',action='store_true',help='exercise one-time Codex title capture and manual Herdr display names')
     p.add_argument('--model-picker',action='store_true',help='exercise Magpie models, Codex effort and profile recovery')
+    p.add_argument('--codex-options',action='store_true',help='exercise Profile defaults, remembered launch options and native/Codex-format Magpie recovery')
     p.add_argument('--experimental-codex-accounts',action='store_true',help='start eligible Codex sessions through the experimental owned App Server')
     p.add_argument('--experimental-account-recovery',choices=['native','magpie'],help='exercise same-conversation recovery with the experimental App Server')
     for name in ('binary','herdr','magpie','codex'): p.add_argument('--'+name,required=True)
@@ -36,7 +37,7 @@ def main():
     root.chmod(0o700)
     print('diagnostics',root,flush=True)
     env={'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','TERM':'xterm-256color','SHELL':'/bin/sh','LANG':'C.UTF-8','NO_COLOR':'1','MAGPIE_NO_ACCOUNTS':'1'}
-    if a.session_names:
+    if a.session_names or a.codex_options:
         env.pop('NO_COLOR');env['COLORTERM']='truecolor'
     for key,leaf in [('HOME','home'),('XDG_CONFIG_HOME','config'),('XDG_DATA_HOME','data'),('XDG_STATE_HOME','state'),('XDG_CACHE_HOME','cache'),('XDG_RUNTIME_DIR','runtime'),('TMPDIR','tmp'),('CODEX_HOME','codex'),('CODEX_SQLITE_HOME','sqlite')]:
         (root/leaf).mkdir(mode=0o700);env[key]=str(root/leaf)
@@ -82,12 +83,13 @@ def main():
         wait(lambda: 'Harbor · Profile:' in capture() or 'Harbor · Accounts' in capture(), 'management popup visible')
         if 'Harbor · Profile:' not in capture():click('Sessions')
         screen('Harbor · Profile:')
-    def click(label):
+    def click(label,whole=False):
         import unicodedata
         lines=capture().splitlines()
         # Action captions can also name the page; footer controls come last.
-        y=max(i for i,line in enumerate(lines) if label in line)
-        prefix=lines[y][:lines[y].index(label)]
+        pattern=re.compile(r'(?<![\w-])'+re.escape(label)+r'(?![\w-])' if whole else re.escape(label))
+        y=max(i for i,line in enumerate(lines) if pattern.search(line))
+        prefix=lines[y][:pattern.search(lines[y]).start()]
         x=sum(2 if unicodedata.east_asian_width(c) in ('W','F') else 0 if unicodedata.combining(c) else 1 for c in prefix)+1
         tm('send-keys','-t','app:0.0','-l',f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m');time.sleep(.3)
     def reviewed_confirm():
@@ -120,9 +122,10 @@ def main():
     discovery=None;started=False;external=None
     try:
         # Never probe the user's standard discovery service.
-        try:discovery=http.server.ThreadingHTTPServer(('127.0.0.1',0 if a.dynamic_discovery else 3425),NoGateway)
+        dynamic_discovery=a.dynamic_discovery or a.codex_options
+        try:discovery=http.server.ThreadingHTTPServer(('127.0.0.1',0 if dynamic_discovery else 3425),NoGateway)
         except OSError:print('SKIP discovery port occupied',flush=True);return 77
-        if a.dynamic_discovery:
+        if dynamic_discovery:
             magpie_config=root/'config/magpie';magpie_config.mkdir()
             (magpie_config/'settings.json').write_text(json.dumps({'port':discovery.server_port}))
         threading.Thread(target=discovery.serve_forever,daemon=True).start()
@@ -139,6 +142,8 @@ def main():
                 'notify = ['+json.dumps(str(original_notify))+']\n'
                 '[model_providers.fixture]\nname = "Fixture native"\nbase_url = "http://127.0.0.1:'+str(native.server_port)+'/v1"\nrequires_openai_auth = false\nwire_api = "responses"\n'
                 '[projects.'+json.dumps(str(root/'project'))+']\ntrust_level = "trusted"\n')
+        if a.codex_options:
+            config=config.replace('model = "test-model"','model = "gpt-5.5"')
         if a.replacement and not a.session_names:
             config+='[features]\nhooks = true\n'
             run([root/'bin/herdr','integration','install','codex'])
@@ -159,7 +164,6 @@ def main():
         launcher.chmod(0o700)
         def open_workspace():tm('new-session','-d','-s','app','-x','160','-y','45',str(launcher))
         if a.onboarding=='external':
-            import urllib.request
             ext=root/'external';ext.mkdir(mode=0o700)
             shutil.copy2(root/'bin/magpie',ext/'magpie');(ext/'.portable').write_text('fixture')
             ext_env=env.copy()
@@ -186,10 +190,37 @@ def main():
         managed=root/'harbor/magpie/bin/magpie'
         for label,relay in [('a',relay_a),('b',relay_b)]:
             run([managed,'provider','add','relay-'+label,'url=http://127.0.0.1:'+str(relay.server_port)+'/v1','key=fixture-only','models=test-model'])
-            if a.model_picker:run([managed,'model','spec','relay-'+label+'/test-model','--reasoning','low-high'])
-        run([managed,'group','add','ui-group','models=relay-a/test-model','routing=rotate','stays=off'])
-        if a.model_picker:run([managed,'group','set','ui-group','levels=low,medium,high'])
+            if a.model_picker or a.codex_options:run([managed,'model','spec','relay-'+label+'/test-model','--reasoning','low-high'])
+            if a.codex_options:run([managed,'model','context','relay-'+label+'/test-model','32000' if label=='a' else '64000'])
+        members='relay-a/test-model,relay-b/test-model' if a.codex_options else 'relay-a/test-model'
+        run([managed,'group','add','ui-group','models='+members,'routing=rotate','stays=off'])
+        if a.model_picker or a.codex_options:run([managed,'group','set','ui-group','levels=low,medium,high'])
         wait(lambda:'relay-b/test-model' in run([binary,'models','--instance','managed','--json']).stdout,'catalog readiness')
+        def options_prompt():
+            ready_since=None
+            def ready():
+                nonlocal ready_since
+                frame=capture()
+                if '┌popup' in frame or 'Waiting for the service.' in frame:
+                    ready_since=None
+                    return False
+                if 'Use existing model' in frame:
+                    key('Down','Enter')
+                elif 'Trust all and continue' in frame:
+                    key('Down','Enter')
+                elif 't trust' in frame:
+                    key('t')
+                elif 'Trust     Trusted' in frame or 'Lifecycle hooks' in frame:
+                    key('Escape')
+                elif 'Hooks need review' in frame or 'hook needs review' in frame or 'hooks need review' in frame:
+                    key('Enter')
+                elif 'Ask Codex' in frame:
+                    now=time.monotonic()
+                    if ready_since is None:ready_since=now
+                    return now-ready_since>=.25
+                ready_since=None
+                return False
+            wait(ready,'Codex prompt after fixture setup')
         def create(name,model=None):
             expected_name=name or ('project · magpie' if model else 'project · local')
             popup();key('n');screen('New session')
@@ -216,16 +247,21 @@ def main():
             def startup_screen(*labels):
                 frame=capture()
                 return frame if any(label in frame for label in labels) else None
-            frame=wait(lambda:startup_screen('Ask Codex','Hooks need review','Conversation recovery'), 'Codex prompt or identity setup')
+            startup=('Ask Codex','Hooks need review')
+            if a.codex_options:startup+=('Use existing model',)
+            frame=wait(lambda:startup_screen(*startup,'Conversation recovery'), 'Codex prompt or identity setup')
             if 'Conversation recovery' in frame:
                 key('s' if a.session_names else 'y')
-                frame=wait(lambda:startup_screen('Ask Codex','Hooks need review'), 'Codex prompt or hook review')
-            if 'Hooks need review' in frame:
-                screen('Trust all and continue')
-                key('Down')
-                wait(lambda:re.search(r'[›>]\s+2\. Trust all and continue',capture()), 'trust option selected')
-                key('Enter')
-            screen('Ask Codex');time.sleep(1)
+                frame=wait(lambda:startup_screen(*startup), 'Codex prompt or hook review')
+            if a.codex_options:
+                options_prompt();time.sleep(1);options_prompt()
+            else:
+                if 'Hooks need review' in frame:
+                    screen('Trust all and continue')
+                    key('Down')
+                    wait(lambda:re.search(r'[›>]\s+2\. Trust all and continue',capture()), 'trust option selected')
+                    key('Enter')
+                screen('Ask Codex');time.sleep(1)
             wait(lambda:any(r['name']==expected_name and r.get('process_group',0)>0 for r in records()),'running '+expected_name)
             rec=next(r for r in records() if r['name']==expected_name)
             assert rec.get('herdr_tab') and rec.get('herdr_pane'),rec
@@ -252,20 +288,32 @@ def main():
             assert result.returncode==0, 'fresh managed target could not be focused: '+result.stderr
             return rec
         def turn(marker,relay):
-            if a.replacement and 'hook needs' in capture():
+            relays=relay if isinstance(relay,tuple) else (relay,)
+            def submit():
+                if a.codex_options:options_prompt()
+                text(marker)
+                if a.codex_options:
+                    def composer_contains_marker():
+                        prompts=re.findall(r'(?m)^[^│\n]*│[ \t]*[›>][ \t]+([^\n]*)',capture())
+                        return prompts and prompts[-1].strip()==marker
+                    wait(composer_contains_marker,'marker in Codex composer '+marker)
+                key('Enter')
+            if not a.codex_options and a.replacement and 'hook needs' in capture():
                 key('t');time.sleep(.5);key('Escape')
-            text(marker);key('Enter')
+            submit()
             if a.replacement:
                 time.sleep(1)
-                if 't trust all' in capture():
+                if a.codex_options and any(label in capture() for label in ('Use existing model','Hooks need review','t trust all','hook needs review')):
+                    submit()
+                elif not a.codex_options and 't trust all' in capture():
                     key('t');time.sleep(.5);key('Escape');time.sleep(.5);text(marker);key('Enter')
-            wait(lambda:any(marker in marks for _,marks in relay.observed),'provider marker '+marker)
+            wait(lambda:any(marker in marks for upstream in relays for _,marks in upstream.observed),'provider marker '+marker)
             if not a.session_names:
                 wait(lambda:any(r.get('codex_session_id') for r in records()),'conversation capture')
             screen('HELLO_FROM_ISOLATED_MOCK');time.sleep(1)
-            assert any(e['kind']=='main' and marker in e['current'] for e in relay.journal), 'main request evidence absent'
+            assert any(e['kind']=='main' and marker in e['current'] for upstream in relays for e in upstream.journal), 'main request evidence absent'
             for other in servers:
-                if other is not relay:
+                if other not in relays:
                     assert not any(marker in e['current'] for e in other.journal), 'main marker reached wrong upstream'
         def choose_model(name,effort,temporary=False):
             def navigate(rows,target):
@@ -285,6 +333,105 @@ def main():
             navigate(levels,target)
             key('s' if temporary else 'Enter')
             screen('Model changed to')
+        if a.codex_options:
+            assert a.replacement, 'Codex options acceptance requires the Herdr query candidate'
+            def save_screen(label, width):
+                (root/(label+'-'+str(width)+'.ansi')).write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
+            def resize(width, height):
+                tm('resize-window','-t','app:0','-x',str(width),'-y',str(height))
+                time.sleep(.4)
+            def form_options():
+                key('n');screen('New session');key('Down','Down','Down','Down','Enter');screen('Options')
+            def number(value):
+                key('Enter');screen('Accept field');key('C-u');text(value);key('Enter')
+            popup();key('p');screen('Harbor · Profiles');key('c');screen('Codex defaults')
+            number('24000');key('C-s')
+            if 'Save shared defaults' in capture():key('y')
+            screen('Codex defaults saved.');save_screen('profile-defaults',160)
+            assert tomllib.loads((root/'codex/config.toml').read_text())['model_context_window']==24000
+            key('Escape');screen('Harbor · Profiles');key('Escape');popup();form_options()
+            for width,height in [(160,45),(100,30),(80,24),(60,24)]:
+                resize(width,height);screen('Sandbox');screen('Writable dirs');save_screen('options',width)
+                key('Escape');screen('Options');screen('Create');save_screen('form',width)
+                key('Enter');screen('Context window')
+            resize(160,45)
+            key('Enter','Down','Down','Enter','Down','Enter','Down','Down','Enter','Down','Enter')
+            screen('Model: gpt-5.5');screen('high');save_screen('reasoning',160)
+            click('high',whole=True);click('high',whole=True);screen('Auto compact')
+            key('Down','Enter');text('0');key('Enter');screen('positive token count');save_screen('options-error',160)
+            key('C-u');text('12000');key('Enter','Down');number('10000')
+            key('Down');number('0');screen('Off (0%)')
+            extra=root/'extra writable';extra.mkdir()
+            key('Down','Enter','n');text(extra);key('Enter');key('Escape');key('C-s');screen('Workspace write')
+            expected={'sandbox_mode':'workspace-write','approval_policy':'never','model_reasoning_effort':'high',
+                      'model_context_window':12000,'model_auto_compact_token_limit':10000,
+                      'model_post_turn_compact_threshold_percent':0,'writable_dirs':[str(extra)]}
+            key('Escape');key('q');popup();form_options();screen('Off (0%)');screen('Never')
+            key('C-r');key('Escape');key('Escape');key('q');popup();form_options();screen('Off (0%)')
+            key('Escape');key('Escape');key('q')
+            def stable_profile_config():
+                config=tomllib.loads((root/'codex/config.toml').read_text())
+                for section,keys in [('tui',('screen_reader_detection_done','model_availability_nux')),
+                                     ('notice',('model_migrations',)),('hooks',('state',))]:
+                    if section in config:
+                        for key_name in keys:config[section].pop(key_name,None)
+                        if not config[section]:del config[section]
+                return config
+            user_config=stable_profile_config()
+            def assert_run(record, marker, relay, overrides=expected, window='11.4K'):
+                turn(marker,relay)
+                text('/status');key('Enter');screen('Context window')
+                screen(window);status=capture()
+                assert 'reasoning high' in status and f'workspace [{extra}], never' in status, status
+                save_screen('codex-status-'+marker,160)
+                current=next(row for row in records() if row['id']==record['id'])
+                assert current['codex_options']==overrides,current['codex_options']
+                return current
+            def resume(record, first, next_marker, relay, overrides=expected, window='11.4K'):
+                before=next(item for item in records() if item['id']==record['id'])
+                text('/exit');key('Enter')
+                wait(lambda:not next(item for item in records() if item['id']==record['id']).get('process_group'),'Codex exited')
+                def released():
+                    result=json.loads(run([root/'harbor/herdr/bin/herdr','agent','list']).stdout)['result']
+                    return not any((agent.get('agent_session') or {}).get('value')==record['codex_session_id'] for agent in result['agents'])
+                wait(released,'Herdr released the exited conversation')
+                popup();key('/');text(record['name']);key('Enter')
+                if overrides!=expected:
+                    key('i');screen('Codex options');key('o');screen('Session details › Codex options')
+                    key('Down','Down','Down');number(str(overrides['model_context_window']));key('C-s')
+                    screen('Codex options saved for the next launch.');save_screen('updated-options',160)
+                    key('Escape')
+                key('Enter');screen('Resume conversation');reviewed_confirm()
+                wait(lambda:any(item['id']==record['id'] and item.get('process_group') and item['run_token']!=before['run_token'] for item in records()),'new run of the reviewed session')
+                options_prompt()
+                current=assert_run(record,next_marker,relay,overrides,window)
+                for name in ('codex_session_id','mode','codex_connection','profile','instance_id','magpie_model'):
+                    assert current.get(name)==record.get(name),'recovery changed '+name
+                relays=relay if isinstance(relay,tuple) else (relay,)
+                assert any(e['current']==[next_marker] and first in e['history'] for upstream in relays for e in upstream.journal),'original conversation missing from next request'
+                if record.get('codex_server_pid'):
+                    assert current.get('codex_server_pid') and current['codex_server_pid']!=record['codex_server_pid'], 'owned App Server was not recreated'
+            native_record=assert_run(create('Options Native'),'AH_LOCAL_FIRST',native)
+            popup();key('/');text(native_record['name']);key('Enter');key('i')
+            screen('11400 tokens reported by Codex');save_screen('observed-window',160)
+            key('Escape');key('q')
+            resume(native_record,'AH_LOCAL_FIRST','AH_LOCAL_SECOND',native)
+            resume(native_record,'AH_LOCAL_SECOND','AH_LOCAL_C',native,dict(expected,model_context_window=16000),'15.2K')
+            if a.experimental_codex_accounts:
+                assert native_record.get('codex_server_pid'), 'experimental launch did not use an owned App Server'
+            else:
+                gateway_record=assert_run(create('Options Magpie','ui-group'),'AH_RELAY_B',(relay_a,relay_b))
+                assert gateway_record['codex_connection']=='api'
+                catalog_request=urllib.request.Request(gateway_record['magpie_url']+'/v1/codex/models',headers={'Authorization':'Bearer magpie-agent-harbor'})
+                with urllib.request.urlopen(catalog_request,timeout=5) as response:
+                    catalog={model['slug']:model['context_window'] for model in json.load(response)['models']}
+                assert {name:catalog[name] for name in ('relay-a/test-model','relay-b/test-model','group/ui-group')}=={
+                    'relay-a/test-model':32000,'relay-b/test-model':64000,'group/ui-group':64000},catalog
+                resume(gateway_record,'AH_RELAY_B','AH_RESUME_B',(relay_a,relay_b))
+            assert stable_profile_config()==user_config,'per-session options rewrote Profile defaults'
+            topology='owned App Server' if a.experimental_codex_accounts else 'Native and Magpie routing group'
+            print('PASS remembered Options, Profile defaults, effective window and exact recovery via '+topology,root,flush=True)
+            return 0
         if a.profiles:
             assert a.replacement, 'Profile recovery acceptance requires the Herdr query candidate'
             def profile_rows():return json.loads(run([binary,'profiles','list']).stdout)

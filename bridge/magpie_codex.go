@@ -113,42 +113,52 @@ func magpieCodexProfile(id, model string, env []string) (string, error) {
 // Copy Magpie's own Codex-format catalog unchanged. A CLI catalog override is
 // needed because a model_catalog_json in a native or project config otherwise
 // takes precedence over the provider's remote model_catalog_url.
-func magpieCodexCatalog(address, directory, selected, effort string) (string, error) {
+func fetchMagpieCodexCatalog(address string) ([]byte, []magpieCodexModel, error) {
 	base, err := parseGatewayAddress(address)
 	if err != nil {
-		return "", errors.New("cannot use an unverified Magpie catalog address")
+		return nil, nil, errors.New("cannot use an unverified Magpie catalog address")
 	}
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	req, err := http.NewRequest(http.MethodGet, base+"/v1/codex/models", nil)
 	if err != nil {
-		return "", errors.New("cannot prepare the Magpie Codex catalog request")
+		return nil, nil, errors.New("cannot prepare the Magpie Codex catalog request")
 	}
 	req.Header.Set("Authorization", "Bearer "+magpieCodexKey)
 	response, err := client.Do(req)
 	if err != nil {
-		return "", errors.New("Magpie's Codex model catalog is unavailable")
+		return nil, nil, errors.New("Magpie's Codex model catalog is unavailable")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Magpie's Codex model catalog is unavailable (HTTP %d)", response.StatusCode)
+		return nil, nil, fmt.Errorf("Magpie's Codex model catalog is unavailable (HTTP %d)", response.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, (4<<20)+1))
 	if err != nil || len(body) > 4<<20 {
-		return "", errors.New("Magpie's Codex model catalog is unreadable or too large")
+		return nil, nil, errors.New("Magpie's Codex model catalog is unreadable or too large")
 	}
 	var catalog struct {
-		Models []struct {
-			Slug   string `json:"slug"`
-			Levels []struct {
-				Effort string `json:"effort"`
-			} `json:"supported_reasoning_levels"`
-		} `json:"models"`
+		Models []magpieCodexModel `json:"models"`
 	}
 	if json.NewDecoder(bytes.NewReader(body)).Decode(&catalog) != nil || catalog.Models == nil || !json.Valid(body) {
-		return "", errors.New("Magpie returned an invalid Codex model catalog")
+		return nil, nil, errors.New("Magpie returned an invalid Codex model catalog")
+	}
+	return body, catalog.Models, nil
+}
+
+type magpieCodexModel struct {
+	Slug   string `json:"slug"`
+	Levels []struct {
+		Effort string `json:"effort"`
+	} `json:"supported_reasoning_levels"`
+}
+
+func magpieCodexCatalog(address, directory, selected, effort string) (string, error) {
+	body, models, err := fetchMagpieCodexCatalog(address)
+	if err != nil {
+		return "", err
 	}
 	found := false
-	for _, model := range catalog.Models {
+	for _, model := range models {
 		if model.Slug == selected {
 			found = true
 			if effort != "" {

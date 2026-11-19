@@ -51,7 +51,7 @@ func TestTicket06ExplicitApplyAndCreate(t *testing.T) {
 	if strings.Contains(strings.Join(f.Calls, "|"), "create") {
 		t.Fatal("selector launched")
 	}
-	m.formFocus = 5
+	m.formFocus = formCreate
 	n, c := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if n.(harborModel).screen != "busy" || c == nil {
 		t.Fatal("Create not immediate", n.(harborModel).notice)

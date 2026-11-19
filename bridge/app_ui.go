@@ -25,6 +25,7 @@ type uiPage struct {
 	Width, Height int
 	MaxScroll     int // derived from content and the actual wrapped footer
 	ListStart     int // first row of the rendered list window
+	FieldColumn   int
 	Lines         []string
 	Hits          []uiRect
 	Actions       []uiAction
@@ -313,6 +314,7 @@ func (p *uiPage) fieldLine(id, icon, label, value, mark string, labelStyle, valu
 	y := len(p.Lines)
 	prefix := mark + icon + strings.Repeat(" ", max(1, 4-ansi.StringWidth(icon)))
 	col := min(24, max(20, p.Width/3))
+	col = max(col, p.FieldColumn)
 	key := prefix + label
 	key += strings.Repeat(" ", max(2, col-ansi.StringWidth(key)))
 	suffix := ""

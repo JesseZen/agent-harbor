@@ -79,7 +79,7 @@ func (m harborModel) contextHelp() []helpSection {
 	}
 	sections := []helpSection{navigation, current, {"Input and terminal", []helpRow{{"/", "Search; ordinary characters belong to text input"}, {"^C", "Close Harbor"}, {"^Z", "Suspend on supported terminals; resume refreshes runtime"}}}}
 	if strings.HasPrefix(m.previous, "new-") {
-		sections = append(sections, helpSection{"Creation", []helpRow{{"^S", "Only Create saves and launches a session"}, {"Esc", "Field edits and connection Apply update the draft only"}}})
+		sections = append(sections, helpSection{"Creation", []helpRow{{"^S", "Only Create saves and launches a session. Options Apply remembers values."}, {"Esc", "Discard edits that have not been applied"}}})
 	}
 	return sections
 }

@@ -1,9 +1,23 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+const (
+	formProject = iota
+	formClient
+	formConnection
+	formModel
+	formOptions
+	formName
+	formCreate
+	formCancel
+)
+
+var formLabels = []string{"Project", "Client", "Connection", "Model", "Options", "Name"}
 
 type appFormCreated struct {
 	generation uint64
@@ -14,7 +28,7 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
 	back := func() (tea.Model, tea.Cmd) {
 		m.screen = "new-form"
-		m.formFocus = min(4, m.formFocus)
+		m.formFocus = min(formName, m.formFocus)
 		m.scroll = 0
 		return m, nil
 	}
@@ -33,29 +47,34 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case "new-form":
 		switch k {
-		case "down":
-			m.formFocus = (m.formFocus + 1) % 5
-		case "up":
-			m.formFocus = (m.formFocus + 4) % 5
+		case "down", "up":
+			step := 1
+			if k == "up" {
+				step = -1
+			}
+			m.formFocus = (m.formFocus + len(formLabels) + step) % len(formLabels)
+			if m.formFocus == formOptions && m.selectedClient() != "codex" {
+				m.formFocus += step
+			}
 		case "enter":
 			m.notice = ""
-			if m.formFocus < 5 {
+			if m.formFocus < formCreate {
 				m.draft.RecoveryChoice = ""
 			}
 			m.formSaved = m.draft
 			switch m.formFocus {
-			case 0:
+			case formProject:
 				m.input.SetValue(m.draft.Directory)
 				cmd := m.openDirectoryPicker()
 				return m, cmd
-			case 1:
+			case formClient:
 				m.screen = "new-cli"
 				m.input.SetValue("")
 				m.uiFocus = ""
 				m.clientCursor = 0
-			case 2:
+			case formConnection:
 				m.chooseConnection()
-			case 3:
+			case formModel:
 				if m.draft.Connection != "magpie" {
 					m.notice = "Native " + m.selectedClient() + " uses its own model configuration and login; choose the model in that client."
 					return m, nil
@@ -66,13 +85,17 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				cmd := m.formCatalog()
 				return m, cmd
-			case 4:
+			case formOptions:
+				if m.selectedClient() == "codex" {
+					m.openCodexOptions(codexOptionEditor{returnScreen: "new-form", value: codexOptionsValue(m.draft.CodexOptions)})
+				}
+			case formName:
 				m.screen = "new-name"
 				m.uiFocus = ""
 				m.input.SetValue(m.draft.Name)
 				m.input.CursorEnd()
 				m.input.Focus()
-			case 5:
+			case formCreate:
 				if m.creating {
 					return m, nil
 				}
@@ -82,33 +105,37 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, func() tea.Msg {
 					reject := func(focus int, page string, err error) tea.Msg { return appFormRejected{g, focus, page, err} }
 					if err := m.service.ValidateDirectory(d.Directory); err != nil {
-						return reject(0, "new-form", err)
+						return reject(formProject, "new-form", err)
 					}
 					if client == "codex" && (version == "" || version == "unknown") {
-						return reject(1, "new-form", fmt.Errorf("Install the supported native Codex CLI and retry."))
+						return reject(formClient, "new-form", fmt.Errorf("Install the supported native Codex CLI and retry."))
 					}
 					if d.Connection == "magpie" {
 						if d.Instance == "" || d.Model == "" {
-							return reject(2, "new-form", fmt.Errorf("Choose a Magpie instance and model or routing group."))
+							return reject(formConnection, "new-form", fmt.Errorf("Choose a Magpie instance and model or routing group."))
 						}
 						ack, err := m.service.AuxiliaryAcknowledged(d.Instance)
 						if err != nil {
-							return reject(2, "new-form", err)
+							return reject(formConnection, "new-form", err)
 						}
 						if !ack {
-							return reject(5, "new-notice", nil)
+							return reject(formCreate, "new-notice", nil)
 						}
 					}
 					if d.Name != "" {
 						if err := validateSessionName(d.Name); err != nil {
-							return reject(4, "new-form", err)
+							return reject(formName, "new-form", err)
 						}
 					}
 					d, err := m.service.Draft(d)
 					if err != nil {
-						focus := 5
+						focus := formCreate
 						if d.Connection == "magpie" {
-							focus = 3
+							focus = formModel
+						}
+						var option *codexOptionError
+						if errors.As(err, &option) {
+							focus = formOptions
 						}
 						return reject(focus, "new-form", err)
 					}
@@ -120,7 +147,7 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					s, err := m.service.Create(d)
 					return appPreparedDraft{g, d, appCreated{s, err}}
 				}
-			case 6:
+			case formCancel:
 				m.formActive = false
 				m.screen = "sessions"
 			}
@@ -148,13 +175,13 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						m.notice = "Additional client Magpie isolation unproven; explicitly choose native configuration before changing client."
 						return m, nil
 					}
-					m.draft.Client = c.Target
+					m.setDraftClient(c.Target)
 					return back()
 				}
 				m.notice = "Native startup has no upstream capability/kind contract; inspect upstream support or choose the supported Codex path."
 				return m, nil
 			}
-			m.draft.Client = "codex"
+			m.setDraftClient("codex")
 			return back()
 		}
 	case "new-notice":
@@ -241,6 +268,16 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *harborModel) setDraftClient(client string) {
+	if m.selectedClient() != client {
+		m.draft.CodexOptions = nil
+		if client == "codex" {
+			m.draft.CodexOptions = m.environment.CodexOptions.saved()
+		}
+	}
+	m.draft.Client = client
 }
 func (m *harborModel) chooseConnection() {
 	m.screen = "new-connection"

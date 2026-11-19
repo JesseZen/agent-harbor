@@ -62,6 +62,30 @@ available and disables pending automatic capture. Older records retain their
 names. Other clients keep the project/connection fallback until their title
 capability is verified. See [Herdr integration](herdr-integration.md).
 
+New session → Options sets Codex-only launch overrides: Sandbox, Approval,
+Reasoning, configured context window, automatic compaction token limit,
+post-turn compaction percent, and additional writable directories. Unset means
+inherit; `0` explicitly disables post-turn compaction only. Reasoning choices
+come from the selected model, not from a shared list of levels. Paths refer to
+the server owning the session. `Never` does not remove sandbox restrictions.
+
+Apply remembers options for the full Workspace/Profile/client environment
+binding, shared by that binding's Native and Magpie drafts. Cancel discards
+unapplied changes; applying and cancelling creation still remembers the choices.
+Creating records a copy, so later defaults and recent choices do not change what
+Harbor passes on recovery. Sessions → Details shows saved overrides separately
+from the last verified Codex context window, when available. A stopped session
+can edit options for its next launch without changing the Conversation,
+Profile, or connection. Missing path or model evidence is not silently replaced.
+
+Profiles → Codex defaults edits only the three window/compaction values in the
+selected Codex home's user config. The page shows the effective value and its
+source for the inspected project. Saving checks the user config version and
+leaves unrelated settings, other Profiles and running Conversations alone.
+Editing a shared existing environment requires confirmation. Magpie continues
+to own model and routing-group capacity; a Codex override does not expand a
+model's real capacity.
+
 Remote workspaces use Herdr's native saved-machine client. The local machine
 renders the workspace; Harbor management, project files, terminals, agent
 clients and optional Magpie run on the selected server. Harbor's session list

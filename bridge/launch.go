@@ -115,7 +115,6 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 			args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(selection.Effort))
 		}
 	}
-	// The remote App Server needs the same connection overrides as the TUI.
 	serverSettings := append([]string(nil), args...)
 	if query != nil {
 		args = append(args, query.Argv[1:]...)
@@ -149,7 +148,23 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 	if s.Profile != nil {
 		policy := profilePolicyArguments(environment)
 		cmd.Args = append(append([]string{cmd.Path}, policy...), cmd.Args[1:]...)
-		serverSettings = append(serverSettings, policy...)
+	}
+	experimentalAccounts := !neutral && (s.Mode == "local" || joinedCodex(s)) && os.Getenv("AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS") == "1"
+	if s.CodexOptions != nil {
+		tuiOptions, serverOptions, err := codexOptionLaunchArguments(context.Background(), binary, environment, s, kind, serverSettings, *s.CodexOptions, experimentalAccounts)
+		if err != nil {
+			return err
+		}
+		queryLength := 0
+		if query != nil {
+			queryLength = len(query.Argv) - 1
+		}
+		at := len(cmd.Args) - queryLength
+		cmd.Args = append(append(append([]string(nil), cmd.Args[:at]...), tuiOptions...), cmd.Args[at:]...)
+		serverSettings = append(serverSettings, serverOptions...)
+	}
+	if s.Profile != nil {
+		serverSettings = append(serverSettings, profilePolicyArguments(environment)...)
 	}
 	cmd.Env = append(cmd.Env, "PWD="+s.WorkingDirectory)
 	if os.Getenv("HERDR_PLUGIN_ID") == "agent-harbor.bridge" {
@@ -179,6 +194,9 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 			model = selection.Model
 			effort = selection.Effort
 		}
+		if s.CodexOptions != nil && s.CodexOptions.ReasoningEffort != "" {
+			effort = s.CodexOptions.ReasoningEffort
+		}
 		catalog, catalogErr := magpieCodexCatalog(s.MagpieURL, root, model, effort)
 		if catalogErr == nil {
 			defer os.Remove(catalog)
@@ -198,7 +216,6 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 		}
 		cmd.Args = append(append([]string{cmd.Path}, settings...), cmd.Args[1:]...)
 	}
-	experimentalAccounts := !neutral && (s.Mode == "local" || joinedCodex(s)) && os.Getenv("AGENT_HARBOR_EXPERIMENTAL_CODEX_ACCOUNTS") == "1"
 	if !neutral && !experimentalAccounts {
 		// Explicit per-launch configuration keeps native startup updates disabled.
 		cmd.Args = append([]string{cmd.Path, "--no-daemon", "-c", "check_for_update_on_startup=false"}, cmd.Args[1:]...)

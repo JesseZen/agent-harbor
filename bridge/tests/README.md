@@ -235,6 +235,26 @@ fixture uses synthetic providers and separate Codex and Magpie homes.
 
 ## Profile gates
 
+### Codex options and defaults
+
+`TestCodexOption*` and `TestCodexWindow*` cover binding-scoped memory, Apply and
+Cancel, inherited values versus `0`, argument construction and scoped usage
+evidence. `TestProfileNativeCodexDefaults*` additionally uses the native client
+named by `HARBOR_TEST_CODEX_BIN` to verify Codex's actual config RPC, project
+precedence, stale-write refusal, a separate Profile, and comment preservation.
+`TestProfileNativeCodexOptionsTriggerPostTurnCompaction` verifies that a synthetic
+6,000-token turn triggers compaction at 40%, but not at 70% or 0%.
+
+Run `app_acceptance.py --replacement --codex-options` with the executable
+arguments below. It allocates its own loopback discovery address, drives the
+real Herdr popup and checks saved configuration, same-Conversation Native and
+Magpie routing-group recovery, two different catalog capacities, and Codex's
+reported permissions, reasoning and window. It also edits the stopped Native
+session and verifies the changed window on the next launch. Add
+`--experimental-codex-accounts` to check the Native journey with an owned App
+Server instead of the ordinary CLI. No real accounts or upstream providers are
+used in either variant.
+
 The integrated candidate received maintainer-reported macOS manual acceptance on
 2026-11-16. See the [acceptance record](../../docs/issues-19-20-acceptance.md).
 The gates below retain their specific evidence requirements; the report does

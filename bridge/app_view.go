@@ -36,6 +36,30 @@ func (m harborModel) details(s sessionView) string {
 		lines = append(lines, "Needs attention: "+s.Reason)
 	}
 	lines = append(lines, "", "📂 WORKSPACE", kv("Project", s.WorkingDirectory), kv("CLI", strings.TrimSpace(s.CLI+" "+s.CLIVersion)))
+	if s.CLI == "codex" && s.CodexOptions != nil {
+		lines = append(lines, "", "SAVED CODEX OVERRIDES")
+		for field, label := range codexOptionLabels {
+			value := s.CodexOptions.displayField(field)
+			if value == "Inherited" {
+				continue
+			}
+			if field == optionDirectories {
+				for _, directory := range s.CodexOptions.WritableDirs {
+					lines = append(lines, kv("Writable dir", cleanUI(directory)))
+				}
+			} else {
+				lines = append(lines, kv(label, value))
+			}
+		}
+		if s.CodexOptions.ContextWindow != nil {
+			window := m.codexWindow
+			if m.routeSessionID == s.ID && window.Tokens > 0 && window.RunToken == s.RunToken && s.Conversation != nil && window.ThreadID == s.Conversation.Reference.Value {
+				lines = append(lines, kv("Last usable window", fmt.Sprintf("%d tokens reported by Codex", window.Tokens)))
+			} else {
+				lines = append(lines, kv("Usable window", "Not observed; see /status in Codex"))
+			}
+		}
+	}
 	lines = append(lines, "", "🔌 CONNECTION", kv("Connection", s.Mode))
 	if s.Mode == "magpie" {
 		modelLabel := "Selected ID"

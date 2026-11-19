@@ -52,9 +52,10 @@ type appPreviousPane struct {
 type appOpened struct{ err error }
 type appResult struct{ err error }
 type appRoute struct {
-	id    string
-	route observedRoute
-	err   error
+	id     string
+	route  observedRoute
+	err    error
+	window codexWindowObservation
 }
 
 // harborModel owns interaction only. All product effects cross the service seam.
@@ -101,6 +102,7 @@ type harborModel struct {
 	generation          uint64
 	listGeneration      uint64
 	routeSessionID      string
+	codexWindow         codexWindowObservation
 	service             applicationService
 	width, height       int
 	sessions            []sessionView
@@ -139,6 +141,7 @@ type harborModel struct {
 	formFocus           int
 	formSaved           sessionDraft
 	creationConnections map[profileBinding]string
+	codexEditor         codexOptionEditor
 	creating            bool
 	draft               sessionDraft
 	reports             []instanceReport
@@ -557,7 +560,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if connection != "magpie" {
 			connection = "local"
 		}
-		m.draft = sessionDraft{Profile: msg.environment.Profile, Connection: connection, Directory: msg.environment.Directory}
+		m.draft = sessionDraft{Profile: msg.environment.Profile, Connection: connection, Directory: msg.environment.Directory, CodexOptions: msg.environment.CodexOptions.saved()}
 		m.formActive = true
 		m.formFocus = 0
 		m.creating = false
@@ -570,7 +573,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.creating = false
-		m.formFocus = min(4, msg.focus)
+		m.formFocus = min(formName, msg.focus)
 		m.screen = msg.page
 		m.notice = ""
 		if msg.err != nil {
@@ -621,6 +624,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if ok && s.ID == msg.id {
 			m.routeSessionID = msg.id
 			m.route = msg.route
+			m.codexWindow = msg.window
 			if msg.err != nil {
 				m.route = observedRoute{Reason: msg.err.Error()}
 			}
@@ -1049,8 +1053,16 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, func() tea.Msg { pane, err := m.service.PreviousPane(s.session); return appPreviousPane{pane, err} }
 			case "i":
 				m.screen = "detail"
-				id := s.ID
-				return m, func() tea.Msg { r, e := m.service.ObservedRoute(id); return appRoute{id, r, e} }
+				return m, func() tea.Msg {
+					route, err := m.service.ObservedRoute(s.ID)
+					var window codexWindowObservation
+					if reader, ok := m.service.(interface {
+						ObservedCodexWindow(session) codexWindowObservation
+					}); ok && !s.External {
+						window = reader.ObservedCodexWindow(s.session)
+					}
+					return appRoute{s.ID, route, err, window}
+				}
 			case "e":
 				m.reviewed = s.session
 				observation := s.Runtime

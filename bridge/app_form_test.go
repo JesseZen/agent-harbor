@@ -16,7 +16,7 @@ func formFixture() (harborModel, *fakeApplicationService) {
 	m := newHarborModel(f)
 	m.formActive = true
 	m.screen = "new-form"
-	m.formFocus = 5
+	m.formFocus = formCreate
 	m.environment = appEnvironment{Directory: "/projects/harbor", CodexVersion: "0.167.0", LocalHome: "/fixture/codex"}
 	m.draft = sessionDraft{Directory: "/projects/harbor", Connection: "local"}
 	return m, f
@@ -82,7 +82,7 @@ func TestFormConnectionCancelRestoresTupleAndAckNeverCreates(t *testing.T) {
 	if n.draft != m.formSaved {
 		t.Fatal(n.draft)
 	}
-	n.formFocus = 5
+	n.formFocus = formCreate
 	n = appKey(n, "enter").(harborModel)
 	if n.screen != "new-notice" {
 		t.Fatal(n.screen)
@@ -120,7 +120,7 @@ func TestFormPracticalSizesAndVisual(t *testing.T) {
 				}
 			}
 			if out := os.Getenv("HARBOR_VISUAL_OUT"); out != "" {
-				for _, focus := range []int{0, 4} {
+				for _, focus := range []int{formProject, formName} {
 					m.formFocus = focus
 					os.WriteFile(fmt.Sprintf("%s/form-focus%d-%s-%d.ansi", out, focus, mode, size[0]), []byte(m.View()), 0600)
 				}
@@ -162,7 +162,7 @@ func TestFormCompactPopupFitsEveryControl(t *testing.T) {
 	m, _ := formFixture()
 	m.width = 48
 	m.height = 12
-	for _, focus := range []int{0, 4, 5, 6} {
+	for _, focus := range []int{formProject, formOptions, formName, formCreate, formCancel} {
 		m.formFocus = focus
 		view := m.View()
 		for _, text := range []string{"Project", "Client", "Connection", "Model", "Name", "Create", "Cancel"} {
@@ -185,7 +185,7 @@ func TestFormNavigationAndCatalogFailurePreserveIntent(t *testing.T) {
 	f.Reports = []instanceReport{{magpieInstance: magpieInstance{ID: "replacement"}}}
 	var model tea.Model = m
 	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyUp})
-	if model.(harborModel).formFocus != 4 {
+	if model.(harborModel).formFocus != formName {
 		t.Fatal("up")
 	}
 	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -198,7 +198,7 @@ func TestFormNavigationAndCatalogFailurePreserveIntent(t *testing.T) {
 	if model.(harborModel).draft != m.draft {
 		t.Fatal("name cancel changed draft")
 	}
-	for _, k := range []string{"up", "up", "enter", "enter"} {
+	for _, k := range []string{"up", "up", "up", "enter", "enter"} {
 		model = appKey(model, k)
 	}
 	// Instance Enter begins a request; failure must restore the entire accepted tuple.

@@ -255,6 +255,11 @@ session and verifies the changed window on the next launch. Add
 Server instead of the ordinary CLI. No real accounts or upstream providers are
 used in either variant.
 
+`TestSessionClientForegroundHandoff` uses a Python 3 PTY to check that a
+managed client starts in the foreground and that Harbor regains terminal
+ownership after client exit or an exec failure. The pipe-backed launch is
+covered by `TestManagedCreateAcceptsPipeInput`.
+
 The integrated candidate received maintainer-reported macOS manual acceptance on
 2026-11-16. See the [acceptance record](../../docs/issues-19-20-acceptance.md).
 The gates below retain their specific evidence requirements; the report does

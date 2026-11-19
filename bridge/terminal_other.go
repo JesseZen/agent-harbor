@@ -2,8 +2,11 @@
 
 package main
 
-import "errors"
+import (
+	"errors"
+	"os/exec"
+)
 
-func foregroundSession(int) (func(), error) {
+func startSessionClient(*exec.Cmd) (func(), error) {
 	return nil, errors.New("session terminal control is unsupported on this platform")
 }

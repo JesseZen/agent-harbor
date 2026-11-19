@@ -24,7 +24,9 @@ macOS arm64 上用隔离 Herdr 0.9.5 和 Codex 0.170.0 在外层 60×24（无色
 
 合入 Enter 恢复后，隔离 macOS arm64 Herdr/tmux 实走四种尺寸的新建表单与 Options，检查无效数字留在编辑器、推理候选随模型、应用后重开保留、取消不覆盖记忆、共享 Profile 默认值保存。80×24 复测了恢复目标选择和保留旧 shell。
 
-macOS arm64 和 Linux amd64 用 Herdr 0.9.5、Codex 0.170.0 和 Magpie 0.1.3528-harbor-dev，通过 Native、Magpie 路由组和 Native owned App Server 的同一对话恢复。两成员目录容量不同，恢复请求仍携带原对话历史。`/status` 报告 11,400 token 窗口、推理 high、workspace-write 的附加目录和 never；编辑停止的 Native 会话并恢复后报告 15,200。macOS 有一次路由组恢复在交接后、到达输入框前出现 `Interrupted system call`。串行重跑完整流程通过；尚未定位偶发退出的原因。使用合成提供方，不覆盖真实 ChatGPT 登录、joined 官方供应商或真实远端工作区。[验收步骤](../bridge/tests/README.md#codex-options-and-defaults)
+macOS arm64 和 Linux amd64 用 Herdr 0.9.5、Codex 0.170.0 和 Magpie 0.1.3528-harbor-dev，通过 Native、Magpie 路由组和 Native owned App Server 的同一对话恢复。两成员目录容量不同，恢复请求仍携带原对话历史。`/status` 报告 11,400 token 窗口、推理 high、workspace-write 的附加目录和 never；编辑停止的 Native 会话并恢复后报告 15,200。使用合成提供方，不覆盖真实 ChatGPT 登录、joined 官方供应商或真实远端工作区。[验收步骤](../bridge/tests/README.md#codex-options-and-defaults)
+
+合并后的 macOS 路由组复测有一次在到达输入框前报 `Interrupted system call`。用独立 PTY 直接启动 Codex 即可复现：Codex 在后台初始化终端时收到 `SIGTTOU`，切到前台并继续运行后退出；在执行前交接前台则正常。这段终端交接逻辑早于 Options。后续修复在执行客户端前完成交接，并在退出或执行失败时还原前台。真实 PTY 回归在旧逻辑上失败；修复后，回归测试、管道启动以及 Native 和 Magpie 路由组的同一对话恢复在 macOS arm64 和 Linux amd64 均通过。
 
 ## Accounts 登录被阻止（2026-11-19）
 

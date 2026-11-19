@@ -137,7 +137,6 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 		binary = resolved
 	}
 	cmd := exec.Command(binary, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Dir, cmd.Stdin, cmd.Stdout, cmd.Stderr = s.WorkingDirectory, os.Stdin, os.Stdout, os.Stderr
 	environment, err := sessionClientEnvironment(s)
 	cmd.Env = environment.Environment
@@ -305,7 +304,7 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 			_ = finishCapture()
 		}
 	}()
-	err = cmd.Start()
+	restore, err := startSessionClient(cmd)
 	if err != nil {
 		if rollbackErr := undoFailedStart(s, plan); rollbackErr != nil {
 			return fmt.Errorf("client could not start: %v; could not restore session state: %w", err, rollbackErr)
@@ -346,17 +345,12 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 	}); err != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 		_ = cmd.Wait()
+		restore()
 		return err
 	}
 	if releaseProfile != nil {
 		releaseProfile()
 		releaseProfile = nil
-	}
-	restore, terminalErr := foregroundSession(cmd.Process.Pid)
-	if terminalErr != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-		_ = cmd.Wait()
-		return terminalErr
 	}
 	if resultPath != "" {
 		_ = reportRecoveryLaunch(resultPath, nil)

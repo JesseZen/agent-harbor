@@ -5,6 +5,7 @@ package main
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"unsafe"
@@ -12,38 +13,44 @@ import (
 	"github.com/charmbracelet/x/term"
 )
 
-// Give the dedicated client process group the pane's terminal while it runs.
-func foregroundSession(group int) (func(), error) {
-	fd := os.Stdin.Fd()
-	// A successful TIOCGPGRP does not establish that stdin is a terminal:
-	// macOS can return group zero for a pipe, then reject TIOCSPGRP with EPERM.
-	if !term.IsTerminal(fd) {
-		return func() {}, nil
+func startSessionClient(cmd *exec.Cmd) (func(), error) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	input, ok := cmd.Stdin.(*os.File)
+	if !ok || !term.IsTerminal(input.Fd()) {
+		return func() {}, cmd.Start()
 	}
-	var previous int32
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TIOCGPGRP, uintptr(unsafe.Pointer(&previous)))
-	if errno == syscall.ENOTTY {
-		return func() {}, nil
+	fd := input.Fd()
+	previous, err := terminalForegroundGroup(fd)
+	if errors.Is(err, syscall.ENOTTY) || (err == nil && previous <= 0) {
+		return func() {}, cmd.Start()
 	}
-	if errno != 0 {
-		return nil, errno
+	if err != nil {
+		return nil, err
 	}
-	signal.Ignore(syscall.SIGTTOU)
-	set := func(group int32) error {
-		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TIOCSPGRP, uintptr(unsafe.Pointer(&group)))
-		if errno != 0 {
-			return errno
+	cmd.SysProcAttr.Foreground = true
+	cmd.SysProcAttr.Ctty = int(fd)
+	restore := func() {
+		signal.Ignore(syscall.SIGTTOU)
+		defer signal.Reset(syscall.SIGTTOU)
+		for {
+			_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TIOCSPGRP, uintptr(unsafe.Pointer(&previous)))
+			if errno != syscall.EINTR {
+				return
+			}
 		}
-		return nil
 	}
-	if err := set(int32(group)); err != nil {
-		signal.Reset(syscall.SIGTTOU)
+	if err := cmd.Start(); err != nil {
+		restore()
 		return nil, err
 	}
-	if err := syscall.Kill(-group, syscall.SIGCONT); err != nil && !errors.Is(err, syscall.ESRCH) {
-		_ = set(previous)
-		signal.Reset(syscall.SIGTTOU)
-		return nil, err
+	return restore, nil
+}
+
+func terminalForegroundGroup(fd uintptr) (int32, error) {
+	var group int32
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TIOCGPGRP, uintptr(unsafe.Pointer(&group)))
+	if errno != 0 {
+		return 0, errno
 	}
-	return func() { _ = set(previous); signal.Reset(syscall.SIGTTOU) }, nil
+	return group, nil
 }

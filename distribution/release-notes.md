@@ -1,9 +1,6 @@
-Changes in v0.1.0-dev.9:
+Changes in v0.1.0-dev.10:
 
-- New session → Options remembers Codex sandbox, approval, reasoning, context window, compaction and writable directory choices for the selected Profile environment. Recovery uses the options saved with the original conversation.
-- Profiles → Codex defaults edits window and compaction defaults. Session details separates the saved window from the window Codex actually reported, and lets you edit options for the next launch of a stopped session.
-- In Sessions, Enter focuses a running terminal or reviews recovery for a stopped conversation. Conflicting conversation references require an explicit choice, and the old terminal is kept.
-- Run `ah` after updating to migrate an existing workspace's popup entry points and preserve custom shortcuts. Close and reopen the popup to use the new version without restarting running sessions.
+- Fix an intermittent `Interrupted system call` during Codex startup or recovery on macOS. Harbor gives the client the foreground terminal before it starts and restores the previous terminal owner on exit or launch failure.
 
 Native development candidate for macOS and Linux, arm64 and amd64.
 

@@ -99,11 +99,12 @@ Enter on a saved account opens Details. A ticket marks available
 reset cards. In Details, `u` opens a confirmation and `y` redeems one card
 through bundled codex-auth, which chooses the card.
 
-`n` adds a login through official Codex, `s` selects a saved login, and `o`
-selects Not signed in while retaining the saved list. Unknown or active
-session activity blocks login changes. Stop the named session explicitly
-before retrying when its activity cannot be inspected. Existing environments
-may also affect external clients sharing that home.
+`n` adds and selects a login through official Codex, `s` selects a saved login,
+and `o` selects Not signed in while retaining the saved list. Unknown or active
+session activity blocks login changes without clearing the displayed account.
+Stop the named session explicitly before retrying when its activity cannot be
+inspected, or use a separate isolated Profile for the other login. Existing
+environments may also affect external clients sharing that home.
 
 Profile runtime and account integration are implemented together. The maintainer
 reported macOS manual acceptance on 2026-11-16; the [acceptance record](../docs/issues-19-20-acceptance.md)

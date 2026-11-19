@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -266,6 +267,20 @@ func TestAccountsKeepQuotaThroughInspectAndUsage(t *testing.T) {
 	m.beginAccountInspect()
 	if m.accountSnapshot != nil {
 		t.Fatal("usage leaked across environments")
+	}
+}
+
+func TestAccountsUseRereadRosterAfterFailedAction(t *testing.T) {
+	m := newHarborModel(&fakeApplicationService{})
+	binding := profileBinding{ProfileID: "A"}
+	m.screen, m.accountProfile = "accounts-busy", &binding
+	m.cacheAccountSnapshot(walkthroughAccounts(binding))
+	reread := walkthroughAccounts(binding)
+	reread.State, reread.Selected = "unconfirmed", ""
+	next, _ := m.Update(appAccountDone{profile: &binding, snapshot: &reread, err: errors.New("login could not be verified")})
+	m = next.(harborModel)
+	if m.currentAccount("primary") || m.accountSnapshot.State != "unconfirmed" || len(m.accountSnapshot.Accounts) != 2 {
+		t.Fatal("failed verification retained the old current login or lost the reread roster")
 	}
 }
 

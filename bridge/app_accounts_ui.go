@@ -554,23 +554,26 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		if done.profile != nil && (m.accountProfile == nil || *done.profile != *m.accountProfile) {
 			return m, nil, true
 		}
-		if done.snapshot != nil && m.accountProfile != nil && (done.err == nil || done.snapshot.ProfileName != "") {
-			m.setAccountRoster(*done.snapshot)
-		}
 		if m.screen != "accounts-busy" {
 			return m, nil, true
+		}
+		var cmd tea.Cmd
+		if done.snapshot != nil && m.accountProfile != nil && done.snapshot.State != "" {
+			m.setAccountRoster(*done.snapshot)
+			cmd = m.loadAccountUsage()
+		} else if m.accountUsagePending {
+			cmd = m.beginAccountInspect()
 		}
 		m.screen = "accounts-result"
 		m.scroll = 0
 		m.uiFocus = "account:back"
 		m.accountResult = done.result
 		if done.err != nil {
-			if m.accountResult != "" {
-				m.accountResult += "\n"
+			m.accountResult = done.err.Error()
+			if done.result != "" {
+				m.accountResult += "\n" + done.result
 			}
-			m.accountResult += done.err.Error()
 		}
-		cmd := m.loadAccountUsage()
 		return m, tea.Batch(tea.EnableMouseAllMotion, cmd), true
 	}
 	if _, ok := m.accountsPage(); !ok {

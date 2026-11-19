@@ -151,6 +151,58 @@ func TestProfileAccountStaleUIResult(t *testing.T) {
 	}
 }
 
+func TestBlockedProfileAccountLoginKeepsRoster(t *testing.T) {
+	root := visibilityTestRoot(t)
+	h := harborService{}
+	p := mustProfile(t, h, "Coding")
+	binding := bindingFor(p)
+	tool := filepath.Join(root, "codex-auth")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf 'ran' > invoked\nexit 1\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENT_HARBOR_CODEX_AUTH_BIN", tool)
+	child := exec.Command("sleep", "30")
+	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	running := session{Version: 2, ID: strings.Repeat("a", 32), Name: "Running Codex", CLI: "codex", Profile: &binding, ProcessGroup: child.Process.Pid}
+	if err := withSessions(func([]session) ([]session, error) { return []session{running}, nil }); err != nil {
+		t.Fatal(err)
+	}
+	m := newHarborModel(h)
+	defer m.cancelRefresh()
+	m.screen, m.accountProfile = "accounts", &binding
+	initial := walkthroughAccounts(binding)
+	initial.Accounts[0].Usage = walkthroughUsage(18, 100)
+	m.cacheAccountSnapshot(initial)
+	m.reconcileAccountRow()
+	next, cmd := m.Update(uiKey(accountLoginKey))
+	m = next.(harborModel)
+	if cmd == nil || m.screen != "accounts-busy" {
+		t.Fatal("Add login did not start an action")
+	}
+	operation := accountExec{service: h, action: "login", profile: binding}
+	err := operation.Run()
+	if err == nil || !strings.Contains(err.Error(), running.Name) {
+		t.Fatalf("running session did not block login: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Clients[0].Home, "invoked")); !os.IsNotExist(err) {
+		t.Fatal("blocked login called codex-auth", err)
+	}
+	next, _ = m.Update(appAccountDone{result: operation.result, err: err, profile: &binding, snapshot: &operation.snapshot})
+	result := next.(harborModel)
+	next, _ = result.Update(uiKey("esc"))
+	m = next.(harborModel)
+	if m.screen != "accounts" || !m.currentAccount("primary") || len(m.accountSnapshot.Accounts) != 2 || !strings.Contains(m.View(), "82%") {
+		t.Fatal("blocked login cleared the existing account or quota")
+	}
+	if !strings.Contains(result.accountResult, "no dedicated Codex App Server") || strings.Contains(result.accountResult, "Login: unconfirmed") {
+		t.Fatalf("blocked result misreported the login state: %s", result.accountResult)
+	}
+}
+
 // Optional native evidence for an actually empty home. This deliberately does
 // not bypass the production readiness gate or authorize a real login.
 func TestProfileAccountsRealSignedOut(t *testing.T) {

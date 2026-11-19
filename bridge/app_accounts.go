@@ -240,7 +240,13 @@ func (m harborModel) submitAccountReset() (tea.Model, tea.Cmd) {
 }
 
 func accountResultText(result profileAccountResult) string {
-	lines := []string{"Profile: " + result.ProfileName, "Codex home: " + result.Home, "Login: " + result.State}
+	var lines []string
+	if result.ProfileName != "" {
+		lines = append(lines, "Profile: "+result.ProfileName, "Codex home: "+result.Home)
+	}
+	if result.State != "" {
+		lines = append(lines, "Login: "+result.State)
+	}
 	for _, s := range result.Sessions {
 		lines = append(lines, fmt.Sprintf("%s · %s: %s", s.Name, s.State, s.Detail))
 	}

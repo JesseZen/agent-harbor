@@ -97,7 +97,7 @@ func (h harborService) ProfileCodexAccounts(ctx context.Context, req codexAccoun
 // Uses the same service lock as Profile launch. The callback never resolves an
 // ambient home or takes the lock recursively. Production retains #19's gate.
 func profileCodexAccounts(ctx context.Context, service applicationService, req codexAccountRequest, in io.Reader, out, diagnostic io.Writer) (profileAccountResult, error) {
-	result := profileAccountResult{Profile: req.Profile, State: "unconfirmed"}
+	result := profileAccountResult{Profile: req.Profile}
 	operation := profileAccountMutation
 	switch req.Action {
 	case "inspect", "usage":
@@ -131,7 +131,9 @@ func profileCodexAccounts(ctx context.Context, service applicationService, req c
 		}
 		tool, err := codexAuthProgram()
 		if err != nil {
-			result.State = "unavailable"
+			if req.Action == "inspect" {
+				result.State = "unavailable"
+			}
 			return err
 		}
 		switch req.Action {
@@ -150,8 +152,11 @@ func profileCodexAccounts(ctx context.Context, service applicationService, req c
 			}
 			if processGroupActive(s.ProcessGroup) {
 				idle, err := codexAccountIdle(s)
-				if err != nil || !idle {
-					return fmt.Errorf("%s: activity is active or unknown; finish its turn or explicitly stop it before changing this Profile's login", s.Name)
+				if err != nil {
+					return fmt.Errorf("%s: %w; explicitly stop this session before changing this Profile's login", s.Name, err)
+				}
+				if !idle {
+					return fmt.Errorf("%s: a turn is active; finish it before changing this Profile's login", s.Name)
 				}
 			}
 		}
@@ -317,8 +322,11 @@ func readProfileAccounts(ctx context.Context, tool string, env profileClientEnvi
 
 // Unknown activity is an error, never evidence that a session is between turns.
 func codexAccountIdle(s session) (bool, error) {
+	if s.CodexServerPID <= 1 || s.CodexServerSocket == "" {
+		return false, errors.New("no dedicated Codex App Server, so activity cannot be checked")
+	}
 	if !verifyCodexServer(s) {
-		return false, errors.New("owned server unavailable")
+		return false, errors.New("could not verify the dedicated Codex App Server")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -344,8 +352,12 @@ func codexAccountIdle(s session) (bool, error) {
 		if err = rpc.call(ctx, "thread/read", map[string]any{"threadId": id, "includeTurns": false}, &state); err != nil {
 			return false, err
 		}
-		if state.Thread.Status.Type != "idle" {
-			return false, errors.New("active or unknown thread status")
+		switch state.Thread.Status.Type {
+		case "idle":
+		case "active":
+			return false, nil
+		default:
+			return false, errors.New("Codex thread activity could not be verified")
 		}
 	}
 	return true, nil

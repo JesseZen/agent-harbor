@@ -1,26 +1,26 @@
 class AgentHarbor < Formula
   desc "AI CLI sessions with Profiles, conversation recovery and optional routing"
   homepage "https://github.com/JesseZen/agent-harbor"
-  version "0.1.0-dev.10"
+  version "0.1.0-dev.11"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.10/agent-harbor-v0.1.0-dev.10-darwin-arm64.tar.gz"
-      sha256 "22f55bd0b61019c74e835e4c620e42fc5a57597d0787a19ebd0b0131ec57834f"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.11/agent-harbor-v0.1.0-dev.11-darwin-arm64.tar.gz"
+      sha256 "166703aefd8b68149242c750a142800671c3ac66d397ef014603840d8d0e98e6"
     else
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.10/agent-harbor-v0.1.0-dev.10-darwin-amd64.tar.gz"
-      sha256 "98e74e4386379dd77a49f59368c97fe6bd8780902b777c778e88f3cc66e802b3"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.11/agent-harbor-v0.1.0-dev.11-darwin-amd64.tar.gz"
+      sha256 "456437a98c05634b4e06ded66788ad3df985f9337673705653a6db453685fdbd"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.10/agent-harbor-v0.1.0-dev.10-linux-arm64.tar.gz"
-      sha256 "465ab4f9f719e87bf457a0565f18c616668be135ae50c7181730f8048462ce39"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.11/agent-harbor-v0.1.0-dev.11-linux-arm64.tar.gz"
+      sha256 "8c993bcbb57d01168399051d97ddff248a1aef2bb2251563d9af5a9889903cdf"
     else
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.10/agent-harbor-v0.1.0-dev.10-linux-amd64.tar.gz"
-      sha256 "90b94c580087765a1a167a1838384b6f7990b73b3141e50619b9d41a9c3944db"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.11/agent-harbor-v0.1.0-dev.11-linux-amd64.tar.gz"
+      sha256 "25ad4d6c3ece79458c3fa014b035fe0167cb0bae16c39cdc7f140637b031314e"
     end
   end
 

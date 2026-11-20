@@ -81,12 +81,15 @@ Harbor passes on recovery. Sessions → Details shows saved overrides separately
 from the last verified Codex context window, when available. A stopped session
 can edit options for its next launch without changing the Conversation,
 Profile, or connection. Missing path or model evidence is not silently replaced.
-The private Codex App Server and its connected TUI receive the same explicit
-launch overrides. Codex can apply these when starting another Conversation
-through `/new` in that process. Harbor still uses its own Conversation evidence
-and recovery rules. The context window and the two automatic compaction
-triggers are independent settings. Codex can reserve part of the window and
-cap it to the active model's capacity.
+Harbor passes explicit Sandbox and Approval overrides to both the private
+Codex App Server and its connected TUI for a new launch. The App Server owns
+additional writable directories and the permission overrides for remote
+recovery. Codex can apply the launch overrides when starting another
+Conversation through `/new`. In a remotely resumed window, Codex 0.169.0
+can apply its own permission defaults to the fresh Conversation. Harbor
+still uses its own Conversation evidence and recovery rules. The context
+window and the two automatic compaction triggers are independent settings.
+Codex can reserve part of the window and cap it to the active model's capacity.
 
 Profiles → Codex defaults edits only the three window/compaction values in the
 selected Codex home's user config. The page shows the effective value and its

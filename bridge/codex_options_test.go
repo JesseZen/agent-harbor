@@ -290,19 +290,30 @@ func TestProfileNativeCodexDefaultsVersionIsolationAndProjectPrecedence(t *testi
 	}
 	options.SandboxMode, options.ApprovalPolicy, options.ReasoningEffort = "workspace-write", "on-request", choices.Efforts[0]
 	options.WritableDirs = []string{project}
-	_, connected, err := codexOptionLaunchPlans(context.Background(), native, env, s, newConversation, nil, options)
+	plan, err := codexOptionLaunchPlans(context.Background(), native, env, s, newConversation, nil, options)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(connected, `sandbox_mode="workspace-write"`) {
-		t.Fatalf("workspace mode missing from connected launch: %q", connected)
+	if !slices.Contains(plan.remote, `sandbox_mode="workspace-write"`) || !slices.Contains(plan.remote, `approval_policy="on-request"`) ||
+		strings.Contains(strings.Join(plan.remote, " "), "writable_roots") || !strings.Contains(strings.Join(plan.server, " "), "writable_roots") {
+		t.Fatalf("remote permissions and server-owned writable roots: %q / %q", plan.remote, plan.server)
 	}
 	fullAccess := codexOptions{SandboxMode: "danger-full-access", ApprovalPolicy: "never", ContextWindow: optionNumber(500000)}
-	_, connected, err = codexOptionLaunchPlans(context.Background(), native, env, s, newConversation, nil, fullAccess)
+	plan, err = codexOptionLaunchPlans(context.Background(), native, env, s, newConversation, nil, fullAccess)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := withCodexConfigPipe(context.Background(), native, env, project, connected, func(rpc *codexConfigPipe) error {
+	if !slices.Equal(plan.remote, plan.server) {
+		t.Fatalf("remote Full access configuration differs from server: %q / %q", plan.remote, plan.server)
+	}
+	resumePlan, err := codexOptionLaunchPlans(context.Background(), native, env, s, resumeConversation, nil, fullAccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(resumePlan.remote, []string{"-c", "model_context_window=500000"}) || !slices.Equal(resumePlan.server, plan.server) {
+		t.Fatalf("remote resume permissions must come from the server: %q / %q", resumePlan.remote, resumePlan.server)
+	}
+	if err := withCodexConfigPipe(context.Background(), native, env, project, plan.server, func(rpc *codexConfigPipe) error {
 		resolved, err := rpc.config(project)
 		if err != nil {
 			return err
@@ -396,12 +407,12 @@ supports_websockets = false
 			options := codexOptions{ContextWindow: optionNumber(12000), AutoCompactTokenLimit: optionNumber(10000), PostTurnCompactPercent: &percent}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			args, _, err := codexOptionLaunchPlans(ctx, native, environment, record, newConversation, nil, options)
+			plan, err := codexOptionLaunchPlans(ctx, native, environment, record, newConversation, nil, options)
 			if err != nil {
 				t.Fatal(err)
 			}
 			argv := append([]string{"exec", "--skip-git-repo-check", "--json"}, profilePolicyArguments(environment)...)
-			argv = append(append(argv, args...), "Reply to this isolated compaction test")
+			argv = append(append(argv, plan.local...), "Reply to this isolated compaction test")
 			cmd := exec.CommandContext(ctx, native, argv...)
 			cmd.Dir, cmd.Env = record.WorkingDirectory, environment.Environment
 			compactions.Store(0)

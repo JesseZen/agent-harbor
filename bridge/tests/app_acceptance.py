@@ -105,14 +105,13 @@ def main():
                 raw=self.rfile.read(int(self.headers.get('Content-Length','0')))
                 if evidence(raw)['current']==['AH_LIVE_STATUS']:time.sleep(4)
                 self.rfile=io.BytesIO(raw)
-                marks=[m for m in ('AH_LOCAL_FIRST','AH_LOCAL_SECOND','AH_RELAY_B','AH_RESUME_B','AH_LOCAL_C','AH_LOCAL_NEW','AH_RESUME_C','AH_EXTERNAL_STATUS','AH_LIVE_STATUS') if m.encode() in raw]
                 event=evidence(raw)
                 event['session']=self.headers.get('session-id','')
                 event['model']=json.loads(raw).get('model','')
                 event['effort']=json.loads(raw).get('reasoning_effort','')
                 self.server.journal.append(event)
                 super().do_POST()
-                self.server.observed.append((self.path,marks))
+                self.server.observed.append((self.path,event['history']))
         s=http.server.ThreadingHTTPServer(('127.0.0.1',0),RecordingHandler);s.observed=[];s.events=[];s.journal=[]
         threading.Thread(target=s.serve_forever,daemon=True).start();servers.append(s);return s
     class NoGateway(http.server.BaseHTTPRequestHandler):
@@ -417,11 +416,13 @@ def main():
             updated_options=dict(expected,model_context_window=16000)
             resume(native_record,'AH_LOCAL_SECOND','AH_LOCAL_C',native,updated_options,'15.2K')
             assert native_record.get('codex_server_pid'), 'Native launch did not use an owned App Server'
+            fresh=assert_run(create('Options Fresh'),'AH_LOCAL_FRESH',native)
+            assert fresh.get('codex_server_pid'), 'New Native window did not use an owned App Server'
             text('/new');key('Enter')
-            wait(lambda:'AH_LOCAL_C' not in capture() and 'Ask Codex' in capture(),'fresh conversation in the same Codex window')
+            wait(lambda:'AH_LOCAL_FRESH' not in capture() and 'Ask Codex' in capture(),'fresh conversation in the same Codex window')
             options_prompt()
-            assert_run(native_record,'AH_LOCAL_NEW',native,updated_options,'15.2K')
-            assert not any('AH_LOCAL_C' in item['history'] for item in native.journal if item['current']==['AH_LOCAL_NEW'])
+            assert_run(fresh,'AH_LOCAL_NEW',native)
+            assert not any('AH_LOCAL_FRESH' in item['history'] for item in native.journal if item['current']==['AH_LOCAL_NEW'])
             if not a.synthetic_api_login:
                 gateway_record=assert_run(create('Options Magpie','ui-group'),'AH_RELAY_B',(relay_a,relay_b))
                 assert gateway_record['codex_connection']=='api'
@@ -434,7 +435,7 @@ def main():
                 resume(gateway_record,'AH_RELAY_B','AH_RESUME_B',(relay_a,relay_b))
             assert stable_profile_config()==user_config,'per-session options rewrote Profile defaults'
             topology='owned App Server' if a.synthetic_api_login else 'Native App Server and API-only Magpie routing group'
-            print('PASS remembered Options, Profile defaults, effective window and exact recovery via '+topology,root,flush=True)
+            print('PASS remembered Options, Profile defaults, effective window, new chat and exact recovery via '+topology,root,flush=True)
             return 0
         if a.profiles:
             assert a.replacement, 'Profile recovery acceptance requires the Herdr query candidate'

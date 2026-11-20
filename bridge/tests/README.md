@@ -281,10 +281,10 @@ arguments below. It allocates its own loopback discovery address, drives the
 real Herdr popup and checks saved configuration, same-Conversation Native and
 Magpie routing-group recovery, two different catalog capacities, and Codex's
 reported permissions, reasoning and window. It also edits the stopped Native
-session, verifies the changed window on the next launch, and checks that
-`/new` in that window keeps the options while starting a fresh Conversation. Native uses an
-owned App Server and API-only Magpie uses the ordinary CLI. No real accounts
-or upstream providers are used.
+session and verifies the changed window on the next launch. It checks that
+`/new` in a newly launched Native window keeps the options while starting a
+fresh Conversation. Native uses an owned App Server and API-only Magpie uses
+the ordinary CLI. No real accounts or upstream providers are used.
 
 `TestSessionClientForegroundHandoff` uses a Python 3 PTY to check that a
 managed client starts in the foreground and that Harbor regains terminal

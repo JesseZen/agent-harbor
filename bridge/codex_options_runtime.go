@@ -165,7 +165,7 @@ func (h harborService) validateDraftCodexOptions(d sessionDraft) error {
 		return err
 	}
 	return h.withCodexDraftClient(s, func(ctx context.Context, env profileClientEnvironment) error {
-		_, _, err := codexOptionLaunchPlans(ctx, "", env, s, newConversation, args, options)
+		_, err := codexOptionLaunchPlans(ctx, "", env, s, newConversation, args, options)
 		return err
 	})
 }
@@ -209,13 +209,17 @@ func (o codexOptions) checkPermissions(rpc *codexConfigPipe, read codexConfigRea
 	return nil
 }
 
-func codexOptionLaunchPlans(ctx context.Context, binary string, env profileClientEnvironment, s session, kind launchKind, connectionArgs []string, options codexOptions) (local, connected []string, err error) {
+type codexLaunchOptions struct {
+	local, remote, server []string
+}
+
+func codexOptionLaunchPlans(ctx context.Context, binary string, env profileClientEnvironment, s session, kind launchKind, connectionArgs []string, options codexOptions) (codexLaunchOptions, error) {
 	if err := options.validate(s.CLI, true); err != nil || options.empty() {
-		return nil, nil, err
+		return codexLaunchOptions{}, err
 	}
 	var inheritedDirs []string
 	var resumeModel string
-	err = withCodexConfigPipe(ctx, binary, env, s.WorkingDirectory, connectionArgs, func(rpc *codexConfigPipe) error {
+	err := withCodexConfigPipe(ctx, binary, env, s.WorkingDirectory, connectionArgs, func(rpc *codexConfigPipe) error {
 		read, err := rpc.config(s.WorkingDirectory)
 		if err != nil {
 			return &codexOptionError{"Options", err.Error()}
@@ -251,16 +255,27 @@ func codexOptionLaunchPlans(ctx context.Context, binary string, env profileClien
 		return options.validateEffort(choices.Model, choices.Efforts)
 	})
 	if err != nil {
-		return nil, nil, err
+		return codexLaunchOptions{}, err
 	}
-	// The connected TUI and its private App Server run on the same host. Codex
-	// can send TUI-resolved permissions with thread/start, including on /new.
-	// Supply the same explicit overrides to both so their defaults agree.
-	connected = options.arguments(true, inheritedDirs)
-	local = options.arguments(false, nil)
+	// A fresh remote TUI can send its resolved permissions with thread/start.
+	// Codex rejects client-side writable roots in remote mode and client-side
+	// permission overrides on remote resume. The server still gets them.
+	remote := options
+	remote.WritableDirs = nil
+	if kind == resumeConversation {
+		remote.SandboxMode = ""
+		remote.ApprovalPolicy = ""
+	}
+	plan := codexLaunchOptions{
+		local:  options.arguments(false, nil),
+		remote: remote.arguments(true, nil),
+		server: options.arguments(true, inheritedDirs),
+	}
 	if resumeModel != "" {
-		local = codexConfigArg(local, "model", strconv.Quote(resumeModel))
-		connected = codexConfigArg(connected, "model", strconv.Quote(resumeModel))
+		model := strconv.Quote(resumeModel)
+		plan.local = codexConfigArg(plan.local, "model", model)
+		plan.remote = codexConfigArg(plan.remote, "model", model)
+		plan.server = codexConfigArg(plan.server, "model", model)
 	}
-	return local, connected, nil
+	return plan, nil
 }

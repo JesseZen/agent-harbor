@@ -7,7 +7,9 @@
 | New session → Options | 底部说明随当前字段变化。Sandbox 和 Approval 的候选也各有说明。Context window 指向 Codex `/status`，Auto compact 和 Post-turn compact 分别说明各自的触发规则。 |
 | New session → Model | 有已选实例、可用默认实例或唯一已验证实例时直达目录。目录打开就能输入，方向键选结果，Enter 应用，Ctrl+O 换实例。实例有歧义或目录读取失败时给出可选实例。 |
 
-Go 界面回归覆盖默认实例、直接搜索和应用、取消恢复、目录失败与小窗口。隔离 PTY 用模拟实例和生产界面验证了四种尺寸的直接搜索、应用和字段说明。Codex 0.169.0 的 stdio App Server 验证收到 500,000 和 Full access / Never。直启 Codex 的 `/new` 实测换了会话 ID，`/status` 仍显示 500K、Full access 和 high。当前执行环境禁止绑定本地 socket，真实 Herdr/tmux 以及连接私有 App Server 的 `/new` 运行验收待补。
+Go 界面回归覆盖默认实例、直接搜索和应用、取消恢复、目录失败与小窗口。隔离 PTY 用模拟实例和生产界面验证了四种尺寸的直接搜索、应用和字段说明。Codex 0.169.0 的 stdio App Server 验证收到 500,000 和 Full access / Never。直启 Codex 的 `/new` 实测换了会话 ID，`/status` 仍显示 500K、Full access 和 high。
+
+macOS arm64 的隔离 Herdr/tmux 验收通过了 Native 和 API-only Magpie 路由组的原会话恢复、新窗口 `/new` 和四尺寸 Options。Codex 拒绝远端终端传入 Writable dirs，也拒绝恢复时从终端传入 Sandbox 和 Approval。两类参数都由私有 App Server 在对应启动路径提供。0.169.0 的恢复窗口执行 `/new` 时，实测保留了窗口、推理和可写目录，Approval 回到 Ask for approval。服务端使用的是模拟提供商。
 
 ## 工作区快捷键（2026-11-20）
 

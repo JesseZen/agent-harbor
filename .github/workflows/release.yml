@@ -30,6 +30,9 @@ jobs:
       - name: Test Go module in isolated homes
         shell: bash
         run: |
+          GOCACHE=$(go env GOCACHE)
+          GOMODCACHE=$(go env GOMODCACHE)
+          export GOCACHE GOMODCACHE
           export HOME="$RUNNER_TEMP/harbor-test-home"
           export XDG_CONFIG_HOME="$HOME/config" XDG_DATA_HOME="$HOME/data" XDG_STATE_HOME="$HOME/state" XDG_CACHE_HOME="$HOME/cache" XDG_RUNTIME_DIR="$HOME/runtime" CODEX_HOME="$HOME/codex" CODEX_SQLITE_HOME="$HOME/sqlite" TMPDIR="$HOME/tmp"
           mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR" "$CODEX_HOME" "$CODEX_SQLITE_HOME" "$TMPDIR"

@@ -9,6 +9,7 @@ import (
 	"github.com/muesli/termenv"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -42,9 +43,9 @@ func TestShortcutBadPreferences(t *testing.T) {
 	}
 }
 func TestShortcutGenerationSwap(t *testing.T) {
-	p := shortcutPreferences{"prefix+m", "prefix+a", "prefix+,"}
+	p := shortcutPreferences{Harbor: "prefix+m", Settings: "prefix+a", Magpie: "prefix+,"}
 	s := configWithShortcuts("/tmp/harbor", p)
-	for _, k := range p.values() {
+	for _, k := range []string{p.Harbor, p.Settings, p.Magpie} {
 		if strings.Count(s, `key = "`+k+`"`) != 1 {
 			t.Fatal(s)
 		}
@@ -52,38 +53,109 @@ func TestShortcutGenerationSwap(t *testing.T) {
 }
 func TestSettingsLocalEditingAndMouse(t *testing.T) {
 	m := newSettingsModel()
-	n, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = n.(settingsModel)
-	m.input.SetValue("ctrl+g")
-	n, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	m = n.(settingsModel)
-	if m.values != defaultShortcuts() {
-		t.Fatal("cancel changed draft")
+	step := func(msg tea.Msg) {
+		n, _ := m.Update(msg)
+		m = n.(settingsModel)
 	}
-	hit := m.layout().Hits[0]
-	for _, r := range m.layout().Hits {
-		if r.ID == "control:1" {
-			hit = r
+	click := func(id string) {
+		t.Helper()
+		for _, hit := range m.layout().Hits {
+			if hit.ID == id {
+				step(tea.MouseMsg{X: hit.X, Y: hit.Y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+				return
+			}
 		}
+		t.Fatalf("missing %s in %s", id, m.View())
 	}
-	click := tea.MouseMsg{X: hit.X, Y: hit.Y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
-	n, _ = m.Update(click)
-	m = n.(settingsModel)
-	if m.editing || m.cursor != 1 {
+	click("control:1")
+	if m.bindingsOpen || m.cursor != shortcutSettings {
 		t.Fatal("first click should focus the row")
 	}
-	n, _ = m.Update(click)
-	m = n.(settingsModel)
-	if !m.editing || m.cursor != 1 {
-		t.Fatal("row mouse")
+	click("control:1")
+	if !m.bindingsOpen || m.editing {
+		t.Fatal("second click should open the binding list")
 	}
-	m.input.SetValue("prefix+.")
-	n, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = n.(settingsModel)
-	if m.values.Settings != "prefix+." {
-		t.Fatal("accept")
+	click("binding:0")
+	m.input.SetValue("ctrl+g")
+	step(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.values != defaultShortcuts() || !m.bindingsOpen || m.editing {
+		t.Fatal("cancel changed draft")
+	}
+	click("binding:1")
+	click("binding:1")
+	m.input.SetValue("CTRL+G")
+	step(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := m.values.Settings; got != "prefix+, ctrl+g" {
+		t.Fatal(got)
+	}
+	step(tea.KeyMsg{Type: tea.KeyEnter})
+	m.input.SetValue("prefix+a")
+	step(tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.editing || !strings.Contains(m.bindingNotice, "Harbor already uses") || m.values.Settings != "prefix+, ctrl+g" {
+		t.Fatal("duplicate was accepted", m.View())
+	}
+	step(tea.KeyMsg{Type: tea.KeyEsc})
+	step(tea.KeyMsg{Type: tea.KeyDelete})
+	if m.values.Settings != "prefix+," {
+		t.Fatal("removing the alias changed the primary binding")
+	}
+	step(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.bindingsOpen || m.closed {
+		t.Fatal("Esc did not return to Settings")
 	}
 }
+
+func TestShortcutLegacyPreferencesAndAliases(t *testing.T) {
+	root := t.TempDir()
+	data := []byte(`{"harbor":"prefix+t","settings":"ctrl+g","magpie":"prefix+f"}`)
+	if err := os.WriteFile(filepath.Join(root, "shortcuts.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := readShortcuts(root)
+	if err != nil || p.Harbor != "prefix+t" || strings.Join(p.prefixes(), " ") != "ctrl+b" || p.New != "" {
+		t.Fatal(p, err)
+	}
+	p.Harbor += " ctrl+b"
+	p.Prefix = "ctrl+a f12"
+	p.New = "ctrl+n"
+	if err = validateShortcuts(p); err != nil {
+		t.Fatal(err)
+	}
+	config := configWithShortcuts("/tmp/harbor", p)
+	for _, want := range []string{`prefix = ["ctrl+a", "f12"]`, `key = ["prefix+t", "ctrl+b"]`, `key = "ctrl+n"`, ` _new"`} {
+		if !strings.Contains(config, want) {
+			t.Fatalf("missing %s in %s", want, config)
+		}
+	}
+	p.New = "ctrl+a"
+	if err = validateShortcuts(p); err == nil || !strings.Contains(err.Error(), "Herdr prefix") {
+		t.Fatal(err)
+	}
+}
+
+func TestSettingsBindingListScrollAndMouse(t *testing.T) {
+	m := newSettingsModel()
+	m.width, m.height = 46, 12
+	m.bindingsOpen = true
+	m.values.Harbor = "prefix+a ctrl+g ctrl+h ctrl+n ctrl+t f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12"
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	next, _ = next.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	m = next.(settingsModel)
+	for _, hit := range m.layout().Hits {
+		if hit.ID == "binding:"+strconv.Itoa(m.bindingCursor) {
+			if m.scroll == 0 {
+				t.Fatal("selection did not scroll")
+			}
+			next, _ = m.Update(tea.MouseMsg{X: hit.X, Y: hit.Y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+			if !next.(settingsModel).editing {
+				t.Fatal("selected scrolled row did not open for editing")
+			}
+			return
+		}
+	}
+	t.Fatal("selection is outside the viewport", m.View())
+}
+
 func TestSettingsVisual(t *testing.T) {
 	out := os.Getenv("HARBOR_SETTINGS_VISUAL")
 	if out == "" {
@@ -114,7 +186,7 @@ func TestSettingsVisual(t *testing.T) {
 	}
 }
 func TestShortcutSaveTransaction(t *testing.T) {
-	for _, failure := range []string{"", "legacy", "reload", "rollback", "partial", "foreign", "check"} {
+	for _, failure := range []string{"", "legacy", "reload", "rollback", "partial", "foreign", "check", "stale"} {
 		t.Run(failure, func(t *testing.T) {
 			root := t.TempDir()
 			os.Chmod(root, 0700)
@@ -160,7 +232,13 @@ func TestShortcutSaveTransaction(t *testing.T) {
 			}
 			p := defaultShortcuts()
 			p.Settings = "prefix+."
-			err = saveShortcuts(p)
+			p.Prefix = "ctrl+a ctrl+b"
+			p.New = "ctrl+n"
+			expected := defaultShortcuts()
+			if failure == "stale" {
+				expected.Harbor = "ctrl+g"
+			}
+			err = saveShortcuts(p, expected)
 			if failure == "" || failure == "legacy" {
 				if err != nil {
 					t.Fatal(err)
@@ -233,7 +311,8 @@ func TestSettingsEditorCaretAfterShorterValue(t *testing.T) {
 	m := newSettingsModel()
 	m.input.SetValue("ctrl+g")
 	m.input.CursorEnd()
-	m.cursor = 2
+	m.cursor = shortcutMagpie
+	m.bindingsOpen = true
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	n := next.(settingsModel)
 	if n.input.Position() != len(n.values.Magpie) {

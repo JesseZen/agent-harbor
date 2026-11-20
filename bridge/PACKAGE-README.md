@@ -176,12 +176,14 @@ python3 bridge/tests/manual_acceptance.py start \
 
 Use the native Codex executable, not `codex.js`. The fixture copies it, disables update checks, uses simulated providers A/B/C and prints its own open/restart/stop commands. Keep its diagnostics directory when reporting a failure. This developer fixture is run from the repository, not included in the end-user archive.
 
-Harbor settings: press `,` inside Harbor, use `Ctrl+B ,` in the workspace,
-or run `agent-harbor settings`. Edit the Harbor, settings and Magpie shortcuts,
-then Save; Restore defaults changes the draft until saved. `Ctrl+B s` keeps
-Herdr's native settings. Preferences apply only to the owned workspace. Direct
-Ctrl shortcuts can intercept CLI input and conflict with terminal or Emacs keys.
-Press `i` in settings to read full notices and scope; scroll with arrows.
+Press `,` inside Harbor, use the default `Ctrl+B ,` in the workspace,
+or run `agent-harbor settings`. Open a row in Workspace shortcuts to edit,
+add or remove bindings for the Herdr prefix, Harbor, Magpie, Settings or New
+session. For example, keep `prefix+a` and add `ctrl+g` to open Harbor both ways.
+Assign `ctrl+n` to open the New session form directly. Direct bindings take
+priority over the focused terminal. Changes apply to the owned workspace when
+you save with `Ctrl+S`. `Ctrl+R` restores defaults in the draft. Use the current
+prefix followed by `s` to open Herdr's native settings.
 If interrupted while saving, close clients and explicitly stop the owned
 workspace, then run `agent-harbor settings-recover` before reopening.
 

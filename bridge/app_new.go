@@ -36,6 +36,22 @@ func (m harborModel) filteredModels() []catalogModel {
 	}
 	return out
 }
+func (m *harborModel) prepareNewSession() tea.Cmd {
+	m.generation++
+	generation, profile, service := m.generation, m.activeProfile, m.service
+	m.screen = "new-project-loading"
+	return func() tea.Msg {
+		var env appEnvironment
+		var err error
+		if profile != nil {
+			env, err = service.ProfileEnvironment(*profile)
+		} else {
+			env, err = service.Environment()
+		}
+		return appNewReady{environment: env, err: err, generation: generation}
+	}
+}
+
 func (m harborModel) updateNew(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.formActive {
 		return m.updateForm(msg)

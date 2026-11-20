@@ -1,27 +1,31 @@
 package main
 
 import (
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"fmt"
+	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type settingsSaved struct{ err error }
+
 type settingsModel struct {
-	details               bool
-	help                  bool
+	details, help         bool
 	scroll                int
 	width, height, cursor int
-	values                shortcutPreferences
+	values, saved         shortcutPreferences
 	input                 textinput.Model
+	bindingsOpen          bool
+	bindingCursor         int
+	overviewScroll        int
 	editing, busy, closed bool
-	notice                string
+	notice, bindingNotice string
 	query                 string
 	searching             bool
-	hover                 string
-	nav                   string
-	saved                 shortcutPreferences
+	hover, nav            string
 }
 
 func newSettingsModel() settingsModel {
@@ -37,7 +41,9 @@ func newSettingsModel() settingsModel {
 	m.saved = m.values
 	return m
 }
+
 func (m settingsModel) Init() tea.Cmd { return nil }
+
 func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
@@ -50,20 +56,38 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg = navigationKey(key)
 		}
 	}
-
-	next, cmd := m.update(msg)
-	n := next.(settingsModel)
+	n, cmd := m.update(msg)
 	n.scroll = max(0, min(n.scroll, n.layout().MaxScroll))
+	_, resized := msg.(tea.WindowSizeMsg)
+	if !n.help && !n.details && !n.searching && !n.editing &&
+		(resized || m.cursor != n.cursor || m.bindingCursor != n.bindingCursor ||
+			m.bindingsOpen != n.bindingsOpen || m.editing || m.help || m.details || m.searching && !n.searching) {
+		n.revealSelection()
+	}
 	return n, cmd
 }
-func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+
+func (m *settingsModel) revealSelection() {
+	id := "control:" + strconv.Itoa(m.cursor)
+	if m.bindingsOpen {
+		id = "binding:" + strconv.Itoa(m.bindingCursor)
+	}
+	page := m.shortcutContent()
+	available := max(1, page.Height-len(page.shortcutBar().Lines))
+	for _, hit := range page.Hits {
+		if hit.ID == id {
+			m.scroll = max(hit.Y+hit.H-available, min(m.scroll, hit.Y))
+			return
+		}
+	}
+}
+
+func (m settingsModel) update(msg tea.Msg) (settingsModel, tea.Cmd) {
 	switch v := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = v.Width
-		m.height = v.Height
+		m.width, m.height = v.Width, v.Height
 	case settingsSaved:
 		m.busy = false
-		m.cursor = 0
 		if v.err != nil {
 			m.notice = v.err.Error()
 		} else {
@@ -71,53 +95,7 @@ func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.saved = m.values
 		}
 	case tea.MouseMsg:
-		page := m.layout()
-		target := page.target(v.X, v.Y)
-		if v.Action == tea.MouseActionMotion {
-			m.hover = strings.TrimPrefix(target, "nav:")
-			return m, nil
-		}
-		if m.details || m.help {
-			if v.Button == tea.MouseButtonWheelDown {
-				m.scroll++
-			}
-			if v.Button == tea.MouseButtonWheelUp {
-				m.scroll = max(0, m.scroll-1)
-			}
-		}
-		if v.Action != tea.MouseActionPress || v.Button != tea.MouseButtonLeft || m.busy {
-			return m, nil
-		}
-		if strings.HasPrefix(target, "nav:") && !m.editing {
-			return m.navigate(strings.TrimPrefix(target, "nav:"))
-		}
-		if target == "search" && !m.editing {
-			m.searching = true
-			return m, nil
-		}
-		if target == "details" {
-			m.searching = false
-			m.details = true
-			m.scroll = 0
-			return m, nil
-		}
-		if target == "back" {
-			return m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-		}
-		if target == "accept" {
-			return m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-		}
-		if strings.HasPrefix(target, "control:") && !m.editing {
-			i, _ := strconv.Atoi(strings.TrimPrefix(target, "control:"))
-			focused := m.cursor == i && !m.searching
-			m.cursor = i
-			m.searching = false
-			if i < 3 && !focused {
-				return m, nil
-			}
-			return m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-		}
-		return m, nil
+		return m.updateMouse(v)
 	case tea.KeyMsg:
 		if m.busy {
 			return m, nil
@@ -127,10 +105,24 @@ func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.closed = true
 			return m, tea.Quit
 		}
-		if key == "?" && !m.editing && !m.searching && !m.details && !m.help {
-			m.help = true
-			m.scroll = 0
+		if m.details || m.help {
+			switch key {
+			case "esc", "i", "?":
+				m.details, m.help = false, false
+				m.scroll = 0
+			case "pgdown":
+				m.scroll += max(1, m.height/2)
+			case "pgup":
+				m.scroll -= max(1, m.height/2)
+			case "down":
+				m.scroll++
+			case "up":
+				m.scroll--
+			}
 			return m, nil
+		}
+		if m.bindingsOpen {
+			return m.updateBindings(v)
 		}
 		if m.searching {
 			switch key {
@@ -142,14 +134,13 @@ func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "enter", "up", "down":
 				m.searching = false
-				if rows := m.filtered(); len(rows) > 0 {
+				rows := m.filtered()
+				m.cursor = -1
+				if len(rows) > 0 {
 					m.cursor = rows[0]
-				} else {
-					m.cursor = -1
 				}
 			case "backspace":
-				r := []rune(m.query)
-				if len(r) > 0 {
+				if r := []rune(m.query); len(r) > 0 {
 					m.query = string(r[:len(r)-1])
 				}
 			default:
@@ -157,45 +148,8 @@ func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.query += string(v.Runes)
 				}
 			}
+			m.scroll = 0
 			return m, nil
-		}
-		if m.details || m.help {
-			switch key {
-			case "esc", "i", "?":
-				m.details = false
-				m.help = false
-			case "pgdown":
-				m.scroll += max(1, m.height/2)
-			case "pgup":
-				m.scroll = max(0, m.scroll-max(1, m.height/2))
-			case "down", "j":
-				m.scroll++
-			case "up", "k":
-				m.scroll = max(0, m.scroll-1)
-			}
-			return m, nil
-		}
-		if m.editing {
-			if key == "esc" {
-				m.editing = false
-				return m, nil
-			}
-			if key == "enter" {
-				value := strings.TrimSpace(m.input.Value())
-				switch m.cursor {
-				case 0:
-					m.values.Harbor = value
-				case 1:
-					m.values.Settings = value
-				case 2:
-					m.values.Magpie = value
-				}
-				m.editing = false
-				return m, nil
-			}
-			var cmd tea.Cmd
-			m.input, cmd = m.input.Update(msg)
-			return m, cmd
 		}
 		switch key {
 		case "?":
@@ -203,66 +157,188 @@ func (m settingsModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scroll = 0
 		case "/":
 			m.searching = true
+			m.scroll = 0
 		case "i":
 			m.details = true
 			m.scroll = 0
-		case "esc", "q", "ctrl+c":
+		case "esc", "q":
 			m.closed = true
 			return m, tea.Quit
 		case "left", "right":
 			if tab := adjacentTab("settings", key); tab != "" {
-				return m.navigate(tab)
+				n, cmd := m.navigate(tab)
+				return n.(settingsModel), cmd
 			}
-		case "down":
-			m.cursor = m.nextControl(1)
-		case "up":
-			m.cursor = m.nextControl(-1)
-		case "ctrl+s", "ctrl+r":
-			if key == "ctrl+s" {
-				m.cursor = 4
-			} else {
-				m.cursor = 3
+		case "down", "up":
+			delta := 1
+			if key == "up" {
+				delta = -1
 			}
-			return m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-		case "enter":
-			if m.cursor < 0 || (m.cursor < 3 && len(m.filtered()) == 0) {
+			m.cursor = m.nextControl(delta)
+		case "ctrl+r":
+			m.values = defaultShortcuts()
+			m.notice = "Defaults restored in draft. Save to apply."
+		case "ctrl+s":
+			if err := validateShortcuts(m.values); err != nil {
+				m.notice = err.Error()
 				return m, nil
 			}
-			if m.cursor < 3 {
-				m.editing = true
-				m.input.SetValue(m.values.values()[m.cursor])
-				m.input.CursorEnd()
-				m.input.Focus()
-				return m, textinput.Blink
-			}
-			if m.cursor == 3 {
-				m.values = defaultShortcuts()
-				m.notice = "Defaults restored in draft. Save to apply."
-				m.cursor = 0
-			}
-			if m.cursor == 4 {
-				if err := validateShortcuts(m.values); err != nil {
-					m.notice = err.Error()
-					return m, nil
-				}
-				m.busy = true
-				p := m.values
-				return m, func() tea.Msg { return settingsSaved{saveShortcuts(p)} }
-			}
-			if m.cursor == 5 {
-				m.closed = true
-				return m, tea.Quit
+			m.busy = true
+			p, expected := m.values, m.saved
+			return m, func() tea.Msg { return settingsSaved{saveShortcuts(p, expected)} }
+		case "enter":
+			if slices.Contains(m.filtered(), m.cursor) {
+				m.bindingsOpen = true
+				m.bindingCursor = 0
+				m.overviewScroll, m.scroll = m.scroll, 0
+				m.bindingNotice = ""
 			}
 		}
 	}
 	return m, nil
 }
+
+func (m settingsModel) updateMouse(v tea.MouseMsg) (settingsModel, tea.Cmd) {
+	target := m.layout().target(v.X, v.Y)
+	if v.Action == tea.MouseActionMotion {
+		m.hover = target
+		return m, nil
+	}
+	if v.Button == tea.MouseButtonWheelDown {
+		m.scroll++
+	}
+	if v.Button == tea.MouseButtonWheelUp {
+		m.scroll--
+	}
+	if v.Action != tea.MouseActionPress || v.Button != tea.MouseButtonLeft || m.busy {
+		return m, nil
+	}
+	switch target {
+	case "search":
+		m.searching = true
+		m.scroll = 0
+	case "details":
+		m.searching = false
+		return m.update(uiKey("i"))
+	case "back":
+		return m.update(uiKey("esc"))
+	case "accept":
+		return m.update(uiKey("enter"))
+	case "save":
+		return m.update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	case "restore":
+		return m.update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	case "remove":
+		return m.update(tea.KeyMsg{Type: tea.KeyDelete})
+	}
+	kind, suffix, _ := strings.Cut(target, ":")
+	switch kind {
+	case "nav":
+		n, cmd := m.navigate(suffix)
+		return n.(settingsModel), cmd
+	case "binding":
+		index, _ := strconv.Atoi(suffix)
+		if m.bindingCursor == index {
+			return m.update(uiKey("enter"))
+		}
+		m.bindingCursor = index
+		m.bindingNotice = ""
+	case "control":
+		index, _ := strconv.Atoi(suffix)
+		if m.cursor == index && !m.searching {
+			return m.update(uiKey("enter"))
+		}
+		m.cursor = index
+		m.searching = false
+	}
+	return m, nil
+}
+
+func (m settingsModel) updateBindings(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
+	keys := m.values.bindings(m.cursor)
+	if m.editing {
+		switch msg.String() {
+		case "esc":
+			m.editing = false
+			m.bindingNotice = ""
+		case "enter":
+			key := strings.ToLower(strings.TrimSpace(m.input.Value()))
+			if err := validateShortcutKey(m.cursor, key); err != nil {
+				m.bindingNotice = err.Error()
+				return m, nil
+			}
+			for action := range shortcutCount {
+				if action != m.cursor && slices.Contains(m.values.bindings(action), key) {
+					m.bindingNotice = fmt.Sprintf("%s already uses %s", settingsLabels[action], key)
+					return m, nil
+				}
+			}
+			if m.bindingCursor == len(keys) {
+				keys = append(keys, key)
+			} else {
+				keys[m.bindingCursor] = key
+			}
+			draft := m.values
+			draft.setBindings(m.cursor, keys)
+			if err := validateShortcuts(draft); err != nil {
+				m.bindingNotice = err.Error()
+				return m, nil
+			}
+			m.values = draft
+			m.editing = false
+			m.bindingNotice = ""
+		default:
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+	switch msg.String() {
+	case "esc":
+		m.bindingsOpen = false
+		m.scroll = m.overviewScroll
+	case "up":
+		m.bindingCursor = max(0, m.bindingCursor-1)
+		m.bindingNotice = ""
+	case "down":
+		m.bindingCursor = min(len(keys), m.bindingCursor+1)
+		m.bindingNotice = ""
+	case "pgup":
+		m.bindingCursor = max(0, m.bindingCursor-max(1, m.height-4))
+	case "pgdown":
+		m.bindingCursor = min(len(keys), m.bindingCursor+max(1, m.height-4))
+	case "enter":
+		value := ""
+		if m.bindingCursor < len(keys) {
+			value = keys[m.bindingCursor]
+		}
+		m.input.SetValue(value)
+		m.input.CursorEnd()
+		m.editing = true
+		m.bindingNotice = ""
+		m.scroll = 0
+		return m, m.input.Focus()
+	case "delete":
+		if m.bindingCursor == len(keys) {
+			return m, nil
+		}
+		if len(keys) == 1 && m.cursor != shortcutNew {
+			m.bindingNotice = fmt.Sprintf("%s needs at least one shortcut", settingsLabels[m.cursor])
+			return m, nil
+		}
+		m.values.setBindings(m.cursor, slices.Delete(keys, m.bindingCursor, m.bindingCursor+1))
+		m.bindingNotice = ""
+	}
+	return m, nil
+}
+
 func (m settingsModel) navigate(nav string) (tea.Model, tea.Cmd) {
 	if nav == "settings" {
 		return m, nil
 	}
 	if m.values != m.saved {
-		m.notice = "Save changes or Cancel this draft before changing pages."
+		m.notice = "Save changes or cancel this draft before changing pages."
 		return m, nil
 	}
 	m.nav = nav
@@ -270,115 +346,146 @@ func (m settingsModel) navigate(nav string) (tea.Model, tea.Cmd) {
 	return m, tea.Quit
 }
 
-var settingsLabels = []string{"Harbor", "Settings", "Magpie", "Restore defaults", "Save changes", "Cancel"}
-
 func (m settingsModel) filtered() []int {
-	out := []int{}
-	for i := 0; i < 3; i++ {
-		if strings.Contains(strings.ToLower(settingsLabels[i]+" "+m.values.values()[i]), strings.ToLower(m.query)) {
-			out = append(out, i)
+	var rows []int
+	for _, action := range []int{shortcutPrefix, shortcutHarbor, shortcutMagpie, shortcutNew, shortcutSettings} {
+		text := settingsLabels[action] + " " + strings.Join(m.values.bindings(action), " ")
+		if strings.Contains(strings.ToLower(text), strings.ToLower(m.query)) {
+			rows = append(rows, action)
 		}
 	}
-	return out
+	return rows
 }
+
 func (m settingsModel) nextControl(delta int) int {
 	rows := m.filtered()
 	if len(rows) == 0 {
-		return 0
+		return -1
 	}
-	at := 0
-	for i, n := range rows {
-		if n == m.cursor {
-			at = i
-			break
-		}
+	at := slices.Index(rows, m.cursor)
+	if at == -1 {
+		return rows[0]
 	}
 	return rows[(at+delta+len(rows))%len(rows)]
 }
-func (m settingsModel) actions() []uiAction {
-	disabled := ""
-	if m.busy {
-		disabled = "Saving"
-	}
-	return []uiAction{{ID: "control:3", Label: "Restore defaults", Key: "Ctrl+R", Disabled: disabled}, {ID: "control:4", Label: "Save changes", Key: "Ctrl+S", Primary: true, Disabled: disabled}, {ID: "control:5", Label: "Cancel", Key: "Esc", Disabled: disabled}}
-}
+
+const shortcutScope = "Shortcuts affect only this Harbor workspace. Direct keys take priority over the focused terminal. A prefix binding works with every configured Herdr prefix."
+
 func (m settingsModel) layout() uiPage {
-	p := newUIPage(m.width, m.height)
-	p.line(paint(fg("brand"), "⚓ Harbor · Settings"))
 	if m.help {
-		return secondaryDocument(m.width, m.height, "Settings help", renderHelp(m.width, settingsHelp()), []uiAction{{ID: "back", Key: "esc", Label: "Back"}}, "back", m.scroll)
+		return secondaryDocument(m.width, m.height, "Settings help", renderHelp(m.width, settingsHelp()), []uiAction{{ID: "back", Key: "Esc", Label: "Back"}}, "back", m.scroll)
 	}
 	if m.details {
 		text := m.notice
-		if m.help {
-			text = "↑↓ / k j select fields. ←→ / h l switch main tabs. Enter edits a field; Enter accepts the draft, Esc cancels the edit.\n\nCtrl+S saves all changes. Ctrl+R restores defaults in the draft. Esc returns without saving. Unsaved changes block navigation to another tab.\n\n/ searches settings. Esc clears search before leaving it. i shows details for the current message.\n\nCtrl+Z suspends on supported terminals; resume keeps the draft.\n\nShortcuts apply only to this Harbor workspace. prefix is Ctrl+B; native Herdr settings remain prefix+s."
-		}
 		if text == "" {
-			text = actionHints(m.actions()) + "\n\n" + "Shortcuts affect only this owned Harbor workspace. prefix is Ctrl+B. Native Herdr settings remain prefix+s. Direct Ctrl keys intercept input before the CLI and may conflict with terminal encodings or Emacs bindings. Only unoccupied supported chords are accepted."
+			text = shortcutScope
 		}
-		title := "Settings details"
-		if m.help {
-			title = "Settings help"
-		}
-		return secondaryDocument(m.width, m.height, title, text, []uiAction{{ID: "back", Label: "Back", Key: "esc"}}, "back", m.scroll)
+		return secondaryDocument(m.width, m.height, "Settings details", text, []uiAction{{ID: "back", Key: "Esc", Label: "Back"}}, "back", m.scroll)
 	}
-	if p.Height >= 19 {
-		p.tabs("settings", m.hover, "")
+	return m.shortcutContent().finish(m.scroll)
+}
+
+func (m settingsModel) shortcutContent() uiPage {
+	if m.bindingsOpen {
+		return m.bindingContent()
+	}
+
+	p := newUIPage(m.width, m.height)
+	p.line(paint(fg("brand"), "⚓ Harbor · Settings"))
+	if p.Height >= 13 {
+		p.tabs("settings", strings.TrimPrefix(m.hover, "nav:"), "")
 	}
 	p.search(m.query, "Search settings", m.searching)
-	if p.Height >= 23 {
-		p.line("")
+	if p.Height >= 19 {
 		p.line(paint(fg("section"), "Workspace shortcuts"))
-		p.line("")
 	}
-	for _, i := range m.filtered() {
-		value := m.values.values()[i]
-		if m.editing && m.cursor == i {
-			value = m.input.View()
+	rows := m.filtered()
+	if len(rows) == 0 {
+		p.line(paint(fg("muted"), "No matching settings"))
+	}
+	for _, action := range rows {
+		value := strings.Join(m.values.bindings(action), " · ")
+		if value == "" {
+			value = "Unbound"
 		}
-		p.field("control:"+strconv.Itoa(i), []string{"🚢", "⚙", "🐦"}[i], settingsLabels[i], value, m.cursor == i && !m.searching, true)
+		icon := [shortcutCount]string{"🚢", "⚙", "🐦", "⌨️", "➕"}[action]
+		p.field("control:"+strconv.Itoa(action), icon, settingsLabels[action], value, m.cursor == action && !m.searching, true)
 	}
-	if len(m.filtered()) == 0 {
-		p.line("No matching settings. Clear the search to return.")
-	}
-	if m.editing {
-		p.shortcut(uiAction{ID: "accept", Label: "Accept field", Key: "Enter", Primary: true}, true)
-		p.shortcut(uiAction{ID: "back", Label: "Cancel edit", Key: "Esc"}, false)
-	} else {
-		if p.Height >= 23 {
-			p.line("")
-
-		}
-		actions := m.actions()
-		if p.Height >= 23 {
-			p.shortcuts([]uiAction{actions[0], actions[2], actions[1]}, "control:"+strconv.Itoa(m.cursor))
-		} else {
-			for i, a := range actions {
-				p.shortcut(a, m.cursor == i+3)
-			}
-		}
-	}
-	notice := m.notice
-	if m.busy {
-		notice = "Saving and reloading owned workspace…"
-	}
-	if notice == "" {
-		notice = ""
-	}
-	p.line(paint(fg("value"), cleanUI(notice)))
-	hint := "↑↓/jk fields · " + tabHint + " · Enter edit · / search · i Details · ? help"
-
-	if m.editing {
-		hint = ""
+	switch {
+	case m.busy:
+		p.line(paint(fg("value"), "Saving and reloading workspace…"))
+	case m.notice != "":
+		p.line(paint(fg("value"), cleanUI(m.notice)))
+	case m.values != m.saved:
+		p.line(paint(fg("muted"), "Unsaved changes"))
 	}
 	if m.searching {
-		hint = "Type search · ↵ fields · Esc clear/back"
+		p.Hint = "Type search · Enter fields · Esc clear/back"
+		return p
 	}
-	p.Hint = hint
-
-	return p.finish(0)
+	if m.busy {
+		return p
+	}
+	if len(rows) > 0 {
+		p.shortcut(uiAction{ID: "accept", Key: "Enter", Label: "Edit bindings"}, false)
+	}
+	p.shortcuts([]uiAction{
+		{ID: "save", Key: "Ctrl+S", Label: "Save changes", Primary: true},
+		{ID: "back", Key: "Esc", Label: "Back"},
+		{ID: "restore", Key: "Ctrl+R", Label: "Restore defaults"},
+		{ID: "details", Key: "i", Label: "Details"},
+	}, "")
+	p.Hint = "↑↓/jk fields · " + tabHint + " · / search · ? help"
+	return p
 }
+
+func (m settingsModel) bindingContent() uiPage {
+	p := newUIPage(m.width, m.height)
+	p.line(paint(fg("brand"), "⚓ Settings · "+settingsLabels[m.cursor]))
+	keys := m.values.bindings(m.cursor)
+	if m.editing {
+		title, placeholder := "Edit shortcut", "e.g. prefix+a or ctrl+g"
+		if m.bindingCursor == len(keys) {
+			title = "Add shortcut"
+		}
+		if m.cursor == shortcutPrefix {
+			placeholder = "e.g. ctrl+b or f12"
+		}
+		p.line(paint(fg("section"), title))
+		for _, line := range strings.Split(textEntry(m.input, p.Width, placeholder), "\n") {
+			p.line(line)
+		}
+		p.shortcuts([]uiAction{{ID: "accept", Key: "Enter", Label: "Apply to draft", Primary: true}, {ID: "back", Key: "Esc", Label: "Cancel edit"}}, "")
+	} else {
+		height := p.Height
+		p.Height = max(height, len(keys)+2)
+		for i := 0; i <= len(keys); i++ {
+			label := "Add shortcut"
+			if i < len(keys) {
+				label = keys[i]
+			}
+			id := "binding:" + strconv.Itoa(i)
+			p.listRow(id, "", label, "", uiRowStyle{cursor: m.bindingCursor == i, hovered: m.hover == id})
+		}
+		p.Height = height
+		label := "Add"
+		if m.bindingCursor < len(keys) {
+			label = "Edit"
+		}
+		p.shortcuts([]uiAction{{ID: "accept", Key: "Enter", Label: label, Primary: true}, {ID: "back", Key: "Esc", Label: "Back"}}, "")
+		if m.bindingCursor < len(keys) && (len(keys) > 1 || m.cursor == shortcutNew) {
+			p.shortcut(uiAction{ID: "remove", Key: "Delete", Label: "Remove"}, false)
+		}
+		p.Hint = "↑↓/jk select"
+	}
+	if m.bindingNotice != "" {
+		p.line(paint(fg("value"), cleanUI(m.bindingNotice)))
+	}
+	return p
+}
+
 func (m settingsModel) View() string { return m.layout().view() }
+
 func runSettingsApp() error {
 	result, err := tea.NewProgram(newSettingsModel(), tea.WithAltScreen(), tea.WithMouseAllMotion()).Run()
 	if err != nil {

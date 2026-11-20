@@ -1,5 +1,21 @@
 # UI 实机走查 — 2026-11-17
 
+## 工作区快捷键（2026-11-20）
+
+Settings 按动作列出 Herdr 前缀、Harbor、Magpie、新建会话和设置。
+Enter 打开绑定列表，可添加、修改或删除单个键位。改动先存为草稿，
+Ctrl+S 校验并热加载。冲突提示显示已使用键位的动作。升级保留旧绑定，
+默认仍用 Ctrl+B，新建会话的直达键按需设置。
+
+CNB Linux amd64 使用打包的 Herdr 0.9.5、原生 Codex 0.170.0 和隔离
+tmux。在 160×45、100×30、80×24、60×24 实走鼠标与键盘编辑、重复绑定
+提示、取消、保存、双前缀、替换前缀和重启。验证了 `prefix+a` 与
+`Ctrl+G` 打开同一个 Harbor 弹窗，`Ctrl+T` 打开 Magpie，`Ctrl+N`
+打开新建会话表单。取消表单后会话列表为空。彩色和无色模式均通过，
+也检查了 Harbor 内的 Settings 搜索返回和传统 `n` 入口。
+macOS 和远端客户端此次未实测。
+[验收步骤](../bridge/tests/README.md#workspace-shortcuts)
+
 ## Accounts 原窗口切号（2026-11-20）
 
 Accounts 通过 Herdr 检查受影响的 Codex 窗口，忙时显示正在等哪个窗口，Esc 取消。结果页先显示 Profile 保存的登录，再显示各窗口是否采用；旧窗口没有专用 App Server 不再导致空闲状态被误判。不登录仍保留原账号列表。

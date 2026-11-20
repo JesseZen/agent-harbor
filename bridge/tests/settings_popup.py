@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Real Herdr 0.9.5 mouse regression; owns all state and synthetic records."""
-import argparse, http.server, os, pathlib, shlex, shutil, subprocess, tempfile, threading, time
+"""Real Herdr shortcut editor, live reload, popup routing and visual captures."""
+import argparse, http.server, json, os, pathlib, shlex, shutil, subprocess, tempfile, threading, time
 
 p=argparse.ArgumentParser();p.add_argument('--binary',required=True);p.add_argument('--herdr',required=True);p.add_argument('--codex',required=True);p.add_argument('--no-color',action='store_true');a=p.parse_args()
 # Exclusively own the discovery address; never probe an existing service.
@@ -41,57 +41,154 @@ try:
  launcher=root/'launch.sh'
  launcher.write_text('#!/bin/sh\n'+''.join('export '+key+'='+shlex.quote(value)+'\n' for key,value in env.items())+'agent-harbor\nprintf \"exit %s\\n\" \"$?\"\nexec /bin/sh\n')
  launcher.chmod(0o700)
+ workspace = root / 'harbor'
+ prefs = workspace / 'shortcuts.json'
+ legacy = {'harbor': 'prefix+a', 'settings': 'prefix+,', 'magpie': 'prefix+m'}
  tm('new-session','-d','-s','app','-x','160','-y','45',str(launcher))
- out=wait('Harbor ^B a')
+ wait('Harbor ^B a')
+ prefs.write_text(json.dumps(legacy))
+ prefs.chmod(0o600)
 
- def keys(*items):tm('send-keys','-t','app:0.0',*items);time.sleep(.5)
- for cols,rows in [(60,20),(100,30),(160,45)]:
-  tm('resize-window','-t','app:0','-x',str(cols),'-y',str(rows));time.sleep(.4)
-  keys('C-b');keys(',');wait('Harbor · Settings')
-  (root/('settings-'+str(cols)+'.ansi')).write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
-  keys('Escape')
- keys('C-b');keys('a');wait('Search sessions');keys(',');wait('Harbor · Settings')
+ def keys(*items):
+  if items[0] == '-l':
+   tm('send-keys', '-t', 'app:0.0', *items)
+   time.sleep(.15)
+   return
+  for key in items:
+   tm('send-keys', '-t', 'app:0.0', key)
+   time.sleep(.2 if key == 'Escape' else .1)
+
+ def snapshot(name, width):
+  (root / f'{name}-{width}.ansi').write_text(tm('capture-pane', '-e', '-p', '-t', 'app:0.0'))
+
+ def edit(value):
+  keys('C-u')
+  keys('-l', value)
+  keys('Enter')
+
  def click(label):
-  lines=capture().splitlines();y=next(i for i,line in enumerate(lines) if label in line)
-  prefix=lines[y][:lines[y].index(label)]
   import unicodedata
-  x=sum(2 if unicodedata.east_asian_width(c) in ('W','F') else 0 if unicodedata.combining(c) else 1 for c in prefix)+1
-  tm('send-keys','-t','app:0.0','-l',f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m');time.sleep(.5)
- # Verify motion through Herdr separately from click support. Some host
- # terminals forward clicks only; that is recorded without inventing hover.
- lines=capture().splitlines();y=next(i for i,l in enumerate(lines) if 'Connections' in l);x=lines[y].index('Connections')+1
- tm('send-keys','-t','app:0.0','-l',f'\x1b[<35;{x};{y+1}M');time.sleep(.4)
- motion=tm('capture-pane','-e','-p','-t','app:0.0');(root/'hover-160.ansi').write_text(motion)
- (root/'motion.txt').write_text('underline observed through Herdr' if '\x1b[4m' in motion else 'motion underline not observed; click and keyboard supported')
- click('Details');wait('Shortcuts affect only');click('Back');wait('Search settings')
- click('Search settings');keys('-l','Magpie');assert 'prefix+m' in capture() and 'prefix+a' not in capture()
- keys('Escape');keys('Escape')
- click('prefix+a');keys('C-u');keys('-l','prefix+t');click('Accept field')
- click('prefix+,');click('prefix+,');keys('C-u');keys('-l','ctrl+g');click('Accept field')
- click('prefix+m');click('prefix+m');keys('C-u');keys('-l','prefix+f');click('Accept field')
- click('Save changes');out=wait('Saved for this workspace');(root/'settings-saved-160.ansi').write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
- (root/'saved.txt').write_text(out)
- import json
- assert json.loads((root/'harbor/shortcuts.json').read_text())=={'harbor':'prefix+t','settings':'ctrl+g','magpie':'prefix+f'}
- # A separate keyboard-only edit/save path reuses the persisted values.
- keys('Escape');keys(',');wait('Harbor · Settings')
- for value in ['prefix+t','ctrl+g','prefix+f']:
-  keys('Enter');keys('C-u');keys('-l',value);keys('Enter');keys('Down')
- keys('Down');keys('Enter');wait('Saved for this workspace')
- assert json.loads((root/'harbor/shortcuts.json').read_text())=={'harbor':'prefix+t','settings':'ctrl+g','magpie':'prefix+f'}
- keys('Escape');keys('q');time.sleep(.3)
- keys('C-b');keys('t');wait('Search sessions');keys('q')
- keys('C-b');keys('f');wait('No recorded instances.');keys('q')
- keys('C-g');wait('Harbor · Settings');keys('Escape')
- # Detach and re-enter exact generated configuration, then stop and reopen.
- keys('C-b');keys('q');wait('exit 0')
- tm('send-keys','-t','app:0.0','C-c');tm('send-keys','-t','app:0.0','-l',str(root/'bin/agent-harbor'));keys('Enter');wait('Harbor ^B t')
- keys('C-g');wait('Harbor · Settings');keys('Escape');keys('C-b');keys('q')
- run([root/'bin/agent-harbor','stop'])
- tm('send-keys','-t','app:0.0','C-c');tm('send-keys','-t','app:0.0','-l',str(root/'bin/agent-harbor'));keys('Enter');wait('Harbor ^B t')
- keys('C-g');wait('Harbor · Settings')
- (root/'saved.ansi').write_text(tm('capture-pane','-e','-p','-t','app:0.0'))
- print('PASS actual check/reload/new shortcut/settings popup three sizes/reentry/restart',root)
+  lines = capture().splitlines()
+  y = next(i for i, line in enumerate(lines) if label in line)
+  prefix = lines[y][:lines[y].index(label)]
+  x = sum(2 if unicodedata.east_asian_width(c) in ('W', 'F') else 0 if unicodedata.combining(c) else 1 for c in prefix) + 1
+  keys('-l', f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m')
+
+ keys('C-b', ',')
+ wait('Harbor · Settings')
+ assert json.loads(prefs.read_text()) == legacy
+ # Keep the existing prefix binding and add a direct alias via the mouse.
+ click('prefix+a')
+ wait('Add shortcut')
+ click('Add shortcut')
+ click('Add shortcut')
+ wait('Apply to draft')
+ edit('ctrl+g')
+ wait('ctrl+g')
+ keys('Enter')
+ edit('prefix+m')
+ wait('Magpie already uses prefix+m')
+ snapshot('shortcut-conflict', 160)
+ keys('Escape', 'Escape')
+ wait('Search settings')
+ keys('Up', 'Enter', 'Down', 'Enter')
+ wait('Apply to draft')
+ edit('ctrl+a')
+ keys('Escape', 'Down', 'Down', 'Enter', 'Down', 'Enter')
+ wait('Apply to draft')
+ edit('ctrl+t')
+ keys('Escape', 'Down', 'Enter', 'Enter')
+ wait('Apply to draft')
+ edit('ctrl+n')
+ keys('Escape', 'C-s')
+ wait('Saved for this workspace')
+ saved = {**legacy, 'harbor': 'prefix+a ctrl+g', 'magpie': 'prefix+m ctrl+t',
+          'prefix': 'ctrl+b ctrl+a', 'new_session': 'ctrl+n'}
+ assert json.loads(prefs.read_text()) == saved
+ keys('Escape')
+
+ for cols, rows in [(160,45),(100,30),(80,24),(60,24)]:
+  tm('resize-window', '-t', 'app:0', '-x', str(cols), '-y', str(rows))
+  time.sleep(.35)
+  keys('C-a', ',')
+  wait('Harbor · Settings')
+  snapshot('shortcuts', cols)
+  keys('Enter')
+  wait('Add shortcut')
+  snapshot('shortcut-bindings', cols)
+  keys('Down', 'Down', 'Enter')
+  wait('Apply to draft')
+  snapshot('shortcut-add', cols)
+  keys('Escape', 'Escape', 'Escape')
+  keys('C-g')
+  wait('Search sessions')
+  snapshot('sessions', cols)
+  keys('q')
+  keys('C-t')
+  wait('No recorded instances')
+  snapshot('magpie', cols)
+  keys('q')
+  keys('C-n')
+  wait('New session')
+  wait('Project')
+  snapshot('new-session', cols)
+  keys('Escape')
+  wait('Search sessions')
+  keys('q')
+
+ # Verify both prefixes, both Harbor aliases and both Magpie aliases live.
+ for prefix in ('C-b', 'C-a'):
+  keys(prefix, 'a')
+  wait('Search sessions')
+  keys('q')
+ keys('C-a', 'm')
+ wait('No recorded instances')
+ keys('q')
+
+ tm('resize-window', '-t', 'app:0', '-x', '160', '-y', '45')
+ keys('C-a', ',')
+ wait('Search settings')
+ # Remove the default prefix and check the new prefix via a live reload.
+ keys('Up', 'Enter', 'Delete', 'Escape', 'C-s')
+ wait('Saved for this workspace')
+ assert json.loads(prefs.read_text()) == {**saved, 'prefix': 'ctrl+a'}
+ keys('Escape', 'C-b', 'a')
+ assert 'Search sessions' not in capture()
+ keys('C-a', 'a')
+ wait('Search sessions')
+ keys('q', 'C-a', 'q')
+ wait('exit 0')
+ run([root / 'bin/agent-harbor', 'stop'])
+ tm('send-keys', '-t', 'app:0.0', '-l', str(root / 'bin/agent-harbor'))
+ keys('Enter')
+ wait('Harbor ^A a')
+ keys('C-n')
+ wait('Project')
+ keys('Escape', 'q')
+ assert run([root / 'bin/agent-harbor', 'sessions', '--json']).stdout.strip() in ('[]', 'null')
+ keys('C-a', ',')
+ wait('Search settings')
+ keys('C-r')
+ wait('Defaults restored in draft')
+ assert json.loads(prefs.read_text()) == {**saved, 'prefix': 'ctrl+a'}
+ keys('C-s')
+ wait('Saved for this workspace')
+ assert json.loads(prefs.read_text()) == legacy
+ keys('Escape', 'C-b', 'a')
+ wait('Search sessions')
+ keys(',')
+ wait('Search settings')
+ keys('/')
+ keys('-l', 'Magpie')
+ filtered = wait('prefix+m')
+ assert 'prefix+a' not in filtered
+ keys('Escape', 'Escape', 'Escape')
+ wait('Search sessions')
+ keys('n')
+ wait('Project')
+ keys('Escape')
+ wait('Search sessions')
+ print('PASS shortcuts, prefix aliases and replacement, live reload, restart and popup captures', root)
 finally:
  run([root/'bin/agent-harbor','stop'],check=False)
  run([tmux,'-S',sock,'kill-server'],check=False)

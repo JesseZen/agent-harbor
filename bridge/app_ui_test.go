@@ -38,7 +38,7 @@ func TestSettingsLayoutControlsRemainReachable(t *testing.T) {
 				t.Fatal("overflow", sz, line)
 			}
 		}
-		for _, id := range []string{"control:0", "control:1", "control:2", "control:3", "control:4", "control:5", "search"} {
+		for _, id := range []string{"control:0", "control:1", "control:2", "control:3", "control:4", "save", "back", "search"} {
 			found := false
 			for _, r := range p.Hits {
 				if r.ID == id {

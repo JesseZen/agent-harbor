@@ -55,7 +55,9 @@ func run(args []string) error {
 	case "_focus":
 		return focusAfterPopup(args[1:])
 	case "_picker", "_app":
-		return runHarborApp()
+		return runHarborApp(false)
+	case "_new":
+		return runHarborApp(true)
 	case "settings", "_settings":
 		if len(args) != 1 {
 			return errors.New("usage: settings")
@@ -170,11 +172,11 @@ First use:
   Managed Magpie has its own configuration and keeps running until stopped.
   External processes remain under your control.
 
-Inside the workspace:
+Inside the workspace (default shortcuts):
   Ctrl+B a opens Harbor; p manages Profiles; n creates a named session.
   New sessions capture the selected Profile; existing sessions keep their own.
   Ctrl+B , opens Harbor settings (also agent-harbor settings).
-  Ctrl+B s opens Herdr settings. Workspace shortcuts are configurable.
+  Ctrl+B s opens Herdr settings. Harbor Settings configures the prefix and shortcuts.
   Ctrl+B m opens Magpie management for the current pane's connection.
   Ctrl+B ? lists workspace shortcuts; ? inside Harbor shows screen help.
   Enter focuses a running session or reviews recovery with explicit confirmation.

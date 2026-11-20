@@ -165,11 +165,20 @@ Startup now opens the workspace directly after dependency checks. The runner ret
 
 `manual_acceptance.py start --binary B --herdr H --magpie M --codex NATIVE_C` provides the separate one-command manual environment. Follow its printed open/restart/status/stop commands. Stop preserves diagnostics and only stops fixture-owned resources. A prebuilt package does not require Go or Node for this fixture.
 
-`settings_popup.py` runs the settings popup against real isolated Herdr0.9.5,
-copied native Codex (updates disabled), three terminal sizes, configuration
-save/reload, all three shortcut remaps including directCtrl, reentry and restart.
-Uses the same owned discovery guard and full state isolation as mouse_popup.py.
-Settings transaction failure/rollback/recovery tests live in settings_test.go.
+## Workspace shortcuts
+
+```sh
+python3 bridge/tests/settings_popup.py --binary HARBOR --herdr HERDR --codex NATIVE_CODEX
+```
+
+This gate uses isolated Herdr 0.9.5, copied native Codex with updates disabled
+and an owned tmux server. It checks scalar preferences, mouse and keyboard
+editing, conflicts, two active prefixes, alternate and direct popup bindings,
+live reload, restart and restore defaults. The direct creation binding opens
+the form and cancellation leaves the workspace without a new session.
+The runner keeps ANSI captures at outer 160×45, 100×30, 80×24 and 60×24.
+Render the 60-column captures separately with `--rows 24`.
+Settings transaction failure and recovery tests live in `settings_test.go`.
 
 For authoritative runtime state acceptance, run the isolated application gate:
 

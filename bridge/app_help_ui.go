@@ -85,9 +85,9 @@ func (m harborModel) contextHelp() []helpSection {
 }
 func settingsHelp() []helpSection {
 	return []helpSection{
-		{"Navigation", []helpRow{{"←→ / h l", "Switch main tabs"}, {"↑↓ / k j", "Choose a field"}, {"Enter", "Edit field; accept draft value"}, {"Esc", "Cancel edit or return without saving"}, {"/", "Search settings"}, {"PgUp/PgDn", "Scroll help and details"}}},
+		{"Navigation", []helpRow{{"←→ / h l", "Switch main tabs"}, {"↑↓ / k j", "Choose a field or shortcut"}, {"Enter", "Open bindings, edit a shortcut or apply to the draft"}, {"Delete", "Remove the selected shortcut"}, {"Esc", "Cancel edit or return without saving"}, {"/", "Search settings"}, {"PgUp/PgDn", "Scroll bindings, help and details"}}},
 		{"Changes", []helpRow{{"^S", "Save all changes"}, {"^R", "Restore defaults in the draft"}, {"i", "Inspect the current message"}, {"?", "Open keyboard help"}}},
-		{"Workspace", []helpRow{{"prefix", "Ctrl+B; shortcuts affect this workspace only"}, {"prefix+s", "Open native Herdr settings"}, {"^Z", "Suspend; resume retains the draft"}, {"^C", "Close Harbor"}}},
+		{"Workspace", []helpRow{{"prefix", "Any configured Herdr prefix (default Ctrl+B)"}, {"prefix+s", "Open native Herdr settings"}, {"^Z", "Suspend; resume retains the draft"}, {"^C", "Close Harbor"}}},
 	}
 }
 

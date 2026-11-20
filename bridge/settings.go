@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -19,32 +21,94 @@ type shortcutPreferences struct {
 	Harbor   string `json:"harbor"`
 	Settings string `json:"settings"`
 	Magpie   string `json:"magpie"`
+	Prefix   string `json:"prefix,omitempty"`
+	New      string `json:"new_session,omitempty"`
 }
 
 func defaultShortcuts() shortcutPreferences {
-	return shortcutPreferences{"prefix+a", "prefix+,", "prefix+m"}
+	return shortcutPreferences{Harbor: "prefix+a", Settings: "prefix+,", Magpie: "prefix+m"}
 }
-func (p shortcutPreferences) values() []string { return []string{p.Harbor, p.Settings, p.Magpie} }
 
-// Pinned Herdr0.9.5 model.rs KeysConfig defaults. Restrict grammar so shifted,
-// indexed and navigation aliases cannot displace effective built-in bindings.
-var shortcutSyntax = regexp.MustCompile(`^(prefix\+[a-z,.;/]|ctrl\+[a-z])$`)
+const (
+	shortcutHarbor = iota
+	shortcutSettings
+	shortcutMagpie
+	shortcutPrefix
+	shortcutNew
+	shortcutCount
+)
+
+var settingsLabels = [shortcutCount]string{"Harbor", "Settings", "Magpie", "Herdr prefix", "New session"}
+
+func (p shortcutPreferences) prefixes() []string {
+	if p.Prefix == "" {
+		return []string{"ctrl+b"}
+	}
+	return strings.Fields(p.Prefix)
+}
+
+func (p shortcutPreferences) bindings(action int) []string {
+	if action == shortcutPrefix {
+		return p.prefixes()
+	}
+	values := [shortcutCount]string{p.Harbor, p.Settings, p.Magpie, p.Prefix, p.New}
+	return strings.Fields(values[action])
+}
+
+func (p *shortcutPreferences) setBindings(action int, bindings []string) {
+	values := [shortcutCount]*string{&p.Harbor, &p.Settings, &p.Magpie, &p.Prefix, &p.New}
+	value := strings.Join(bindings, " ")
+	if action == shortcutPrefix && value == "ctrl+b" {
+		value = ""
+	}
+	*values[action] = value
+}
+
+// Keep the existing grammar for prefix actions. Herdr also checks the effective
+// keymap, including aliases and conflicts with its built-in actions, before save.
+var prefixActionSyntax = regexp.MustCompile(`^prefix\+[a-z,.;/]$`)
+var directShortcutSyntax = regexp.MustCompile(`^((ctrl\+(alt\+)?|alt\+)[a-z]|f([1-9]|1[0-2]))$`)
 
 func validateShortcuts(p shortcutPreferences) error {
-	seen := map[string]bool{}
-	for _, k := range p.values() {
-		if !shortcutSyntax.MatchString(k) {
-			return errors.New("use prefix+ followed by a lowercase letter or , . ; /, or ctrl+letter")
+	seen := map[string]int{}
+	for _, action := range []int{shortcutPrefix, shortcutHarbor, shortcutSettings, shortcutMagpie, shortcutNew} {
+		keys := p.bindings(action)
+		if len(keys) == 0 && action != shortcutNew {
+			return fmt.Errorf("%s needs at least one shortcut", settingsLabels[action])
 		}
-		if seen[k] {
-			return errors.New("each shortcut must be different")
-		}
-		seen[k] = true
-		if k == "ctrl+b" || k == "ctrl+v" || strings.HasPrefix(k, "prefix+") && strings.Contains("bceghjklnopqrsvwxz", strings.TrimPrefix(k, "prefix+")) {
-			return fmt.Errorf("%s is reserved by Herdr 0.9.5", k)
+		for _, key := range keys {
+			if err := validateShortcutKey(action, key); err != nil {
+				return err
+			}
+			if owner, exists := seen[key]; exists {
+				return fmt.Errorf("%s already uses %s", settingsLabels[owner], key)
+			}
+			seen[key] = action
 		}
 	}
 	return nil
+}
+
+func validateShortcutKey(action int, key string) error {
+	prefixAction := action != shortcutPrefix && prefixActionSyntax.MatchString(key)
+	if !prefixAction && !directShortcutSyntax.MatchString(key) {
+		return fmt.Errorf("%s has an unsupported shortcut: %s", settingsLabels[action], key)
+	}
+	if key == "ctrl+v" || prefixAction && strings.Contains("bceghjklnopqrsvwxz", strings.TrimPrefix(key, "prefix+")) {
+		return fmt.Errorf("%s is reserved by Herdr", key)
+	}
+	return nil
+}
+
+func herdrShortcutValue(keys []string) string {
+	if len(keys) == 1 {
+		return strconv.Quote(keys[0])
+	}
+	quoted := make([]string, len(keys))
+	for i, key := range keys {
+		quoted[i] = strconv.Quote(key)
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
 }
 func readShortcuts(root string) (shortcutPreferences, error) {
 	p := defaultShortcuts()
@@ -64,9 +128,8 @@ func readShortcuts(root string) (shortcutPreferences, error) {
 	if err = validateShortcuts(p); err != nil {
 		return p, err
 	}
-	canonical, _ := json.Marshal(p)
 	var extra any
-	if d.Decode(&extra) != io.EOF || len(canonical) == 0 {
+	if d.Decode(&extra) != io.EOF {
 		return p, errors.New("invalid shortcuts.json")
 	}
 	return p, nil
@@ -78,18 +141,30 @@ func configWithShortcuts(bin string, p shortcutPreferences) string {
   [{ token = "machine", fg = "#9399b2", dim = false }, { token = "workspace", fg = "#9399b2", bold = false, dim = false }, { token = "agent", fg = "#89b4fa", bold = false, rules = [{ equals = "claude", fg = "#fab387" }, { equals = "pi", fg = "#94e2d5" }] }],
   [{ token = "$harbor", fg = "#9399b2", dim = false }],
 ]`, 1)
-	config = strings.Replace(config, `key = "prefix+a"`, `key = "HARBOR_KEY"`, 1)
-	config = strings.Replace(config, `key = "prefix+m"`, `key = "`+p.Magpie+`"`, 1)
-	config = strings.Replace(config, `key = "HARBOR_KEY"`, `key = "`+p.Harbor+`"`, 1)
+	config = strings.NewReplacer(
+		`key = "prefix+a"`, "key = "+herdrShortcutValue(p.bindings(shortcutHarbor)),
+		`key = "prefix+m"`, "key = "+herdrShortcutValue(p.bindings(shortcutMagpie)),
+	).Replace(config)
+	if !slices.Equal(p.prefixes(), defaultShortcuts().prefixes()) {
+		config = strings.Replace(config, "[[keys.command]]", "[keys]\nprefix = "+herdrShortcutValue(p.prefixes())+"\n\n[[keys.command]]", 1)
+	}
+	config += shortcutPopup(bin, "_settings", "Agent Harbor settings", p.bindings(shortcutSettings))
+	if keys := p.bindings(shortcutNew); len(keys) > 0 {
+		config += shortcutPopup(bin, "_new", "New Harbor session", keys)
+	}
+	return config
+}
+
+func shortcutPopup(bin, entry, description string, keys []string) string {
 	quote := "'" + strings.ReplaceAll(bin, "'", "'\\''") + "'"
-	command, _ := json.Marshal(quote + " _settings")
-	return config + fmt.Sprintf("\n[[keys.command]]\nkey = %q\ntype = \"popup\"\ncommand = %s\ndescription = \"Agent Harbor settings\"\nwidth = \"80%%\"\nheight = \"80%%\"\n", p.Settings, command)
+	command, _ := json.Marshal(quote + " " + entry)
+	return fmt.Sprintf("\n[[keys.command]]\nkey = %s\ntype = \"popup\"\ncommand = %s\ndescription = %q\nwidth = \"80%%\"\nheight = \"80%%\"\n", herdrShortcutValue(keys), command, description)
 }
 func herdrConfig(bin string) string { return configWithShortcuts(bin, defaultShortcuts()) }
 
 // Save and workspace preparation serialize on the same lock. The journal makes
 // a crash between the two atomic renames visible rather than silently accepted.
-func saveShortcuts(p shortcutPreferences) error {
+func saveShortcuts(p, expected shortcutPreferences) error {
 	if err := validateShortcuts(p); err != nil {
 		return err
 	}
@@ -116,6 +191,9 @@ func saveShortcuts(p shortcutPreferences) error {
 	old, err := readShortcuts(root)
 	if err != nil {
 		return err
+	}
+	if old != expected {
+		return errors.New("shortcuts changed in another window. Reopen Settings to load them")
 	}
 	env, snapshot, err := managedEnvironment(root)
 	if err != nil {

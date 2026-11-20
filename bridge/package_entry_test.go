@@ -97,7 +97,7 @@ func TestWorkspacePackageEntryFollowsVerifiedRelease(t *testing.T) {
 }
 
 func TestGeneratedPopupConfigRequiresExactOwnership(t *testing.T) {
-	shortcuts := shortcutPreferences{"prefix+t", "ctrl+g", "prefix+f"}
+	shortcuts := shortcutPreferences{Harbor: "prefix+t", Settings: "ctrl+g", Magpie: "prefix+f"}
 	bin := "/uninstalled/homebrew's keg/libexec/agent-harbor"
 	config := configWithShortcuts(bin, shortcuts)
 	if got := generatedConfigExecutable(config, shortcuts); got != bin {

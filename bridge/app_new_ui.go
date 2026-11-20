@@ -67,7 +67,7 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 			name = "Automatic · " + filepath.Base(m.draft.Directory)
 		}
 		values := []string{m.draft.Directory, m.selectedClient(), connection, model, codexOptionsValue(m.draft.CodexOptions).summary(), name}
-		icons := []string{"📂", "🤖", "🔌", "🧠", "", "💬"}
+		icons := []string{"📂", "🤖", "🔌", "🧠", "🎛️", "💬"}
 		for i := range values {
 			if i == formOptions && m.selectedClient() != "codex" {
 				continue

@@ -19,7 +19,10 @@ func harborStatus() string {
 		return entry + " · unknown"
 	}
 	if p, e := readShortcuts(root); e == nil {
-		entry = "⚓ Harbor " + strings.Replace(p.Harbor, "prefix+", "^B ", 1) + " · Magpie " + strings.Replace(p.Magpie, "prefix+", "^B ", 1)
+		prefix := statusKey(p.prefixes()[0])
+		harbor := strings.Replace(p.bindings(shortcutHarbor)[0], "prefix+", prefix+" ", 1)
+		magpie := strings.Replace(p.bindings(shortcutMagpie)[0], "prefix+", prefix+" ", 1)
+		entry = "⚓ Harbor " + harbor + " · Magpie " + magpie
 	} else {
 		entry = "⚓ Harbor · shortcut settings need attention"
 	}
@@ -53,4 +56,11 @@ func harborStatus() string {
 		return entry + " · unknown"
 	}
 	return entry + " · online (identity unchecked)"
+}
+
+func statusKey(key string) string {
+	if letter, ok := strings.CutPrefix(key, "ctrl+"); ok && len(letter) == 1 {
+		return "^" + strings.ToUpper(letter)
+	}
+	return key
 }

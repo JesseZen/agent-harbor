@@ -62,6 +62,10 @@ available and disables pending automatic capture. Older records retain their
 names. Other clients keep the project/connection fallback until their title
 capability is verified. See [Herdr integration](herdr-integration.md).
 
+Settings → Workspace shortcuts configures the Herdr prefix and one or more
+bindings per action. See [Workspace shortcuts](workspace-shortcuts.md) for
+defaults, editing and the direct New session entry.
+
 New session → Options sets Codex-only launch overrides: Sandbox, Approval,
 Reasoning, configured context window, automatic compaction token limit,
 post-turn compaction percent, and additional writable directories. Unset means

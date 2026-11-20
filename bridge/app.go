@@ -158,6 +158,7 @@ type harborModel struct {
 	connectionCursor    int
 	clientCursor        int
 	referenceAccepted   bool
+	newOnOpen           bool
 }
 
 func newHarborModel(s applicationService) harborModel {
@@ -381,11 +382,18 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if m.notice == previousDiscovery {
 			m.notice = ""
 		}
+		var newSession tea.Cmd
+		if m.newOnOpen {
+			m.newOnOpen = false
+			if m.screen == "new-project-loading" {
+				newSession = m.prepareNewSession()
+			}
+		}
 		if !m.pollScheduled {
 			m.pollScheduled = true
-			return m, tea.Batch(m.refreshTimer(), accounts)
+			return m, tea.Batch(m.refreshTimer(), accounts, newSession)
 		}
-		return m, accounts
+		return m, tea.Batch(accounts, newSession)
 	case appSessionInspected:
 		if m.refreshContext.Err() != nil || m.screen != "busy" || m.reviewed.ID != msg.expected.ID {
 			return m, nil
@@ -982,19 +990,8 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 		case "n":
-			m.generation++
-			generation := m.generation
-			m.screen = "new-project-loading"
-			return m, func() tea.Msg {
-				var env appEnvironment
-				var e error
-				if m.activeProfile != nil {
-					env, e = m.service.ProfileEnvironment(*m.activeProfile)
-				} else {
-					env, e = m.service.Environment()
-				}
-				return appNewReady{environment: env, err: e, generation: generation}
-			}
+			cmd := m.prepareNewSession()
+			return m, cmd
 		case "r":
 			return m.requestRefresh()
 		case "enter", "s", "x", "e", "i", "c", "d", "v":
@@ -1094,8 +1091,12 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-func runHarborApp() error {
+func runHarborApp(newSession bool) error {
 	m := newHarborModel(appService)
+	if newSession {
+		m.newOnOpen = true
+		m.screen = "new-project-loading"
+	}
 	defer m.cancelRefresh()
 	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion()).Run()
 	return err

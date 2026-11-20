@@ -10,6 +10,68 @@ func selectorKey(m harborModel, k string) harborModel {
 	n, c, _ := m.connectionSelectorInput(uiKey(k))
 	return settleApp(n, c).(harborModel)
 }
+
+func TestNewMagpieModelStartsWithSearchOnDefaultInstance(t *testing.T) {
+	m, f := formFixture()
+	m.formFocus = formModel
+	m.draft.Connection = "magpie"
+	m.environment.DefaultInstance = "second"
+	f.Reports = []instanceReport{
+		{magpieInstance: magpieInstance{ID: "first"}, Health: instanceVerified},
+		{magpieInstance: magpieInstance{ID: "second"}, Health: instanceVerified},
+	}
+	f.Models = []catalogModel{{ID: "provider/other"}, {ID: "group/one"}, {ID: "group/two"}}
+
+	next, cmd := m.Update(uiKey("enter"))
+	m = settleApp(next, cmd).(harborModel)
+	if m.screen != "new-catalog" || m.uiFocus != "selector-search" || m.draft.Instance != "second" {
+		t.Fatalf("expected focused model search for the default instance, got %s %s %q", m.screen, m.uiFocus, m.draft.Instance)
+	}
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m = settleApp(next, cmd).(harborModel)
+	if m.screen != "new-instance" || m.instanceRows()[m.instanceCursor].ID != "second" {
+		t.Fatal("could not change instance from the focused model search")
+	}
+	next, cmd = m.Update(uiKey("enter"))
+	m = settleApp(next, cmd).(harborModel)
+	for _, key := range []string{"g", "r", "o", "u", "p", "/"} {
+		next, cmd = m.Update(uiKey(key))
+		m = settleApp(next, cmd).(harborModel)
+	}
+	rows := m.filteredModels()
+	if m.catalogFilter != "group/" || len(rows) != 2 {
+		t.Fatalf("typing did not filter the catalog: %q %+v", m.catalogFilter, rows)
+	}
+	for _, key := range []string{"down", "enter"} {
+		next, cmd = m.Update(uiKey(key))
+		m = settleApp(next, cmd).(harborModel)
+	}
+	if m.screen != "new-form" || m.draft.Model != rows[1].ID || !f.Acknowledged["second"] || len(f.Sessions) != 0 {
+		t.Fatalf("search did not apply the explicitly selected model: %+v %v", m.draft, f.Calls)
+	}
+}
+
+func TestNewMagpieModelAsksWhenDefaultInstanceIsUnavailable(t *testing.T) {
+	m, f := formFixture()
+	m.formFocus = formModel
+	m.draft.Connection = "magpie"
+	m.environment.DefaultInstance = "unavailable"
+	f.Reports = []instanceReport{{magpieInstance: magpieInstance{ID: "other"}, Health: instanceVerified}}
+	next, cmd := m.Update(uiKey("enter"))
+	m = settleApp(next, cmd).(harborModel)
+	if m.screen != "new-instance" || m.draft.Instance != "" || strings.Contains(strings.Join(f.Calls, "|"), "catalog") {
+		t.Fatalf("unavailable default was silently substituted: %+v %v", m.draft, f.Calls)
+	}
+}
+
+func TestFullAccessOptionsExplainFocusedField(t *testing.T) {
+	m, _ := formFixture()
+	m.width, m.height = 60, 24
+	m.openCodexOptions(codexOptionEditor{returnScreen: "new-form", field: optionCompact, value: codexOptions{SandboxMode: "danger-full-access"}})
+	if frame := strings.Join(strings.Fields(cleanUI(m.View())), " "); !strings.Contains(frame, "Token threshold") {
+		t.Fatalf("auto compact help missing with Full access selected: %s", frame)
+	}
+}
 func TestTicket06CancelAndStaleCatalog(t *testing.T) {
 	m, _ := formFixture()
 	m.width = 100

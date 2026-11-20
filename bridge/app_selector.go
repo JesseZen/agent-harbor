@@ -28,6 +28,13 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 		p.title("Magpie · Choose instance")
 		p.search(m.instanceFilter, "Filter instances", m.uiFocus == "selector-search", m.input)
 		rows := m.instanceRows()
+		if len(rows) == 0 && m.notice == "" {
+			message := "No Magpie instances"
+			if m.instanceFilter != "" {
+				message = "No matching instances"
+			}
+			p.emptyState(message)
+		}
 		listTop := len(p.Lines)
 		count := max(1, m.height-12)
 		start := m.listStart(m.instanceCursor, count)
@@ -53,7 +60,11 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 				wrap(cleanUI(warning))
 			}
 		}
-		footer.shortcut(uiAction{ID: "selector-select", Label: "Select instance", Key: "enter", Primary: true}, m.uiFocus == "selector-select")
+		action := uiAction{ID: "selector-select", Label: "Select instance", Key: "enter", Primary: true}
+		if len(rows) == 0 {
+			action.Disabled = "No selectable instance"
+		}
+		footer.shortcut(action, m.uiFocus == "selector-select")
 	case "new-catalog":
 		p.title("Magpie · Model or routing group")
 		p.line(cleanUI(m.catalogInstanceLabel()))
@@ -74,12 +85,15 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 			}
 			id := "selector-model:" + r.ID
 			selected := m.formSaved.Connection == "magpie" && m.formSaved.Instance == m.draft.Instance && m.formSaved.Model == r.ID
-			p.listRow(id, selectorMark(selected), r.ID, label, m.rowStyle(id, i == m.catalogCursor && m.uiFocus != "selector-search", selected))
+			p.listRow(id, selectorMark(selected), r.ID, label, m.rowStyle(id, i == m.catalogCursor, selected))
 			if !selected {
 				p.Lines[len(p.Lines)-1] = highlightSearch(p.Lines[len(p.Lines)-1], m.catalogFilter)
 			}
 		}
 		p.scrollRail(listTop, len(p.Lines)-listTop, len(rows), start)
+		if len(rows) == 0 {
+			p.emptyState("No matching models or groups")
+		}
 		wrap("Auxiliary requests may send conversation parts to other providers.")
 		wrap("Groups may switch members; an ID does not prove the destination.")
 		action := uiAction{ID: "selector-apply", Label: "Acknowledge & apply", Key: "enter", Primary: true}
@@ -87,7 +101,7 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 			action.Disabled = "No matching models"
 		}
 		footer.shortcut(action, m.uiFocus == "selector-apply")
-		footer.shortcut(uiAction{ID: "selector-instances", Label: "Change instance", Key: "i"}, m.uiFocus == "selector-instances")
+		footer.shortcut(uiAction{ID: "selector-instances", Label: "Change instance", Key: "ctrl+o"}, m.uiFocus == "selector-instances")
 	case "new-notice":
 		p.line("Magpie · " + m.draft.Instance)
 		wrap("Auxiliary requests may send conversation parts to other providers.")
@@ -106,6 +120,9 @@ func (m harborModel) connectionSelectorPage() (uiPage, bool) {
 	}
 	if m.uiFocus == "selector-search" {
 		hint = "Type search · ↵ list · Esc clear/back"
+		if m.screen == "new-catalog" {
+			hint = "Type to filter · ↑↓ select · Esc clear/back"
+		}
 	}
 	footer.Hint = hint
 	return p.withFooter(footer, m.height, m.scroll), true
@@ -127,14 +144,11 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 				m.input.SetValue(m.instanceFilter)
 			}
 			m.input.CursorEnd()
-			m.input.Focus()
+			cmd := m.input.Focus()
+			return m, cmd, true
 		case id == "selector-instances":
-			m.generation++
-			g := m.generation
-			m.scroll = 0
-			m.screen = "new-instance-loading"
-			m.uiFocus = ""
-			return m, func() tea.Msg { r, e := m.service.InstanceReports(); return appNewInstances{g, r, e} }, true
+			cmd := m.formInstances(true)
+			return m, cmd, true
 		case id == "selector-apply":
 			rows := m.filteredModels()
 			if m.catalogCursor < 0 || m.catalogCursor >= len(rows) {
@@ -157,6 +171,7 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 				n.rememberConnection()
 				n.screen = "new-form"
 				n.uiFocus = ""
+				n.input.Blur()
 				n.notice = ""
 				return nil
 			})
@@ -192,7 +207,7 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 			case strings.HasPrefix(id, "selector-model:"):
 				for i, r := range m.filteredModels() {
 					if id == "selector-model:"+r.ID {
-						if m.catalogCursor == i && m.uiFocus != "selector-search" {
+						if m.catalogCursor == i {
 							return act("selector-apply")
 						}
 						m.pinList(p.ListStart)
@@ -213,6 +228,25 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 		return m, nil, false
 	}
 	k := key.String()
+	switch k {
+	case "pgup":
+		m.scroll = max(0, m.scroll-max(1, m.height/2))
+		return m, nil, true
+	case "pgdown":
+		m.scroll += max(1, m.height/2)
+		return m, nil, true
+	}
+	if m.screen == "new-catalog" {
+		switch k {
+		case "ctrl+o":
+			return act("selector-instances")
+		case "enter":
+			return act("selector-apply")
+		case "up", "down":
+			n, c := m.updateForm(key)
+			return n, c, true
+		}
+	}
 	if m.uiFocus == "selector-search" {
 		if k == "esc" && m.input.Value() != "" {
 			m.input.SetValue("")
@@ -222,22 +256,31 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 			} else {
 				m.catalogFilter = ""
 				m.catalogCursor = 0
+				m.scroll = 0
 			}
 			return m, nil, true
+		}
+		if k == "esc" && m.screen == "new-catalog" {
+			return act("selector-cancel")
 		}
 		if k == "esc" || k == "enter" {
 			m.uiFocus = ""
 			m.input.Blur()
 			return m, nil, true
 		}
+		before := m.input.Value()
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(key)
+		if m.input.Value() == before {
+			return m, cmd, true
+		}
 		if m.screen == "new-instance" {
 			m.instanceFilter = m.input.Value()
 			m.instanceCursor = 0
 		} else {
 			m.catalogFilter = m.input.Value()
 			m.catalogCursor = 0
+			m.scroll = 0
 		}
 		return m, cmd, true
 	}
@@ -245,12 +288,6 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 	case "?", "ctrl+c", "ctrl+g":
 		n, c := m.update(key)
 		return n, c, true
-	case "pgdown":
-		m.scroll += max(1, m.height/2)
-		return m, nil, true
-	case "pgup":
-		m.scroll = max(0, m.scroll-max(1, m.height/2))
-		return m, nil, true
 	case "esc":
 		return act("selector-cancel")
 	case "/":
@@ -260,9 +297,6 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 			return act("selector-instances")
 		}
 	case "enter":
-		if m.screen == "new-catalog" {
-			return act("selector-apply")
-		}
 		if m.screen == "new-notice" {
 			return act("selector-ack")
 		}

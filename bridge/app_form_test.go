@@ -201,7 +201,7 @@ func TestFormNavigationAndCatalogFailurePreserveIntent(t *testing.T) {
 	for _, k := range []string{"up", "up", "up", "enter", "enter"} {
 		model = appKey(model, k)
 	}
-	// Instance Enter begins a request; failure must restore the entire accepted tuple.
+	// A failed catalog keeps the applied tuple and returns to the instance choices.
 	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("no catalog request", model.(harborModel).screen)
@@ -209,6 +209,10 @@ func TestFormNavigationAndCatalogFailurePreserveIntent(t *testing.T) {
 	f.Err = errors.New("catalog unavailable")
 	model, _ = model.Update(cmd())
 	n := model.(harborModel)
+	if n.screen != "new-instance" || n.draft != m.draft || n.notice != "catalog unavailable" {
+		t.Fatal(n.screen, n.draft)
+	}
+	n = appKey(n, "esc").(harborModel)
 	if n.screen != "new-form" || n.draft != m.draft {
 		t.Fatal(n.screen, n.draft)
 	}

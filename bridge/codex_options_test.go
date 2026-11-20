@@ -290,14 +290,47 @@ func TestProfileNativeCodexDefaultsVersionIsolationAndProjectPrecedence(t *testi
 	}
 	options.SandboxMode, options.ApprovalPolicy, options.ReasoningEffort = "workspace-write", "on-request", choices.Efforts[0]
 	options.WritableDirs = []string{project}
-	tui, server, err := codexOptionLaunchArguments(context.Background(), native, env, s, newConversation, nil, options, true)
+	_, connected, err := codexOptionLaunchPlans(context.Background(), native, env, s, newConversation, nil, options)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, setting := range []string{"sandbox_mode", "approval_policy", "sandbox_workspace_write.writable_roots"} {
-		if strings.Contains(strings.Join(tui, " "), setting) || !strings.Contains(strings.Join(server, " "), setting+"=") {
-			t.Fatalf("remote TUI options must leave %s to the server: %q / %q", setting, tui, server)
+	if !slices.Contains(connected, `sandbox_mode="workspace-write"`) {
+		t.Fatalf("workspace mode missing from connected launch: %q", connected)
+	}
+	fullAccess := codexOptions{SandboxMode: "danger-full-access", ApprovalPolicy: "never", ContextWindow: optionNumber(500000)}
+	_, connected, err = codexOptionLaunchPlans(context.Background(), native, env, s, newConversation, nil, fullAccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := withCodexConfigPipe(context.Background(), native, env, project, connected, func(rpc *codexConfigPipe) error {
+		resolved, err := rpc.config(project)
+		if err != nil {
+			return err
 		}
+		if window := configValue[int64](resolved.Config, "model_context_window"); window != 500000 {
+			return fmt.Errorf("requested context window = %d, want 500000", window)
+		}
+		sandbox := configValue[string](resolved.Config, "sandbox_mode")
+		approval := configValue[string](resolved.Config, "approval_policy")
+		if sandbox != "danger-full-access" || approval != "never" {
+			return fmt.Errorf("connected configuration resolved to %q / %q", sandbox, approval)
+		}
+		// The TUI can send its resolved policy when starting another thread.
+		for range 2 {
+			var reply struct {
+				Sandbox        struct{ Type string }
+				ApprovalPolicy string
+			}
+			if err := rpc.call("thread/start", map[string]any{"cwd": project, "sandbox": sandbox, "approvalPolicy": approval, "ephemeral": true}, &reply); err != nil {
+				return err
+			}
+			if reply.Sandbox.Type != "dangerFullAccess" || reply.ApprovalPolicy != "never" {
+				return fmt.Errorf("thread reported %q / %q", reply.Sandbox.Type, reply.ApprovalPolicy)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 	reset, err := service.SaveProfileCodexDefaults(updated, codexOptions{})
 	if err != nil || !reset.Saved.empty() || *reset.Resolved.ContextWindow != 24000 {
@@ -363,7 +396,7 @@ supports_websockets = false
 			options := codexOptions{ContextWindow: optionNumber(12000), AutoCompactTokenLimit: optionNumber(10000), PostTurnCompactPercent: &percent}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			args, _, err := codexOptionLaunchArguments(ctx, native, environment, record, newConversation, nil, options, false)
+			args, _, err := codexOptionLaunchPlans(ctx, native, environment, record, newConversation, nil, options)
 			if err != nil {
 				t.Fatal(err)
 			}

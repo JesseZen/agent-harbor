@@ -81,6 +81,12 @@ Harbor passes on recovery. Sessions → Details shows saved overrides separately
 from the last verified Codex context window, when available. A stopped session
 can edit options for its next launch without changing the Conversation,
 Profile, or connection. Missing path or model evidence is not silently replaced.
+The private Codex App Server and its connected TUI receive the same explicit
+launch overrides. Codex can apply these when starting another Conversation
+through `/new` in that process. Harbor still uses its own Conversation evidence
+and recovery rules. The context window and the two automatic compaction
+triggers are independent settings. Codex can reserve part of the window and
+cap it to the active model's capacity.
 
 Profiles → Codex defaults edits only the three window/compaction values in the
 selected Codex home's user config. The page shows the effective value and its
@@ -143,6 +149,12 @@ retains the separate detailed real-account, remote and platform validation scope
 
 New Magpie connections record either an independent API provider when signed
 out or a caller-preserving joined connection with a confirmed usable login.
+In the New session form, Model opens the Magpie catalog directly when Harbor
+has a selected instance, a verified default, or one verified instance with no
+default configured. With an ambiguous or unavailable instance, Harbor asks the
+user to choose. The catalog opens with search focused and keeps Change instance
+available. Applying a model requires the same routing disclosure and
+acknowledgement.
 Recovery retains the saved connection form, instance and Conversation regardless
 of subsequent login changes. An expired or unconfirmed login requires repair or
 explicit sign-out. API-only catalogs do not include cached official choices.

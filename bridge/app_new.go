@@ -14,9 +14,10 @@ type appDirectoryValidated struct {
 }
 
 type appNewInstances struct {
-	generation uint64
-	instances  []instanceReport
-	err        error
+	generation     uint64
+	instances      []instanceReport
+	err            error
+	chooseInstance bool
 }
 type appCatalog struct {
 	generation uint64

@@ -151,7 +151,7 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 	ownsAccountServer := !neutral && (s.Mode == "local" || joinedCodex(s))
 	remoteArgs := cmd.Args
 	if s.CodexOptions != nil {
-		localOptions, remoteOptions, serverOptions, err := codexOptionLaunchPlans(context.Background(), binary, environment, s, kind, serverSettings, *s.CodexOptions)
+		localOptions, connectedOptions, err := codexOptionLaunchPlans(context.Background(), binary, environment, s, kind, serverSettings, *s.CodexOptions)
 		if err != nil {
 			return err
 		}
@@ -160,9 +160,9 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 			queryLength = len(query.Argv) - 1
 		}
 		at := len(cmd.Args) - queryLength
-		remoteArgs = append(append(append([]string(nil), cmd.Args[:at]...), remoteOptions...), cmd.Args[at:]...)
+		remoteArgs = append(append(append([]string(nil), cmd.Args[:at]...), connectedOptions...), cmd.Args[at:]...)
 		cmd.Args = append(append(append([]string(nil), cmd.Args[:at]...), localOptions...), cmd.Args[at:]...)
-		serverSettings = append(serverSettings, serverOptions...)
+		serverSettings = append(serverSettings, connectedOptions...)
 	}
 	if s.Profile != nil {
 		serverSettings = append(serverSettings, profilePolicyArguments(environment)...)

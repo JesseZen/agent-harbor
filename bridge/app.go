@@ -445,15 +445,30 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.notice = msg.err.Error()
 			m.screen = "new-connection"
+			if m.formActive {
+				m.draft = m.formSaved
+				m.screen = "new-form"
+			}
 			return m, nil
 		}
 		m.newInstances = msg.instances
 		m.instanceFilter = ""
 		m.instanceCursor = 0
+		preferred := m.environment.DefaultInstance
+		if m.formActive && m.draft.Instance != "" {
+			preferred = m.draft.Instance
+		}
 		for i, r := range m.newInstances {
-			if r.ID == m.environment.DefaultInstance {
+			if r.ID == preferred {
 				m.instanceCursor = i
 				break
+			}
+		}
+		if m.formActive && !msg.chooseInstance && len(m.newInstances) > 0 {
+			candidate := m.newInstances[m.instanceCursor]
+			if candidate.Health == instanceVerified && (candidate.ID == preferred || preferred == "" && len(m.newInstances) == 1) {
+				cmd := m.formCatalog(candidate.ID)
+				return m, cmd
 			}
 		}
 		m.screen = "new-instance"
@@ -466,8 +481,11 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = msg.err.Error()
 			if m.formActive {
 				m.draft = m.formSaved
-				m.screen = "new-form"
-				m.formFocus = 3
+				if len(m.newInstances) == 0 {
+					cmd := m.formInstances(true)
+					return m, cmd
+				}
+				m.screen = "new-instance"
 				return m, nil
 			}
 			m.screen = "new-instance"
@@ -477,6 +495,18 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.catalogCursor = 0
 		m.catalogFilter = ""
 		m.screen = "new-catalog"
+		if m.formActive {
+			for i, model := range m.models {
+				if model.ID == m.draft.Model {
+					m.catalogCursor = i
+					break
+				}
+			}
+			m.uiFocus = "selector-search"
+			m.input.SetValue("")
+			cmd := m.input.Focus()
+			return m, cmd
+		}
 		return m, nil
 	case appPreviousPane:
 		if m.screen != "busy" {
@@ -571,6 +601,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			connection = "local"
 		}
 		m.draft = sessionDraft{Profile: msg.environment.Profile, Connection: connection, Directory: msg.environment.Directory, CodexOptions: msg.environment.CodexOptions.saved()}
+		m.newInstances = nil
 		m.formActive = true
 		m.formFocus = 0
 		m.creating = false

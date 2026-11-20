@@ -191,22 +191,38 @@ func (editor *codexOptionEditor) number() **int64 {
 	}
 }
 
-func codexOptionDescription(field int) string {
+func codexOptionDescription(field int, choice string) string {
 	switch field {
 	case optionSandbox:
-		return "Full access disables the filesystem sandbox."
+		switch choice {
+		case "read-only":
+			return "Codex tools can read files. The sandbox blocks writes."
+		case "workspace-write":
+			return "Allows writes in the workspace and extra dirs. Codex settings control network access."
+		case "danger-full-access":
+			return "Removes Codex file and network restrictions. Host restrictions still apply."
+		default:
+			return "File and network access for Codex tools. Inherited uses Codex settings."
+		}
 	case optionApproval:
-		return "Never disables approval prompts, not the sandbox."
+		switch choice {
+		case "on-request":
+			return "Codex can ask for permission to run a command outside the sandbox."
+		case "never":
+			return "Codex skips approval prompts. Sandbox restrictions still apply."
+		default:
+			return "When Codex can ask for permission to run commands. Inherited uses Codex settings."
+		}
 	case optionReasoning:
-		return "Choices come from the current model's catalog."
+		return "Model reasoning effort. Higher levels can take longer and use more tokens."
 	case optionWindow:
-		return "Configured tokens; the model can cap the usable window. See /status in Codex."
+		return "Requested tokens, capped by the model. See usable capacity in Codex /status."
 	case optionCompact:
-		return "Trigger threshold in tokens; Codex can cap it based on the window."
+		return "Token threshold for automatic history compaction. The model window may cap it."
 	case optionPostTurn:
-		return "0 disables only the end-of-turn check; the token threshold still applies."
+		return "Compacts after a reply at this window %. 0 turns off this check only."
 	default:
-		return "Additional writable directories on this server, for Workspace write."
+		return "Extra writable paths for Workspace write. Use absolute paths on the session's host."
 	}
 }
 
@@ -237,6 +253,10 @@ func (m harborModel) codexOptionsPage() (uiPage, bool) {
 			p.line(documentLine(line))
 		}
 		focused = len(p.Lines) - 1
+		if editor.mode != "project" {
+			addNote(codexOptionDescription(editor.field, ""))
+			focused = len(p.Lines) - 1
+		}
 		actions = []uiAction{{ID: "option:enter", Label: "Accept field", Key: "enter"}, {ID: "option:esc", Label: "Cancel edit", Key: "esc"}}
 	case "choose":
 		if editor.model != "" {
@@ -250,7 +270,7 @@ func (m harborModel) codexOptionsPage() (uiPage, bool) {
 			}
 			p.listRow(id, selectorMark(selected), codexOptionChoiceLabel(choice), "", m.rowStyle(id, index == editor.cursor, selected))
 		}
-		addNote(codexOptionDescription(editor.field))
+		addNote(codexOptionDescription(editor.field, editor.choices[editor.cursor]))
 		actions = []uiAction{{ID: "option:enter", Label: "Select", Key: "enter"}, {ID: "option:esc", Label: "Cancel edit", Key: "esc"}}
 		p.Hint = "↑↓/jk choose"
 	case "dirs":
@@ -265,6 +285,7 @@ func (m harborModel) codexOptionsPage() (uiPage, bool) {
 			}
 			p.listRow(id, "", cleanUI(directory), "", m.rowStyle(id, index == editor.dirCursor, false))
 		}
+		addNote(codexOptionDescription(optionDirectories, ""))
 		actions = []uiAction{{ID: "option:n", Label: "Add directory", Key: "n"}, {ID: "option:esc", Label: "Back", Key: "esc"}}
 		if len(editor.value.WritableDirs) > 0 {
 			actions = append(actions, uiAction{ID: "option:d", Label: "Remove selected", Key: "d"})
@@ -308,11 +329,9 @@ func (m harborModel) codexOptionsPage() (uiPage, bool) {
 			}
 			addNote("Effective now: " + value)
 			addNote("Saved defaults affect newly loaded conversations, not running ones.")
-		} else if editor.value.SandboxMode == "danger-full-access" {
-			addNote(codexOptionDescription(optionSandbox))
-		} else {
-			addNote(codexOptionDescription(editor.field))
 		}
+		addNote(codexOptionDescription(editor.field, editor.currentChoice()))
+		focused = len(p.Lines) - 1
 		apply := "Apply"
 		if editor.defaults != nil {
 			apply = "Save"

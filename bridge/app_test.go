@@ -133,14 +133,14 @@ func TestHarborMagpieManagementExplainsRefusal(t *testing.T) {
 }
 
 func TestHarborMagpieCatalogFiltersBeforeReview(t *testing.T) {
-	for _, size := range [][2]int{{60, 20}, {100, 30}, {160, 45}} {
+	for _, size := range [][2]int{{60, 24}, {80, 24}, {100, 30}, {160, 45}} {
 
 		f := &fakeApplicationService{KnownInstances: []magpieInstance{{ID: "managed", Name: "Test gateway", Address: "http://127.0.0.1:44001", ConfigDir: "/fixture/magpie"}}, Models: []catalogModel{{ID: "relay-a/test"}, {ID: "relay-b/test"}}}
 		m := newHarborModel(f)
 		var model tea.Model = m
 		model, _ = model.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 		model, _ = model.Update(m.Init()())
-		for _, k := range []string{"n", "down", "down", "enter", "down", "enter", "enter", "/", "relay-b"} {
+		for _, k := range []string{"n", "down", "down", "enter", "down", "enter", "enter", "relay-b"} {
 			model = appKey(model, k)
 		}
 		if view := cleanUI(model.View()); !strings.Contains(view, "relay-b/test") || strings.Contains(view, "relay-a/test") {

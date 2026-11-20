@@ -163,7 +163,11 @@ func TestInlineSearchVisual(t *testing.T) {
 					t.Fatal("width", line)
 				}
 			}
-			if !strings.Contains(ansi.Strip(view), "⇥ list") && !strings.Contains(ansi.Strip(view), "↵ list") {
+			hint := "↵ list"
+			if screen == "new-catalog" {
+				hint = "Type to filter"
+			}
+			if !strings.Contains(ansi.Strip(view), hint) && !strings.Contains(ansi.Strip(view), "⇥ list") {
 				t.Fatal("lost focus hints")
 			}
 			if dir := os.Getenv("HARBOR_SEARCH_VISUAL"); dir != "" {

@@ -105,7 +105,7 @@ def main():
                 raw=self.rfile.read(int(self.headers.get('Content-Length','0')))
                 if evidence(raw)['current']==['AH_LIVE_STATUS']:time.sleep(4)
                 self.rfile=io.BytesIO(raw)
-                marks=[m for m in ('AH_LOCAL_FIRST','AH_LOCAL_SECOND','AH_RELAY_B','AH_RESUME_B','AH_LOCAL_C','AH_RESUME_C','AH_EXTERNAL_STATUS','AH_LIVE_STATUS') if m.encode() in raw]
+                marks=[m for m in ('AH_LOCAL_FIRST','AH_LOCAL_SECOND','AH_RELAY_B','AH_RESUME_B','AH_LOCAL_C','AH_LOCAL_NEW','AH_RESUME_C','AH_EXTERNAL_STATUS','AH_LIVE_STATUS') if m.encode() in raw]
                 event=evidence(raw)
                 event['session']=self.headers.get('session-id','')
                 event['model']=json.loads(raw).get('model','')
@@ -123,7 +123,7 @@ def main():
         # Never probe the user's standard discovery service.
         dynamic_discovery=a.dynamic_discovery or a.codex_options
         try:discovery=http.server.ThreadingHTTPServer(('127.0.0.1',0 if dynamic_discovery else 3425),NoGateway)
-        except OSError:print('SKIP discovery port occupied',flush=True);return 77
+        except OSError as err:print('SKIP discovery socket unavailable:',err,flush=True);return 77
         if dynamic_discovery:
             magpie_config=root/'config/magpie';magpie_config.mkdir()
             (magpie_config/'settings.json').write_text(json.dumps({'port':discovery.server_port}))
@@ -228,11 +228,11 @@ def main():
             if model:
                 click('Choose instance and model')
                 if 'Choose instance and model' in capture():key('Enter')
-                screen('Choose instance')
-                key('/');text('managed');key('Enter');key('Enter');screen('Model or routing group')
-                key('/');text(model);key('Enter')
-                if 'Acknowledge & apply' in capture():click('Acknowledge & apply')
-                else:click('Apply selection')
+                connection=wait(lambda: next((label for label in ('Choose instance','Model or routing group') if label in capture()), None), 'Magpie selector')
+                if connection=='Choose instance':
+                    key('/');text('managed');key('Enter');key('Enter')
+                screen('Model or routing group')
+                text(model);key('Enter')
                 screen('New session')
             else:
                 click('Native')
@@ -414,8 +414,14 @@ def main():
             screen('11400 tokens reported by Codex');save_screen('observed-window',160)
             key('Escape');key('q')
             resume(native_record,'AH_LOCAL_FIRST','AH_LOCAL_SECOND',native)
-            resume(native_record,'AH_LOCAL_SECOND','AH_LOCAL_C',native,dict(expected,model_context_window=16000),'15.2K')
+            updated_options=dict(expected,model_context_window=16000)
+            resume(native_record,'AH_LOCAL_SECOND','AH_LOCAL_C',native,updated_options,'15.2K')
             assert native_record.get('codex_server_pid'), 'Native launch did not use an owned App Server'
+            text('/new');key('Enter')
+            wait(lambda:'AH_LOCAL_C' not in capture() and 'Ask Codex' in capture(),'fresh conversation in the same Codex window')
+            options_prompt()
+            assert_run(native_record,'AH_LOCAL_NEW',native,updated_options,'15.2K')
+            assert not any('AH_LOCAL_C' in item['history'] for item in native.journal if item['current']==['AH_LOCAL_NEW'])
             if not a.synthetic_api_login:
                 gateway_record=assert_run(create('Options Magpie','ui-group'),'AH_RELAY_B',(relay_a,relay_b))
                 assert gateway_record['codex_connection']=='api'

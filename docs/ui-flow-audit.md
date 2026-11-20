@@ -1,5 +1,14 @@
 # UI 实机走查 — 2026-11-17
 
+## Codex 权限与 Magpie 选模型（2026-11-20）
+
+| 入口 | 交互 |
+|---|---|
+| New session → Options | 底部说明随当前字段变化。Sandbox 和 Approval 的候选也各有说明。Context window 指向 Codex `/status`，Auto compact 和 Post-turn compact 分别说明各自的触发规则。 |
+| New session → Model | 有已选实例、可用默认实例或唯一已验证实例时直达目录。目录打开就能输入，方向键选结果，Enter 应用，Ctrl+O 换实例。实例有歧义或目录读取失败时给出可选实例。 |
+
+Go 界面回归覆盖默认实例、直接搜索和应用、取消恢复、目录失败与小窗口。隔离 PTY 用模拟实例和生产界面验证了四种尺寸的直接搜索、应用和字段说明。Codex 0.169.0 的 stdio App Server 验证收到 500,000 和 Full access / Never。直启 Codex 的 `/new` 实测换了会话 ID，`/status` 仍显示 500K、Full access 和 high。当前执行环境禁止绑定本地 socket，真实 Herdr/tmux 以及连接私有 App Server 的 `/new` 运行验收待补。
+
 ## 工作区快捷键（2026-11-20）
 
 Settings 按动作列出 Herdr 前缀、Harbor、Magpie、新建会话和设置。

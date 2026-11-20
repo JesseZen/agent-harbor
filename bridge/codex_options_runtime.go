@@ -165,7 +165,7 @@ func (h harborService) validateDraftCodexOptions(d sessionDraft) error {
 		return err
 	}
 	return h.withCodexDraftClient(s, func(ctx context.Context, env profileClientEnvironment) error {
-		_, _, err := codexOptionLaunchArguments(ctx, "", env, s, newConversation, args, options, false)
+		_, _, err := codexOptionLaunchPlans(ctx, "", env, s, newConversation, args, options)
 		return err
 	})
 }
@@ -209,21 +209,13 @@ func (o codexOptions) checkPermissions(rpc *codexConfigPipe, read codexConfigRea
 	return nil
 }
 
-func codexOptionLaunchArguments(ctx context.Context, binary string, env profileClientEnvironment, s session, kind launchKind, connectionArgs []string, options codexOptions, remoteTUI bool) ([]string, []string, error) {
-	local, remote, server, err := codexOptionLaunchPlans(ctx, binary, env, s, kind, connectionArgs, options)
-	if remoteTUI {
-		return remote, server, err
-	}
-	return local, server, err
-}
-
-func codexOptionLaunchPlans(ctx context.Context, binary string, env profileClientEnvironment, s session, kind launchKind, connectionArgs []string, options codexOptions) ([]string, []string, []string, error) {
+func codexOptionLaunchPlans(ctx context.Context, binary string, env profileClientEnvironment, s session, kind launchKind, connectionArgs []string, options codexOptions) (local, connected []string, err error) {
 	if err := options.validate(s.CLI, true); err != nil || options.empty() {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	var inheritedDirs []string
 	var resumeModel string
-	err := withCodexConfigPipe(ctx, binary, env, s.WorkingDirectory, connectionArgs, func(rpc *codexConfigPipe) error {
+	err = withCodexConfigPipe(ctx, binary, env, s.WorkingDirectory, connectionArgs, func(rpc *codexConfigPipe) error {
 		read, err := rpc.config(s.WorkingDirectory)
 		if err != nil {
 			return &codexOptionError{"Options", err.Error()}
@@ -259,18 +251,16 @@ func codexOptionLaunchPlans(ctx context.Context, binary string, env profileClien
 		return options.validateEffort(choices.Model, choices.Efforts)
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	server := options.arguments(true, inheritedDirs)
-	local := options.arguments(false, nil)
-	options.SandboxMode = ""
-	options.ApprovalPolicy = ""
-	options.WritableDirs = nil
-	remote := options.arguments(true, nil)
+	// The connected TUI and its private App Server run on the same host. Codex
+	// can send TUI-resolved permissions with thread/start, including on /new.
+	// Supply the same explicit overrides to both so their defaults agree.
+	connected = options.arguments(true, inheritedDirs)
+	local = options.arguments(false, nil)
 	if resumeModel != "" {
 		local = codexConfigArg(local, "model", strconv.Quote(resumeModel))
-		remote = codexConfigArg(remote, "model", strconv.Quote(resumeModel))
-		server = codexConfigArg(server, "model", strconv.Quote(resumeModel))
+		connected = codexConfigArg(connected, "model", strconv.Quote(resumeModel))
 	}
-	return local, remote, server, nil
+	return local, connected, nil
 }

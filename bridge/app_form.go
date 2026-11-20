@@ -30,6 +30,8 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = "new-form"
 		m.formFocus = min(formName, m.formFocus)
 		m.scroll = 0
+		m.uiFocus = ""
+		m.input.Blur()
 		return m, nil
 	}
 	if k == "esc" {
@@ -79,11 +81,11 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.notice = "Native " + m.selectedClient() + " uses its own model configuration and login; choose the model in that client."
 					return m, nil
 				}
-				if m.draft.Instance == "" {
-					m.chooseConnection()
-					return m, nil
+				if m.draft.Instance != "" {
+					cmd := m.formCatalog(m.draft.Instance)
+					return m, cmd
 				}
-				cmd := m.formCatalog()
+				cmd := m.formInstances(false)
 				return m, cmd
 			case formOptions:
 				if m.selectedClient() == "codex" {
@@ -214,13 +216,8 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.rememberConnection()
 				return back()
 			}
-			m.generation++
-			g := m.generation
-			m.screen = "new-instance-loading"
-			return m, func() tea.Msg {
-				r, e := m.service.InstanceReports()
-				return appNewInstances{generation: g, instances: r, err: e}
-			}
+			cmd := m.formInstances(false)
+			return m, cmd
 		}
 	case "new-instance":
 		rows := m.instanceRows()
@@ -231,13 +228,7 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.instanceCursor = min(max(0, len(rows)-1), m.instanceCursor+1)
 		}
 		if k == "enter" && len(rows) > 0 {
-			id := rows[m.instanceCursor].ID
-			if m.draft.Instance != id {
-				m.draft.Model = ""
-			}
-			m.draft.Connection = "magpie"
-			m.draft.Instance = id
-			cmd := m.formCatalog()
+			cmd := m.formCatalog(rows[m.instanceCursor].ID)
 			return m, cmd
 		}
 	case "new-catalog":
@@ -297,15 +288,31 @@ func (m *harborModel) rememberConnection() {
 	m.creationConnections[*m.draft.Profile] = m.draft.Connection
 }
 
-func (m *harborModel) formCatalog() tea.Cmd {
+func (m *harborModel) formInstances(chooseInstance bool) tea.Cmd {
 	m.generation++
-	g, id := m.generation, m.draft.Instance
+	g, service := m.generation, m.service
+	m.screen, m.uiFocus, m.scroll = "new-instance-loading", "", 0
+	m.input.Blur()
+	return func() tea.Msg {
+		reports, err := service.InstanceReports()
+		return appNewInstances{generation: g, instances: reports, err: err, chooseInstance: chooseInstance}
+	}
+}
+
+func (m *harborModel) formCatalog(id string) tea.Cmd {
+	if m.draft.Instance != id {
+		m.draft.Model = ""
+	}
+	m.draft.Connection, m.draft.Instance = "magpie", id
+	m.generation++
+	g := m.generation
 	draft := m.draft
 	if draft.Profile != nil {
 		b := *draft.Profile
 		draft.Profile = &b
 	}
-	m.screen = "new-catalog-loading"
+	m.screen, m.uiFocus, m.scroll = "new-catalog-loading", "", 0
+	m.input.Blur()
 	return func() tea.Msg {
 		c, e := catalogForDraft(m.service, draft, id)
 		return appCatalog{generation: g, instance: id, models: c, err: e}

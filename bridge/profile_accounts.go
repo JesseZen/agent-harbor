@@ -235,6 +235,18 @@ func profileCodexAccounts(ctx context.Context, service applicationService, req c
 			return err
 		}
 		actionErr := cmd.Run()
+		if actionErr == nil && req.Action == "signed-out" && result.Selected != "" {
+			account := savedCodexAccount{Key: result.Selected}
+			for _, candidate := range result.Accounts {
+				if candidate.Key == result.Selected {
+					account = candidate
+					break
+				}
+			}
+			if err := removeCodexSavedAccount(ctx, tool, env, account); err != nil {
+				return err
+			}
+		}
 		readErr := readProfileAccounts(context.WithoutCancel(ctx), tool, env, &result)
 		if actionErr != nil {
 			return errors.New("account action cancelled or failed; the displayed state was reread, running identities remain unconfirmed")
@@ -254,6 +266,24 @@ func profileCodexAccounts(ctx context.Context, service applicationService, req c
 		return nil
 	})
 	return result, err
+}
+
+func removeCodexSavedAccount(ctx context.Context, tool string, env profileClientEnvironment, account savedCodexAccount) error {
+	selector := account.Email
+	if selector == "" {
+		selector = account.Key
+	}
+	if selector == "" {
+		return errors.New("codex-auth could not identify the signed-out account")
+	}
+	removeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(removeCtx, tool, "remove", selector, "--json")
+	cmd.Env, cmd.Dir = env.Environment, env.Home
+	if err := cmd.Run(); err != nil {
+		return errors.New("codex-auth could not remove the signed-out account")
+	}
+	return nil
 }
 
 func authorizeCodexLogin(ctx context.Context, service applicationService, binding profileBinding, in io.Reader, out, diagnostic io.Writer) (*stagedCodexLogin, error) {

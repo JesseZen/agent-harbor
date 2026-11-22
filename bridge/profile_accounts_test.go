@@ -58,6 +58,8 @@ case "$1" in
  reset)
  [ "$2" = synthetic::account ] && [ "$#" = 2 ] || exit 4
  printf '%s\n' "$2" > "$CODEX_HOME/reset-fixture" ;;
+remove)
+ printf '%s' "$2" > "$CODEX_HOME/remove-fixture" ;;
  switch)
  [ "$2" = synthetic::account ] && [ "$3" = --json ] && [ "$4" = --no-restart-daemon ] || exit 3
  printf '{}' > "$CODEX_HOME/auth.json" ;;
@@ -104,6 +106,9 @@ esac
 	}
 	if r, err := action(ab, "signed-out"); err != nil || r.State != "signed-out" || len(r.Accounts) != 0 {
 		t.Fatal(r, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(a.Clients[0].Home, "remove-fixture")); err != nil || string(data) != "synthetic@example.test" {
+		t.Fatalf("signed-out account was not removed by email: %q, %v", string(data), err)
 	}
 	_, err = h.ProfileCodexAccounts(context.Background(), codexAccountRequest{Profile: ab, Action: "switch", Selected: "synthetic@example.test"}, nil, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "no longer in this Profile") {

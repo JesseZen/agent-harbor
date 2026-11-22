@@ -152,6 +152,115 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 	}
 }
 
+func TestAutomaticSessionNameFollowsNewConversationTitleWithoutChangingRecoveryTarget(t *testing.T) {
+	root := visibilityTestRoot(t)
+	oldID := "01912345-6789-7abc-8def-0123456789ab"
+	newID := "01912345-6789-7abc-8def-0123456789ac"
+	oldRef := herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: oldID}
+	socket := filepath.Join(root, "state.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	s := session{
+		Version: 3, ID: "0123456789abcdef0123456789abcdef", CLI: "codex", Name: "project · local",
+		AutoNamePending: true, AutoNameSync: true, RunToken: "run", CodexHome: os.Getenv("CODEX_HOME"),
+		HerdrPane: "w1:p1", HerdrTab: "w1:t1", HerdrSocket: socket, HerdrSocketIdentity: socketIdentity(socket),
+		CodexSessionID: oldID, ProcessGroup: startSessionProcessGroupFixture(t, root, map[string]string{"AH_SESSION_RUN_TOKEN": "run"}),
+		Conversation: &conversationEvidence{Reference: oldRef, Status: "observed", RunToken: "run", Pane: "w1:p1", SocketIdentity: socketIdentity(socket)},
+	}
+	var mu sync.Mutex
+	paneLabel, tabLabel, terminalTitle := s.Name, s.Name, "Old title | project"
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			func() {
+				defer conn.Close()
+				var req struct {
+					Method string            `json:"method"`
+					Params map[string]string `json:"params"`
+				}
+				if json.NewDecoder(conn).Decode(&req) != nil {
+					return
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				var result any
+				switch req.Method {
+				case "pane.get":
+					result = map[string]any{"pane": map[string]any{"pane_id": s.HerdrPane, "tab_id": s.HerdrTab, "label": paneLabel, "agent_session": oldRef, "terminal_title_stripped": terminalTitle, "agent": "codex", "terminal_id": "terminal", "workspace_id": "w1"}}
+				case "pane.process_info":
+					result = map[string]any{"process_info": map[string]any{"pane_id": s.HerdrPane, "foreground_process_group_id": s.ProcessGroup}}
+				case "tab.get":
+					result = map[string]any{"tab": map[string]any{"tab_id": s.HerdrTab, "label": tabLabel}}
+				case "pane.rename":
+					paneLabel = req.Params["label"]
+					result = map[string]any{}
+				case "tab.rename":
+					tabLabel = req.Params["label"]
+					result = map[string]any{}
+				}
+				_ = json.NewEncoder(conn).Encode(map[string]any{"result": result})
+			}()
+		}
+	}()
+	if err := withSessions(func([]session) ([]session, error) { return []session{s}, nil }); err != nil {
+		t.Fatal(err)
+	}
+	index := filepath.Join(s.CodexHome, "session_index.jsonl")
+	if err := os.WriteFile(index, []byte(`{"id":"`+oldID+`","thread_name":"Old title"}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	captureAutomaticSessionName(s.ID, s.RunToken)
+	if got, _ := getSession(s.ID); got.Name != "Old title" {
+		t.Fatalf("initial Codex title was not captured: %q", got.Name)
+	}
+	if err := os.WriteFile(index, []byte(`{"id":"`+oldID+`","thread_name":"Old title"}`+"\n"+`{"id":"`+newID+`","thread_name":"New title"}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	terminalTitle = "New title | project"
+	mu.Unlock()
+	captureAutomaticSessionName(s.ID, s.RunToken)
+	if got, _ := getSession(s.ID); got.Name != "New title" {
+		t.Fatalf("/new title did not update while Herdr retained the old reference: %q", got.Name)
+	}
+	thirdID := "01912345-6789-7abc-8def-0123456789ad"
+	thirdRef := herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: thirdID}
+	if err := os.WriteFile(index, []byte(`{"id":"`+oldID+`","thread_name":"Old title"}`+"\n"+`{"id":"`+newID+`","thread_name":"New title"}`+"\n"+`{"id":"`+thirdID+`","thread_name":"Third title"}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	terminalTitle = "Third title | project"
+	mu.Unlock()
+	if err := withSessions(func(all []session) ([]session, error) {
+		all[0].Conversation.Status = "conflict"
+		all[0].Conversation.ObservedReference = &thirdRef
+		all[0].ReportedCodexID = thirdID
+		all[0].Recovery = "needs_review"
+		return all, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	captureAutomaticSessionName(s.ID, s.RunToken)
+	got, err := getSession(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got.Name != "Third title" || paneLabel != got.Name || tabLabel != got.Name {
+		t.Fatalf("/new title did not reach Harbor and Herdr: record=%q pane=%q tab=%q", got.Name, paneLabel, tabLabel)
+	}
+	if got.CodexSessionID != oldID || got.Conversation.Reference != oldRef || got.ReportedCodexID != thirdID || got.Recovery != "needs_review" {
+		t.Fatalf("title sync changed recovery identity or review state: %+v", got)
+	}
+}
+
 func TestSessionNamePolicyAtCreation(t *testing.T) {
 	visibilityTestRoot(t)
 	for _, name := range []string{"", "My session"} {

@@ -84,6 +84,7 @@ func codexTerminalName(names map[string]string, title string) string {
 }
 
 func codexNameForPane(names map[string]string, ref *herdrIdentity, title string) string {
+	matchedTitle := codexTerminalName(names, title)
 	if ref != nil {
 		if ref.Agent != "codex" || ref.Kind != "id" || !validCodexID(ref.Value) {
 			return ""
@@ -92,9 +93,9 @@ func codexNameForPane(names map[string]string, ref *herdrIdentity, title string)
 		if name != "" && (title == name || strings.HasPrefix(title, name+" | ")) {
 			return name
 		}
-		return ""
+		return matchedTitle
 	}
-	return codexTerminalName(names, title)
+	return matchedTitle
 }
 
 // Runs from the existing identity observer. Persisting the policy makes
@@ -143,7 +144,17 @@ func captureAutomaticSessionName(id, token string) {
 				if pane.Pane.Reference == nil {
 					return nil, nil
 				}
-				name = names[s.Conversation.Reference.Value]
+				name = codexNameForPane(names, pane.Pane.Reference, pane.Pane.Title)
+				if name != "" && name != names[s.Conversation.Reference.Value] {
+					views := make([]sessionView, len(all))
+					for j := range all {
+						views[j].session = all[j]
+					}
+					agent := herdrAgent{Pane: pane.Pane.ID, Tab: pane.Pane.Tab, Client: pane.Pane.Client, Terminal: pane.Pane.Terminal, Workspace: pane.Pane.Workspace, Reference: pane.Pane.Reference}
+					if verifiedForegroundRun(context.Background(), s.HerdrSocket, s.HerdrSocketIdentity, agent, views) != i {
+						return nil, nil
+					}
+				}
 			} else {
 				views := make([]sessionView, len(all))
 				for j := range all {

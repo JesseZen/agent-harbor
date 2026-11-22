@@ -98,14 +98,16 @@ a same-run Conversation or owned running client can supply a title, then follow
 usable title changes for the lifetime of that Harbor Session.
 Codex 0.169.0 stores names in the bound `CODEX_HOME/session_index.jsonl`
 (`id`, `thread_name`, latest complete entry wins). Harbor reads only metadata
-in that Session's verified environment, with a bounded 4 MiB tail read. With a
-Conversation report it selects the exact observed ID. Without one, it verifies
-Herdr's foreground process group, Harbor run token and Profile environment, then
-matches Herdr's `terminal_title_stripped` against a complete name in that index
-(with Codex's optional ` | project` suffix). Ambiguous matches, unknown processes
-and unmatched titles retain the fallback. It never selects the newest index row
-or manufactures Conversation identity from a title. Missing/invalid titles
-retain the fallback. Existing records
+in that Session's verified environment, with a bounded 4 MiB tail read. Harbor
+prefers the reported ID's title when it matches the terminal title. If the
+terminal title instead uniquely matches another complete entry in that Profile
+index (including Codex's optional ` | project` suffix), Harbor can update only
+the display name after verifying the owned foreground run, Harbor run token
+and Profile environment. Without a verified Conversation it requires the same
+foreground proof. Ambiguous matches, unknown processes and unmatched titles
+retain the fallback. It never selects the newest index row or manufactures
+Conversation identity from a title.
+Missing/invalid titles retain the fallback. Existing records
 are not retroactively opted in. Explicit Harbor renames disable synchronization,
 and a different pane/tab label set directly in Herdr also disables it. Herdr does
 not offer conditional label updates; label checks and renames are separate API

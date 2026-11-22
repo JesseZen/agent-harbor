@@ -23,7 +23,7 @@ def main():
     p.add_argument('--recovery-review',action='store_true',help='replay an unavailable final identity observation and test one-action recovery plus retry')
     p.add_argument('--dynamic-discovery',action='store_true',help='use an isolated dynamic Magpie discovery port')
     p.add_argument('--profiles',action='store_true',help='run the Profile A/B UI, runtime and recovery journey with isolated native clients')
-    p.add_argument('--session-names',action='store_true',help='exercise one-time Codex title capture and manual Herdr display names')
+    p.add_argument('--session-names',action='store_true',help='exercise Codex title synchronization and manual Herdr display names')
     p.add_argument('--model-picker',action='store_true',help='exercise Magpie models, Codex effort and profile recovery')
     p.add_argument('--codex-options',action='store_true',help='exercise Profile defaults, remembered launch options and native/Codex-format Magpie recovery')
     p.add_argument('--synthetic-api-login',action='store_true',help='seed a fixture API login instead of starting signed out')
@@ -562,6 +562,12 @@ def main():
             assert labels('修复登录页面'),'automatic title not displayed in Herdr'
             text('/rename Later Codex title');key('Enter');time.sleep(2)
             wait(lambda:current()['name']=='Later Codex title' and labels('Later Codex title'),'Codex rename synchronized to Harbor and Herdr')
+            native.automatic_title='New conversation title'
+            text('/new');key('Enter');time.sleep(1)
+            turn('AH_LOCAL_SECOND',native)
+            wait(lambda:current()['name']=='New conversation title' and labels('New conversation title'),'new Codex conversation title synchronized to Harbor and Herdr')
+            assert getattr(native,'title_calls',0)>=2,'new conversation did not request an automatic title'
+            assert not current().get('conversation') and not current().get('codex_session_id'),'new conversation display title changed recovery identity'
             run([binary,'rename',rec['id'],'用户手动名称'])
             assert labels('用户手动名称'),'manual rename not displayed in Herdr'
             wait(lambda:'用户手动名称' in capture(),'renamed title rendered by Herdr client')
@@ -571,7 +577,7 @@ def main():
             config=tomllib.loads((root/'harbor/herdr/config/herdr.toml').read_text())
             rows=config['ui']['sidebar']['agents']['rows']
             assert rows[0][1]['bold'] and rows[0][1]['dim'] is False and rows[2][0]['fg']=='#9399b2','missing visual hierarchy'
-            print('PASS real Codex title synchronization without hooks or inferred Conversation identity, Unicode manual rename and native sidebar styles',root,flush=True)
+            print('PASS real Codex rename and /new title synchronization without inferred Conversation identity, Unicode manual rename and native sidebar styles',root,flush=True)
             return 0
         one=create('UI-A','ui-group');notify_before=notify_count();turn('AH_LOCAL_FIRST',relay_a)
         if a.model_picker:

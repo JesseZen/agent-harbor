@@ -53,11 +53,12 @@ the saved conversation.
 An explicit Session name takes precedence over automatic titles. New Codex
 Sessions created with an empty name initially show the project and connection,
 then follow verified Codex title changes in Harbor and Herdr's tab/pane display
-labels for the lifetime of that Harbor Session. A verified Conversation
-selects its exact title-index entry.
-Without a hook report, a verified owned running client may supply a display
-title through Herdr's normalized terminal title, matched against that Profile's
-Codex title index. Display naming never supplies Conversation/recovery identity.
+labels for the lifetime of that Harbor Session. Harbor prefers a reported
+Conversation's title-index entry when it matches the terminal title. If another
+unique title in the verified Profile index matches, Harbor verifies the owned
+foreground run before updating only the display. Without a hook report, title
+matching also requires a verified owned foreground run. Display naming never
+supplies Conversation/recovery identity.
 Later manual renaming remains available and disables automatic synchronization.
 Older records retain their names. Other clients keep the project/connection
 fallback until their title capability is verified. Display naming never changes

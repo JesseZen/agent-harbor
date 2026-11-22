@@ -126,6 +126,9 @@ func (m harborModel) runAccountAction(action, selected string) (tea.Model, tea.C
 		return m, nil
 	}
 	m.accountGeneration++
+	if action == "signed-out" {
+		selected = m.accountRow
+	}
 	captured := *m.accountProfile
 	operation := &accountExec{service: service, action: action, selected: selected, profile: captured}
 	m.screen, m.scroll = "accounts-busy", 0
@@ -175,6 +178,28 @@ func (m *harborModel) setAccountRoster(snapshot profileAccountResult) {
 		}
 	}
 	m.cacheAccountSnapshot(snapshot)
+}
+
+func (m *harborModel) removeAccountFromRoster(key string) {
+	if key == "" || m.accountProfile == nil {
+		return
+	}
+	snapshot, ok := m.accountCache[*m.accountProfile]
+	if !ok {
+		return
+	}
+	filtered := snapshot.Accounts[:0]
+	for _, account := range snapshot.Accounts {
+		if account.Key != key {
+			filtered = append(filtered, account)
+		}
+	}
+	snapshot.Accounts = filtered
+	m.accountCache[*m.accountProfile] = snapshot
+	m.accountSnapshot = &snapshot
+	if m.accountRow == key {
+		m.accountRow = ""
+	}
 }
 
 func (m harborModel) inspectAccounts(binding profileBinding) tea.Cmd {

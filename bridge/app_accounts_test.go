@@ -336,6 +336,32 @@ func TestAccountsOffersNoLoginAlongsideSavedAccounts(t *testing.T) {
 	}
 }
 
+func TestAccountsRemovesSignedOutLoginFromRoster(t *testing.T) {
+	m, _ := formFixture()
+	binding := profileBinding{ProfileID: "signed-out"}
+	m.accountProfile = &binding
+	snapshot := walkthroughAccounts(binding)
+	m.cacheAccountSnapshot(snapshot)
+	m.accountRow = snapshot.Selected
+	m.screen = "accounts-busy"
+	operation := &accountExec{action: "signed-out", selected: snapshot.Selected}
+	signedOut := snapshot
+	signedOut.State, signedOut.Selected = "signed-out", ""
+	next, _ := m.Update(appAccountDone{profile: &binding, snapshot: &signedOut, operation: operation})
+	m = next.(harborModel)
+	if m.accountSnapshot == nil || m.currentAccount(snapshot.Accounts[0].Key) {
+		t.Fatal("signed-out login remains selected")
+	}
+	for _, account := range m.accountSnapshot.Accounts {
+		if account.Key == snapshot.Accounts[0].Key {
+			t.Fatalf("signed-out login remains in roster: %+v", m.accountSnapshot.Accounts)
+		}
+	}
+	if len(m.accountSnapshot.Accounts) == 0 {
+		t.Fatal("other saved login was removed")
+	}
+}
+
 func TestAccountClickMovesCursorBeforeOpening(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	m.screen = "accounts"

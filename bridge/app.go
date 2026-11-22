@@ -572,6 +572,9 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.loadInstances(), tea.EnableMouseAllMotion)
 	case appAccountDone:
+		if msg.err == nil && msg.operation != nil && msg.operation.action == "signed-out" {
+			m.removeAccountFromRoster(msg.operation.selected)
+		}
 		m.screen = "accounts-result"
 		m.accountResult = msg.result
 		if msg.err != nil {

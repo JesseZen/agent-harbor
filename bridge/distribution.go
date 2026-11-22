@@ -34,6 +34,9 @@ func distributionCommand(args []string) error {
 // Resolve command links so bundled dependencies and popup entry points stay in
 // the versioned package, including on macOS where os.Executable can retain a link.
 func resolvedExecutable() (string, error) {
+	if development := os.Getenv("AGENT_HARBOR_DEV_IDENTITY_EXECUTABLE"); development != "" {
+		return filepath.EvalSymlinks(development)
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return "", err

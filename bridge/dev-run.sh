@@ -17,7 +17,7 @@ fi
   exit 1
 }
 
-for name in herdr magpie codex-auth; do
+for name in agent-harbor herdr magpie codex-auth; do
   [ -x "$companion_dir/$name" ] || {
     printf 'Missing executable: %s/%s\n' "$companion_dir" "$name" >&2
     exit 1
@@ -30,4 +30,5 @@ for name in herdr magpie codex-auth; do
   cp "$companion_dir/$name" "$output/$name"
 done
 
+export AGENT_HARBOR_DEV_IDENTITY_EXECUTABLE="$companion_dir/agent-harbor"
 exec "$output/agent-harbor" "$@"

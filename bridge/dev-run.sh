@@ -40,4 +40,9 @@ mv -f "$staged" "$companion_dir/agent-harbor"
 staged=
 
 export AGENT_HARBOR_DEV_IDENTITY_EXECUTABLE="$companion_dir/agent-harbor"
+if [ "$#" -eq 0 ]; then
+  if ! "$companion_dir/agent-harbor" _refresh-session-names; then
+    printf '%s\n' 'Could not refresh automatic Codex session names.' >&2
+  fi
+fi
 exec "$companion_dir/agent-harbor" "$@"

@@ -11,7 +11,7 @@ import (
 )
 
 func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
-	for _, scenario := range []string{"automatic", "manual-harbor", "manual-herdr", "wrong-conversation", "conflict", "unobserved", "wrong-run", "wrong-home", "unfinished-index", "no-identity", "no-identity-wrong-process", "no-identity-unindexed-title", "no-identity-manual"} {
+	for _, scenario := range []string{"automatic", "manual-harbor", "manual-herdr", "wrong-conversation", "conflict", "unobserved", "wrong-run", "wrong-home", "unfinished-index", "no-identity", "no-identity-active", "no-identity-wrong-process", "no-identity-unindexed-title", "no-identity-manual"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := visibilityTestRoot(t)
 			t.Setenv(originalEnvKey, "")
@@ -25,6 +25,9 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 			}
 			defer listener.Close()
 			s := session{Version: 3, ID: "0123456789abcdef0123456789abcdef", CLI: "codex", Name: "project · local", AutoNamePending: true, AutoNameSync: true, RunToken: "run", CodexHome: os.Getenv("CODEX_HOME"), HerdrPane: "w1:p1", HerdrTab: "w1:t1", HerdrSocket: socket, HerdrSocketIdentity: socketIdentity(socket)}
+			if scenario == "no-identity-active" {
+				s.AutoNamePending = false
+			}
 			s.Conversation = &conversationEvidence{Reference: ref, Status: "observed", RunToken: s.RunToken, Pane: s.HerdrPane, SocketIdentity: s.HerdrSocketIdentity}
 			if strings.HasPrefix(scenario, "no-identity") || scenario == "conflict" {
 				s.ProcessGroup = startSessionProcessGroupFixture(t, root, map[string]string{"AH_SESSION_RUN_TOKEN": s.RunToken})
@@ -134,6 +137,10 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 			mu.Unlock()
 			if scenario == "automatic" || scenario == "no-identity" {
 				captureAutomaticSessionName(s.ID, s.RunToken)
+			} else if scenario == "no-identity-active" {
+				if err := refreshAutomaticSessionNames(); err != nil {
+					t.Fatal(err)
+				}
 			}
 			got, err := getSession(s.ID)
 			if err != nil {
@@ -141,7 +148,7 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			if scenario == "automatic" || scenario == "no-identity" {
+			if scenario == "automatic" || scenario == "no-identity" || scenario == "no-identity-active" {
 				if got.Name != "Later title" || got.AutoNamePending || !got.AutoNameSync || paneLabel != got.Name || tabLabel != got.Name || renamed != 4 || (scenario == "automatic" && got.Conversation.Reference != ref) || (scenario == "no-identity" && got.Conversation != nil) {
 					t.Fatalf("title changes did not follow the verified Codex title: %+v labels %q %q writes %d", got, paneLabel, tabLabel, renamed)
 				}

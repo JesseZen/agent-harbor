@@ -65,7 +65,10 @@ and normally takes a few seconds. `brew upgrade` or `brew reinstall` restores
 the released binary. Set `AGENT_HARBOR_DEV_COMPANION_DIR` when the companions
 are not installed through Homebrew. The command uses the existing Harbor state,
 so close the production workspace before testing changes that affect its
-running sessions; already-running Herdr panes keep their current process.
+running sessions; already-running Herdr panes keep their current process. It
+refreshes opted-in Codex names once before opening Harbor, but their running
+pane observers do not hot-update; ongoing changes need a pane opened after the
+update.
 
 Start here when working on the project:
 

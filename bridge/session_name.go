@@ -210,7 +210,7 @@ func refreshAutomaticSessionNames() error {
 	}
 	updated := 0
 	for _, s := range records {
-		if !s.AutoNamePending {
+		if !s.AutoNameSync && !s.AutoNamePending {
 			continue
 		}
 		captureAutomaticSessionName(s.ID, s.RunToken)

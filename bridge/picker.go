@@ -106,7 +106,7 @@ func style(code, text string) string {
 }
 
 func sessionStamp(s session) string {
-	data, _ := json.Marshal(s)
+	data, _ := json.Marshal(sessionComparisonValue(s))
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
 }

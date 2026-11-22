@@ -46,8 +46,16 @@ func processGroupActive(group int) bool {
 	return err == nil || !errors.Is(err, syscall.ESRCH)
 }
 
+func sessionComparisonValue(s session) session {
+	if s.AutoNameSync {
+		s.Name = ""
+		s.AutoNamePending = false
+	}
+	return s
+}
+
 func sameSession(a, b session) bool {
-	return reflect.DeepEqual(a, b)
+	return reflect.DeepEqual(sessionComparisonValue(a), sessionComparisonValue(b))
 }
 
 func beginRun(expected session, kind launchKind, plan runPlan) error {

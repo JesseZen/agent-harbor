@@ -631,6 +631,9 @@ func (m harborModel) accountsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		var cmd tea.Cmd
 		if done.snapshot != nil && m.accountProfile != nil && done.snapshot.State != "" {
 			m.setAccountRoster(*done.snapshot)
+			if done.err == nil && done.operation != nil && done.operation.action == "signed-out" {
+				m.removeAccountFromRoster(done.operation.selected)
+			}
 			cmd = m.loadAccountUsage()
 		} else if m.accountUsagePending {
 			cmd = m.beginAccountInspect()

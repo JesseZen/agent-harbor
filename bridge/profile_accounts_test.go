@@ -102,7 +102,7 @@ esac
 	if r, err := action(ab, "inspect"); err != nil || r.State != "selected" {
 		t.Fatal(r, err)
 	}
-	if r, err := action(ab, "signed-out"); err != nil || r.State != "signed-out" || len(r.Accounts) != 1 {
+	if r, err := action(ab, "signed-out"); err != nil || r.State != "signed-out" || len(r.Accounts) != 0 {
 		t.Fatal(r, err)
 	}
 	_, err = h.ProfileCodexAccounts(context.Background(), codexAccountRequest{Profile: ab, Action: "switch", Selected: "synthetic@example.test"}, nil, nil, nil)

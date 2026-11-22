@@ -452,6 +452,7 @@ func readProfileAccounts(ctx context.Context, tool string, env profileClientEnvi
 	status, err := cmd.CombinedOutput()
 	if err != nil {
 		if strings.Contains(string(status), "Not logged in") {
+			result.Accounts = removeSavedAccount(list.Accounts, list.Active)
 			result.State = "signed-out"
 			return nil
 		}
@@ -475,6 +476,19 @@ func readProfileAccounts(ctx context.Context, tool string, env profileClientEnvi
 		}
 	}
 	return errors.New("Codex login and saved account selection are unconfirmed")
+}
+
+func removeSavedAccount(accounts []savedCodexAccount, key string) []savedCodexAccount {
+	if key == "" {
+		return accounts
+	}
+	filtered := make([]savedCodexAccount, 0, len(accounts))
+	for _, account := range accounts {
+		if account.Key != key {
+			filtered = append(filtered, account)
+		}
+	}
+	return filtered
 }
 
 func accountLoginEnvironment(env profileClientEnvironment) ([]string, func(), error) {

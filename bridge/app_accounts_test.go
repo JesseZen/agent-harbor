@@ -311,7 +311,7 @@ func TestAccountsOffersNoLoginAlongsideSavedAccounts(t *testing.T) {
 		}
 		next, cmd := m.Update(uiKey("enter"))
 		m = next.(harborModel)
-		if cmd != nil || m.screen != "accounts-signout-confirm" || !strings.Contains(m.View(), "Saved logins stay available") {
+		if cmd != nil || m.screen != "accounts-signout-confirm" || !strings.Contains(m.View(), "Other saved logins stay available") {
 			t.Fatal("activating sign-out skipped its review")
 		}
 		next, cmd = m.Update(uiKey("esc"))

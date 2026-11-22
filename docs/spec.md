@@ -114,8 +114,9 @@ must not be assumed after recreation. See [remote workspaces](remote-workspaces.
 Accounts selects the login for the displayed Profile's Codex home; Connections
 selects where model requests go. Accounts offers official login through bundled
 `codex-auth`, saved logins, and “Not signed in” in the same list. Sign-out
-requires confirmation and retains saved accounts. The check mark represents the
-stored login, not the login in an already-running window.
+requires confirmation and removes the logged-out active account while retaining
+other saved accounts. The check mark represents the stored login, not the login
+in an already-running window.
 
 New Native and signed-in caller-only Magpie Codex runs use a private official
 App Server automatically, without a switch or version allowlist. If the server

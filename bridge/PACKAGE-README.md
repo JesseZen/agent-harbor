@@ -135,6 +135,8 @@ older window does not prevent saving, but it may keep using the old login.
 For a window whose switch was not confirmed, reopen the same Conversation
 explicitly to use the stored login. Harbor never restarts a window for you.
 Selecting Not signed in changes the stored login, not a confirmed live sign-out.
+After Codex reports that it is signed out, Harbor hides the stale active account
+record while retaining other saved logins.
 The refresh relies on an undocumented effect of `app/list`; Harbor checks the
 resulting identity instead of assuming all Codex versions reload it.
 

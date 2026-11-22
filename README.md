@@ -57,6 +57,14 @@ not required or published. See [release maintenance](distribution/README.md).
 
 The active Go module is in `bridge/`. Go 1.26 is required. Run `GOWORK=off go test ./...` from that directory using isolated HOME, XDG, temporary directories and client homes. Product runtime and packaging require Herdr, Magpie and a supported native client.
 
+For rapid local TUI validation on the development machine, run
+`./bridge/dev-run.sh`. It builds only the host's Harbor binary and reuses the
+installed Herdr, Magpie and codex-auth companions. On Apple Silicon this is a
+native arm64 build and normally takes a few seconds. Set
+`AGENT_HARBOR_DEV_COMPANION_DIR` when the companions are not installed through
+Homebrew. The command uses the existing Harbor state, so close the production
+workspace before testing changes that affect its running sessions.
+
 Start here when working on the project:
 
 - [Product outline](docs/spec.md) and [glossary](docs/glossary.md): intended behavior and terminology.

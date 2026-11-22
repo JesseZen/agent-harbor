@@ -74,7 +74,7 @@ func (m harborModel) accountContent() uiPage {
 		if m.accountProfile != nil && m.accountSnapshot != nil {
 			p.line(kvw("Profile", cleanUI(orUnknown(m.accountSnapshot.ProfileName)), 9))
 		}
-		wrap("Saved logins stay available.")
+		wrap("Other saved logins stay available.")
 	} else if m.screen == "accounts-detail" || m.screen == "accounts-reset-confirm" || m.screen == "accounts-resetting" {
 		m.accountDetail(&p, wrap)
 	} else if m.screen == "accounts-busy" {

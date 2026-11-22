@@ -94,8 +94,8 @@ display labels and retains the separate handle for CLI addressing.
 Upstream does not read Codex's conversation-name index. Harbor's existing
 identity observer supplies that small adapter without changing Herdr: new Codex
 Sessions created with an empty name keep the project/connection fallback until
-a same-run Conversation or owned running client can supply a title, then capture
-the first usable title once.
+a same-run Conversation or owned running client can supply a title, then follow
+usable title changes for the lifetime of that Harbor Session.
 Codex 0.169.0 stores names in the bound `CODEX_HOME/session_index.jsonl`
 (`id`, `thread_name`, latest complete entry wins). Harbor reads only metadata
 in that Session's verified environment, with a bounded 4 MiB tail read. With a
@@ -106,10 +106,12 @@ matches Herdr's `terminal_title_stripped` against a complete name in that index
 and unmatched titles retain the fallback. It never selects the newest index row
 or manufactures Conversation identity from a title. Missing/invalid titles
 retain the fallback. Existing records
-are not retroactively opted in. Explicit Harbor renames disable capture, and a
-different pane/tab label set directly in Herdr also disables pending capture.
-Herdr does not offer conditional label updates; label checks and renames are
-separate API operations. This is a one-time copy, not ongoing synchronization.
+are not retroactively opted in. Explicit Harbor renames disable synchronization,
+and a different pane/tab label set directly in Herdr also disables it. Herdr does
+not offer conditional label updates; label checks and renames are separate API
+operations. When the terminal title is used without a verified Conversation,
+Harbor still requires the same owned foreground run and Profile; this changes
+only the display name, never the saved Conversation or recovery target.
 
 The owned sidebar uses Herdr's native styled row tokens: the pane title is
 bright and bold, machine/workspace and connection details are dimmed, and the
@@ -130,8 +132,8 @@ tests, build and vet passed. The maintained `app_acceptance.py --replacement
 0.1.3528-harbor-dev and codex-auth 0.4.0. The fixture uses a synthetic native
 provider, creates a Conversation before invoking Codex `/rename`, checks the
 exact title in Harbor and Herdr pane/tab labels, verifies a later Codex rename
-does not overwrite it, then verifies a Unicode Harbor manual rename. The final
-sidebar configuration loaded in real Herdr and an ANSI capture was retained.
+synchronizes to Harbor and Herdr, then verifies a Unicode Harbor manual rename.
+The final sidebar configuration loaded in real Herdr and an ANSI capture was retained.
 The Profile-bound title-reader regression also verifies that ambient home B
 cannot supply a name for A, and A's missing home cannot trigger fallback.
 This is Linux evidence; the new naming/style changes have not received native

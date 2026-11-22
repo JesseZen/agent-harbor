@@ -83,11 +83,25 @@ func codexTerminalName(names map[string]string, title string) string {
 	return matched
 }
 
-// Runs from the existing identity observer. Persisting the one-shot policy
-// makes restart/resume preserve both automatic and later manual choices.
+func codexNameForPane(names map[string]string, ref *herdrIdentity, title string) string {
+	if ref != nil {
+		if ref.Agent != "codex" || ref.Kind != "id" || !validCodexID(ref.Value) {
+			return ""
+		}
+		name := names[ref.Value]
+		if name != "" && (title == name || strings.HasPrefix(title, name+" | ")) {
+			return name
+		}
+		return ""
+	}
+	return codexTerminalName(names, title)
+}
+
+// Runs from the existing identity observer. Persisting the policy makes
+// restart/resume preserve both automatic and later manual choices.
 func captureAutomaticSessionName(id, token string) {
 	s, err := getSession(id)
-	if err != nil || !s.AutoNamePending || s.RunToken != token {
+	if err != nil || !(s.AutoNameSync || s.AutoNamePending) || s.RunToken != token {
 		return
 	}
 	names := codexNameIndex(s)
@@ -121,11 +135,11 @@ func captureAutomaticSessionName(id, token string) {
 				pane.Pane.ID != s.HerdrPane || pane.Pane.Tab != s.HerdrTab {
 				return nil, nil
 			}
-			if conversationAssociationWarning(s, pane.Pane.Reference) != "" {
-				return nil, nil
-			}
 			name := ""
 			if observed {
+				if conversationAssociationWarning(s, pane.Pane.Reference) != "" {
+					return nil, nil
+				}
 				if pane.Pane.Reference == nil {
 					return nil, nil
 				}
@@ -139,7 +153,7 @@ func captureAutomaticSessionName(id, token string) {
 				if verifiedForegroundRun(context.Background(), s.HerdrSocket, s.HerdrSocketIdentity, agent, views) != i {
 					return nil, nil
 				}
-				name = codexTerminalName(names, pane.Pane.Title)
+				name = codexNameForPane(names, pane.Pane.Reference, pane.Pane.Title)
 			}
 			if name == "" {
 				return nil, nil
@@ -157,6 +171,7 @@ func captureAutomaticSessionName(id, token string) {
 				if label != "" && label != s.Name && label != name {
 					// A name set directly in Herdr takes precedence too.
 					all[i].AutoNamePending = false
+					all[i].AutoNameSync = false
 					return all, nil
 				}
 			}

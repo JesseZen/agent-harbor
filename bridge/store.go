@@ -61,6 +61,7 @@ type session struct {
 	Version              int                 `json:"version"`
 	Name                 string              `json:"name"`
 	AutoNamePending      bool                `json:"auto_name_pending,omitempty"`
+	AutoNameSync         bool                `json:"auto_name_sync,omitempty"`
 	InstanceID           string              `json:"instance_id,omitempty"`
 	InstanceSnapshot     *magpieInstance     `json:"instance_snapshot,omitempty"`
 	ConversationIDSource string              `json:"conversation_id_source,omitempty"`
@@ -307,6 +308,7 @@ func createSessionIntent(d sessionDraft, address string, selected *magpieInstanc
 	s.RecoverySetupSkipped = d.RecoveryChoice == "skip"
 	s.CodexOptions = options.saved()
 	s.AutoNamePending = strings.TrimSpace(d.Name) == "" && d.Client == "codex"
+	s.AutoNameSync = s.AutoNamePending
 	if mode == "magpie" && d.Client == "codex" {
 		s.CodexConnection = "caller"
 		if d.CodexConnection != "" {

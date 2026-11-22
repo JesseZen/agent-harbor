@@ -551,7 +551,7 @@ def main():
             rec=create('')
             turn('AH_LOCAL_FIRST',native)
             def current():return next(r for r in records() if r['id']==rec['id'])
-            wait(lambda:current()['name']=='修复登录页面' and not current().get('auto_name_pending'),'one-time native Codex title capture')
+            wait(lambda:current()['name']=='修复登录页面' and not current().get('auto_name_pending'),'native Codex title capture')
             assert getattr(native,'title_calls',0)>0,'Codex automatic title generation was not exercised'
             assert not current().get('conversation') and not current().get('codex_session_id'),'display title manufactured Conversation identity'
             wrapper=root/'harbor/herdr/bin/herdr'
@@ -561,7 +561,7 @@ def main():
                 return pane.get('label')==name and tab.get('label')==name
             assert labels('修复登录页面'),'automatic title not displayed in Herdr'
             text('/rename Later Codex title');key('Enter');time.sleep(2)
-            assert current()['name']=='修复登录页面' and labels('修复登录页面'),'later title overwrote first capture'
+            wait(lambda:current()['name']=='Later Codex title' and labels('Later Codex title'),'Codex rename synchronized to Harbor and Herdr')
             run([binary,'rename',rec['id'],'用户手动名称'])
             assert labels('用户手动名称'),'manual rename not displayed in Herdr'
             wait(lambda:'用户手动名称' in capture(),'renamed title rendered by Herdr client')
@@ -571,7 +571,7 @@ def main():
             config=tomllib.loads((root/'harbor/herdr/config/herdr.toml').read_text())
             rows=config['ui']['sidebar']['agents']['rows']
             assert rows[0][1]['bold'] and rows[0][1]['dim'] is False and rows[2][0]['fg']=='#9399b2','missing visual hierarchy'
-            print('PASS real Codex automatic title → one-time Harbor/Herdr display name without hooks or inferred Conversation identity, Unicode manual rename and native sidebar styles',root,flush=True)
+            print('PASS real Codex title synchronization without hooks or inferred Conversation identity, Unicode manual rename and native sidebar styles',root,flush=True)
             return 0
         one=create('UI-A','ui-group');notify_before=notify_count();turn('AH_LOCAL_FIRST',relay_a)
         if a.model_picker:

@@ -57,6 +57,7 @@ func renameSession(id, name string) error {
 			}
 			all[i].Name = name
 			all[i].AutoNamePending = false
+			all[i].AutoNameSync = false
 			all[i].HerdrAgentName = agentName(name, id)
 			return all, nil
 		}
@@ -76,6 +77,7 @@ func renameSessionReviewed(expected session, name string) error {
 				}
 				all[i].Name = strings.TrimSpace(name)
 				all[i].AutoNamePending = false
+				all[i].AutoNameSync = false
 				all[i].HerdrAgentName = agentName(name, expected.ID)
 				return all, nil
 			}

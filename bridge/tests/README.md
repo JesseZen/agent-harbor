@@ -300,8 +300,8 @@ For Session names and the Herdr sidebar, run `app_acceptance.py --replacement
 --session-names` with the same binary arguments as above. It creates an unnamed
 Session through the UI with hooks disabled, supplies a structured synthetic
 response to real Codex's automatic title-generation request,
-checks one-time capture and Unicode pane/tab labels, checks a later Codex title
-does not overwrite the captured name, and exercises explicit Harbor rename.
+checks initial and later Codex title synchronization and Unicode pane/tab labels,
+then exercises explicit Harbor rename.
 It asserts display naming did not create a Conversation reference. The original
 `/rename`-first fixture missed the no-hook failure found during user testing.
 The fixture retains an ANSI sidebar capture and checks native style settings.

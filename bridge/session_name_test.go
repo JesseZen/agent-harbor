@@ -24,7 +24,7 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer listener.Close()
-			s := session{Version: 3, ID: "0123456789abcdef0123456789abcdef", CLI: "codex", Name: "project · local", AutoNamePending: true, RunToken: "run", CodexHome: os.Getenv("CODEX_HOME"), HerdrPane: "w1:p1", HerdrTab: "w1:t1", HerdrSocket: socket, HerdrSocketIdentity: socketIdentity(socket)}
+			s := session{Version: 3, ID: "0123456789abcdef0123456789abcdef", CLI: "codex", Name: "project · local", AutoNamePending: true, AutoNameSync: true, RunToken: "run", CodexHome: os.Getenv("CODEX_HOME"), HerdrPane: "w1:p1", HerdrTab: "w1:t1", HerdrSocket: socket, HerdrSocketIdentity: socketIdentity(socket)}
 			s.Conversation = &conversationEvidence{Reference: ref, Status: "observed", RunToken: s.RunToken, Pane: s.HerdrPane, SocketIdentity: s.HerdrSocketIdentity}
 			if strings.HasPrefix(scenario, "no-identity") || scenario == "conflict" {
 				s.ProcessGroup = startSessionProcessGroupFixture(t, root, map[string]string{"AH_SESSION_RUN_TOKEN": s.RunToken})
@@ -40,6 +40,7 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 			}
 			var mu sync.Mutex
 			paneLabel, tabLabel := s.Name, s.Name
+			terminalTitle := "修复登录页面 | project"
 			renamed := 0
 			if scenario == "manual-herdr" || scenario == "no-identity-manual" {
 				paneLabel = "用户自己的名字"
@@ -78,11 +79,10 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 							if scenario == "wrong-conversation" || scenario == "conflict" {
 								observed.Value = "other"
 							}
-							title := "修复登录页面 | project"
 							if scenario == "no-identity-unindexed-title" {
-								title = "Unrelated terminal | project"
+								terminalTitle = "Unrelated terminal | project"
 							}
-							result = map[string]any{"pane": map[string]any{"pane_id": s.HerdrPane, "tab_id": s.HerdrTab, "label": paneLabel, "agent_session": observed, "terminal_title_stripped": title, "agent": "codex", "terminal_id": "terminal", "workspace_id": "w1"}}
+							result = map[string]any{"pane": map[string]any{"pane_id": s.HerdrPane, "tab_id": s.HerdrTab, "label": paneLabel, "agent_session": observed, "terminal_title_stripped": terminalTitle, "agent": "codex", "terminal_id": "terminal", "workspace_id": "w1"}}
 						case "pane.process_info":
 							group := s.ProcessGroup
 							if scenario == "no-identity-wrong-process" {
@@ -127,9 +127,11 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 			} else {
 				captureAutomaticSessionName(s.ID, s.RunToken)
 			}
-			// Later Codex changes must not replace the first title, including after
-			// persistence/reload. Manual naming still works at any time.
+			// Later Codex title changes update the same Harbor record.
 			os.WriteFile(path, []byte(`{"id":"`+conversation+`","thread_name":"Later title"}`+"\n"), 0600)
+			mu.Lock()
+			terminalTitle = "Later title | project"
+			mu.Unlock()
 			if scenario == "automatic" || scenario == "no-identity" {
 				captureAutomaticSessionName(s.ID, s.RunToken)
 			}
@@ -140,8 +142,8 @@ func TestAutomaticSessionNameUsesObservedConversationOnce(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			if scenario == "automatic" || scenario == "no-identity" {
-				if got.Name != "修复登录页面" || got.AutoNamePending || paneLabel != got.Name || tabLabel != got.Name || renamed != 2 || (scenario == "automatic" && got.Conversation.Reference != ref) || (scenario == "no-identity" && got.Conversation != nil) {
-					t.Fatalf("title not applied once to the same conversation: %+v labels %q %q writes %d", got, paneLabel, tabLabel, renamed)
+				if got.Name != "Later title" || got.AutoNamePending || !got.AutoNameSync || paneLabel != got.Name || tabLabel != got.Name || renamed != 4 || (scenario == "automatic" && got.Conversation.Reference != ref) || (scenario == "no-identity" && got.Conversation != nil) {
+					t.Fatalf("title changes did not follow the verified Codex title: %+v labels %q %q writes %d", got, paneLabel, tabLabel, renamed)
 				}
 			} else if renamed != 0 {
 				t.Fatalf("overwrote manual or uncertain target: %d", renamed)
@@ -157,7 +159,7 @@ func TestSessionNamePolicyAtCreation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if s.AutoNamePending != (name == "") {
+		if s.AutoNamePending != (name == "") || s.AutoNameSync != (name == "") {
 			t.Fatalf("incorrect name policy: %+v", s)
 		}
 		if err := renameSession(s.ID, "Manual"); err != nil {

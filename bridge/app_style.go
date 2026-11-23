@@ -62,7 +62,7 @@ func statusRole(word string) string {
 	switch strings.ToLower(word) {
 	case "running", "ready", "verified":
 		return "ok"
-	case "exited", "stopped", "not observed":
+	case "exited", "stopped", "not observed", "not started":
 		return "idle"
 	case "failed", "error":
 		return "bad"

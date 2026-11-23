@@ -156,10 +156,19 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 			}
 			// Explicit consent and selection are one action; Create alone launches.
 			model, instance := rows[m.catalogCursor].ID, m.draft.Instance
+			var rememberErr error
+			var binding *profileBinding
+			if m.draft.Profile != nil {
+				copy := *m.draft.Profile
+				binding = &copy
+			}
 			return m.serviceTask(func() error {
 				ack, err := m.service.AuxiliaryAcknowledged(instance)
 				if err == nil && !ack {
 					err = m.service.AcknowledgeAuxiliary(instance)
+				}
+				if err == nil && binding != nil {
+					rememberErr = m.service.RememberMagpieSelection(*binding, instance, model)
 				}
 				return err
 			}, func(n *harborModel, err error) tea.Cmd {
@@ -173,6 +182,9 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 				n.uiFocus = ""
 				n.input.Blur()
 				n.notice = ""
+				if rememberErr != nil {
+					n.notice = "Model applied but its selection could not be remembered: " + rememberErr.Error()
+				}
 				return nil
 			})
 		case id == "selector-select" || id == "selector-ack":

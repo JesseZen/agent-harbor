@@ -150,11 +150,16 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 	}
 	ownsAccountServer := !neutral && (s.Mode == "local" || joinedCodex(s))
 	remoteArgs := cmd.Args
+	useRemoteProfile := false
 	if s.CodexOptions != nil {
 		options, err := codexOptionLaunchPlans(context.Background(), binary, environment, s, kind, serverSettings, *s.CodexOptions)
 		if err != nil {
 			return err
 		}
+		if options.localOnly {
+			ownsAccountServer = false
+		}
+		useRemoteProfile = ownsAccountServer && options.remoteProfile
 		queryLength := 0
 		if query != nil {
 			queryLength = len(query.Argv) - 1
@@ -250,6 +255,14 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 		if _, err := magpieCodexProfile(s.ID, model, cmd.Env); err != nil {
 			return err
 		}
+	} else if useRemoteProfile {
+		profileName, err := codexPermissionProfile(s.ID, *s.CodexOptions, cmd.Env)
+		if err != nil {
+			return err
+		}
+		remoteArgs = append([]string{remoteArgs[0], "--profile", profileName}, remoteArgs[1:]...)
+	} else if ownsAccountServer {
+		_ = clearCodexPermissionProfile(s.ID, cmd.Env)
 	}
 	if os.Getenv("HERDR_PLUGIN_ID") == "agent-harbor.bridge" && resultPath == "" {
 		if err := prepareCodexRecovery(s, environment, os.Getenv("HERDR_BIN_PATH"), cmd.Env, os.Stdin, os.Stdout); err != nil {
@@ -298,7 +311,12 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 	if !neutral {
 		version = codexVersion(cmd.Env)
 	}
-	activateCapture, finishCapture := candidateIdentityCapture(s.ID, plan.Token, s.CLI)
+	var startupIdentity *conversationEvidence
+	if kind == resumeConversation && s.Recovery == "ready" && s.ReportedCodexID == "" && !recoveryConflict(s) && s.Conversation != nil && (s.Conversation.Status == "observed" || s.Conversation.Status == "reviewed") && s.Conversation.Reference.Agent == s.CLI {
+		copy := *s.Conversation
+		startupIdentity = &copy
+	}
+	activateCapture, finishCapture := candidateIdentityCapture(s.ID, plan.Token, s.CLI, startupIdentity)
 	defer func() {
 		if finishCapture != nil {
 			_ = finishCapture()

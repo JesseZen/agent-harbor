@@ -55,7 +55,7 @@ func checkSessionBase(s session, kind launchKind, override string, checkModel bo
 		return errors.New("working directory target changed; verify the original directory before recovery")
 	}
 	if len(s.CandidateIDs) > 0 || s.ReportedCodexID != "" && s.ReportedCodexID != s.CodexSessionID {
-		return errors.New("conversation ID ambiguous; use verify to explicitly choose a conversation")
+		return errors.New("conversation ID ambiguous; press Enter to choose a conversation")
 	}
 	if kind == resumeConversation {
 		if err := queryReferenceCheck(s); err != nil {

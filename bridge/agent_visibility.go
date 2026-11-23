@@ -225,11 +225,21 @@ func herdrAgentSnapshot(ctx context.Context) (socket, identity string, agents []
 	return socket, identity, *result.Agents, nil
 }
 
+func unobservedStatus(r runtimeObservation) string {
+	switch r.Presence {
+	case "historical_exit", "confirmed_exit":
+		return "Stopped"
+	case "not_started":
+		return "Not started"
+	}
+	return "Unknown"
+}
+
 func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, error) {
 	for i := range views {
 		views[i].Runtime = unknownRuntime(views[i].session)
 		views[i].Running = false
-		views[i].Status = "Unknown"
+		views[i].Status = unobservedStatus(views[i].Runtime)
 	}
 	socket, identity, agents, err := herdrAgentSnapshot(ctx)
 	if err != nil || socket == "" {

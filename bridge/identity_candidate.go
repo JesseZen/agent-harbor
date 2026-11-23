@@ -27,8 +27,11 @@ func candidateRunPlan(s session, env []string) (runPlan, error) {
 }
 
 // Installation and hook enablement are not identity evidence. Only a fresh
-// pane report in this run can establish the Conversation reference.
-func candidateIdentityCapture(id, token, client string) (func(), func() error) {
+// pane report in this run can establish the Conversation reference. When
+// resuming a previously verified Conversation, retain that verified reference
+// if the client does not emit a new hook report and no conflict or transport
+// failure occurs.
+func candidateIdentityCapture(id, token, client string, startup *conversationEvidence) (func(), func() error) {
 	herdr, pane, socket := os.Getenv("HERDR_BIN_PATH"), os.Getenv("HERDR_PANE_ID"), os.Getenv("HERDR_SOCKET_PATH")
 	socketID := socketIdentity(socket)
 	warning := "Conversation identity not reported; inspect this Profile's client integration and hook trust."
@@ -87,6 +90,15 @@ func candidateIdentityCapture(id, token, client string) (func(), func() error) {
 					// socket loss, read failures and conflicts still gate recovery.
 					if finishing && observedThisRun && !blocked && !finalReadUnresolved && state == "missing" && s.Conversation != nil {
 						s.Conversation.Status = "observed"
+						s.Recovery = "ready"
+						s.IdentityWarning = ""
+						return all, nil
+					}
+					// Codex 0.169+ does not re-emit SessionStart when launched via
+					// resume. Preserve a verified startup reference while the pane
+					// stays quiet and healthy; transport loss or conflicts still gate.
+					if startup != nil && !blocked && !finalReadUnresolved && (state == "pending" || state == "missing") && s.Conversation != nil && s.Conversation.Reference == startup.Reference && s.ReportedCodexID == "" {
+						s.Conversation.Status = startup.Status
 						s.Recovery = "ready"
 						s.IdentityWarning = ""
 						return all, nil

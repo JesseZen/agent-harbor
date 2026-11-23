@@ -41,15 +41,17 @@ type profileBinding struct {
 }
 
 type profileClientHome struct {
-	ID               string        `json:"id"`
-	Client           string        `json:"client"`
-	Home             string        `json:"home"`
-	SQLite           string        `json:"sqlite"`
-	Runtime          string        `json:"runtime,omitempty"`
-	HomeIdentity     string        `json:"home_identity"`
-	SQLiteIdentity   string        `json:"sqlite_identity"`
-	RuntimeIdentity  string        `json:"runtime_identity,omitempty"`
-	LastCodexOptions *codexOptions `json:"last_codex_options,omitempty"`
+	ID                   string        `json:"id"`
+	Client               string        `json:"client"`
+	Home                 string        `json:"home"`
+	SQLite               string        `json:"sqlite"`
+	Runtime              string        `json:"runtime,omitempty"`
+	HomeIdentity         string        `json:"home_identity"`
+	SQLiteIdentity       string        `json:"sqlite_identity"`
+	RuntimeIdentity      string        `json:"runtime_identity,omitempty"`
+	LastMagpieInstanceID string        `json:"last_magpie_instance_id,omitempty"`
+	LastMagpieModelID    string        `json:"last_magpie_model_id,omitempty"`
+	LastCodexOptions     *codexOptions `json:"last_codex_options,omitempty"`
 }
 
 type profile struct {

@@ -95,8 +95,11 @@ func TestTicket06CancelAndStaleCatalog(t *testing.T) {
 }
 func TestTicket06ExplicitApplyAndCreate(t *testing.T) {
 	m, f := formFixture()
+	binding := profileBinding{WorkspaceID: "workspace", ProfileID: "profile", Client: "codex", EnvironmentID: "codex-home"}
+	f.ProfileRecords = []profile{{ID: binding.ProfileID, WorkspaceID: binding.WorkspaceID, Kind: profileExisting, Clients: []profileClientHome{{ID: binding.EnvironmentID, Client: binding.Client, Home: "/fixture/codex"}}}}
 	m.width = 100
 	m.height = 30
+	m.draft.Profile = &binding
 	m.formSaved = m.draft
 	m.screen = "new-catalog"
 	m.draft.Connection = "magpie"
@@ -109,6 +112,9 @@ func TestTicket06ExplicitApplyAndCreate(t *testing.T) {
 	m = creationClick(t, m, "selector-apply")
 	if m.screen != "new-form" || m.draft.Model != "routing-group" || !f.Acknowledged["fixture"] {
 		t.Fatal(m.draft, f.Calls)
+	}
+	if saved := f.ProfileRecords[0].Clients[0]; saved.LastMagpieInstanceID != "fixture" || saved.LastMagpieModelID != "routing-group" {
+		t.Fatalf("applied model was not remembered: %+v", saved)
 	}
 	if strings.Contains(strings.Join(f.Calls, "|"), "create") {
 		t.Fatal("selector launched")

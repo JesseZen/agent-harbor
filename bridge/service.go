@@ -53,6 +53,7 @@ type applicationService interface {
 	EnsureProfiles() (profile, error)
 	SelectProfile(profileBinding) error
 	SetProfileDefaultInstance(profileBinding, string) error
+	RememberMagpieSelection(profileBinding, string, string) error
 	ReviewSessionProfile(sessionApproval, profileBinding) error
 	ProfileEnvironment(profileBinding) (appEnvironment, error)
 	ProfileCatalog(profileBinding, string) ([]catalogModel, error)

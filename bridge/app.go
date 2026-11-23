@@ -600,7 +600,11 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if connection != "magpie" {
 			connection = "local"
 		}
-		m.draft = sessionDraft{Profile: msg.environment.Profile, Connection: connection, Directory: msg.environment.Directory, CodexOptions: msg.environment.CodexOptions.saved()}
+		m.draft = sessionDraft{
+			Profile: msg.environment.Profile, Connection: connection, Directory: msg.environment.Directory,
+			Instance: msg.environment.LastMagpieInstance, Model: msg.environment.LastMagpieModel,
+			CodexOptions: msg.environment.CodexOptions.saved(),
+		}
 		m.newInstances = nil
 		m.formActive = true
 		m.formFocus = 0

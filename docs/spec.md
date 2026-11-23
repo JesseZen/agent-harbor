@@ -83,13 +83,18 @@ Harbor passes on recovery. Sessions → Details shows saved overrides separately
 from the last verified Codex context window, when available. A stopped session
 can edit options for its next launch without changing the Conversation,
 Profile, or connection. Missing path or model evidence is not silently replaced.
-Harbor passes explicit Sandbox and Approval overrides to both the private
-Codex App Server and its connected TUI for a new launch. The App Server owns
-additional writable directories and the permission overrides for remote
-recovery. Codex can apply the launch overrides when starting another
-Conversation through `/new`. In a remotely resumed window, Codex 0.169.0
-can apply its own permission defaults to the fresh Conversation. Harbor
-still uses its own Conversation evidence and recovery rules. The context
+Harbor passes explicit Sandbox and Approval overrides to the private Codex App
+Server and supplies them to its connected `--remote` TUI through a session-owned
+Codex profile (`--profile agent-harbor-<session>`), instead of CLI permission
+flags that Codex rejects when resuming a remote task in Command Center or
+`/resume`. The App Server owns additional writable directories and the full
+server-side overrides. If a higher configuration layer such as project
+`.codex/config.toml` or an active unrelated user profile would override the
+selected Sandbox or Approval setting, Harbor falls back to in-process
+(`--no-daemon`) launch so the session overrides stay effective while keeping
+Command Center and `/new` working. Codex applies the session overrides when
+starting another Conversation through `/new`. Harbor still uses its own
+Conversation evidence and recovery rules. The context
 window and the two automatic compaction triggers are independent settings.
 Codex can reserve part of the window and cap it to the active model's capacity.
 
@@ -210,7 +215,11 @@ Startup checks Herdr and Codex dependencies, then opens the workspace directly.
 It does not require a connection choice or start/bind Magpie. Each new Session
 chooses its own Native or Magpie connection. The new-session form starts with
 the last applied connection type for the same Profile and client. On reopening
-Harbor it can use the latest saved Session in that Profile and client. A new
-Magpie session still requires an instance and a model or routing group. Optional
-gateways are set up through Connections when needed. Codex discovery supports native executables and the
+Harbor it can use the latest saved Session in that Profile and client. Applying
+a Magpie model remembers its exact instance and model or routing group in that
+Profile/client, including when creation is later cancelled. The model field
+restores that pair after reopening Harbor and positions the catalog on it when
+it is still available. A new Magpie session still requires a valid instance
+and model or routing group. Optional gateways are set up through
+Connections when needed. Codex discovery supports native executables and the
 native payload in the official npm package without running unknown wrappers.

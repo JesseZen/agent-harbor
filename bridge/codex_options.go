@@ -32,6 +32,10 @@ func (o codexOptions) empty() bool {
 	return o.SandboxMode == "" && o.ApprovalPolicy == "" && o.ReasoningEffort == "" && o.ContextWindow == nil && o.AutoCompactTokenLimit == nil && o.PostTurnCompactPercent == nil && len(o.WritableDirs) == 0
 }
 
+func (o codexOptions) hasPermissionOverrides() bool {
+	return o.SandboxMode != "" || o.ApprovalPolicy != ""
+}
+
 func (o codexOptions) saved() *codexOptions {
 	if o.empty() {
 		return nil

@@ -211,8 +211,6 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if m.connectionCursor == 0 {
 				m.draft.Connection = "local"
-				m.draft.Instance = ""
-				m.draft.Model = ""
 				m.rememberConnection()
 				return back()
 			}

@@ -300,6 +300,16 @@ func (f *fakeApplicationService) ProfileEnvironment(b profileBinding) (appEnviro
 	base, err := f.Environment()
 	base.Profile = &b
 	base.LocalHome = e.Home
+	for _, p := range f.ProfileRecords {
+		if p.ID == b.ProfileID && p.WorkspaceID == b.WorkspaceID {
+			for _, client := range p.Clients {
+				if client.ID == b.EnvironmentID {
+					base.LastMagpieInstance = client.LastMagpieInstanceID
+					base.LastMagpieModel = client.LastMagpieModelID
+				}
+			}
+		}
+	}
 	return base, err
 }
 func (f *fakeApplicationService) SetProfileDefaultInstance(b profileBinding, id string) error {
@@ -310,6 +320,25 @@ func (f *fakeApplicationService) SetProfileDefaultInstance(b profileBinding, id 
 		if p.ID == b.ProfileID && p.WorkspaceID == b.WorkspaceID {
 			f.ProfileRecords[i].DefaultInstanceID = id
 			return nil
+		}
+	}
+	return ErrProfileIdentity
+}
+func (f *fakeApplicationService) RememberMagpieSelection(b profileBinding, instanceID, modelID string) error {
+	if err := f.call("remember-magpie-selection"); err != nil {
+		return err
+	}
+	for i := range f.ProfileRecords {
+		if f.ProfileRecords[i].ID != b.ProfileID || f.ProfileRecords[i].WorkspaceID != b.WorkspaceID {
+			continue
+		}
+		for j := range f.ProfileRecords[i].Clients {
+			client := &f.ProfileRecords[i].Clients[j]
+			if client.ID == b.EnvironmentID {
+				client.LastMagpieInstanceID = instanceID
+				client.LastMagpieModelID = modelID
+				return nil
+			}
 		}
 	}
 	return ErrProfileIdentity

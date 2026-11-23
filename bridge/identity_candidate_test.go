@@ -390,3 +390,53 @@ esac
 		t.Fatal("owned pane was not closed", err)
 	}
 }
+
+func TestCandidateResumePreservesVerifiedIdentityWithoutHookReport(t *testing.T) {
+	b := newTestBridge(t)
+	if out, err := b.command("sessions"); err != nil {
+		t.Fatal(out, err)
+	}
+	h := filepath.Join(b.root, "bin", "herdr")
+	os.WriteFile(h, []byte(`#!/bin/sh
+if test "$1 $2" = "integration status"; then echo "codex: current (v10)"; exit 0; fi
+case "$*" in
+ *"agent resume-command"*) echo '{"version":1,"kind":"codex","argv":["codex","resume","01912345-6789-7abc-8def-0123456789ab"]}' ;;
+ *) echo '{"result":{"pane":{}}}' ;;
+esac
+`), 0700)
+	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CAPTURE\"\n"), 0700)
+	socket := queryTestSocket(t, b)
+	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "AGENT_HARBOR_HERDR_BIN="+h, "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+socket, "HERDR_BIN_PATH="+h)
+	if out, err := b.command("create", "--dir", b.project); err != nil {
+		t.Fatal(out, err)
+	}
+	s := b.sessions()[0]
+	const refID = "01912345-6789-7abc-8def-0123456789ab"
+	s.Version = 3
+	s.CodexSessionID = refID
+	s.Recovery = "ready"
+	s.IdentityWarning = ""
+	s.Conversation = &conversationEvidence{
+		Reference:      herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: refID},
+		Provenance:     "herdr-pane-observation",
+		ObservedAt:     time.Now().UTC(),
+		Pane:           "previous-pane",
+		SocketIdentity: "previous-socket",
+		RunToken:       "previous-run",
+		Status:         "observed",
+	}
+	data, _ := json.Marshal([]session{s})
+	if err := os.WriteFile(filepath.Join(b.root, "bridge", "sessions.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "resume", "--development-query", s.ID)
+	cmd.Env = b.env
+	cmd.Stdin = strings.NewReader("accept\nyes\n")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("resume failed: %v\n%s", err, out)
+	}
+	got := b.sessions()[0]
+	if got.Recovery != "ready" || got.Conversation == nil || got.Conversation.Status != "observed" || got.IdentityWarning != "" {
+		t.Fatalf("quiet resume corrupted verified identity: recovery=%q status=%q warning=%q", got.Recovery, got.Conversation.Status, got.IdentityWarning)
+	}
+}

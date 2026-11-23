@@ -10,14 +10,15 @@ import (
 )
 
 type appEnvironment struct {
-	Profile                            *profileBinding
-	DefaultInstance, LastConnection    string
-	CodexVersion, LocalHome, Directory string
-	NativeConfig                       string
-	Projects                           []string
-	Clients                            []clientCapability
-	ClientDiscovery                    string
-	CodexOptions                       codexOptions
+	Profile                             *profileBinding
+	DefaultInstance, LastConnection     string
+	LastMagpieInstance, LastMagpieModel string
+	CodexVersion, LocalHome, Directory  string
+	NativeConfig                        string
+	Projects                            []string
+	Clients                             []clientCapability
+	ClientDiscovery                     string
+	CodexOptions                        codexOptions
 }
 
 func (h harborService) Environment() (appEnvironment, error) {
@@ -69,9 +70,13 @@ func (h harborService) ProfileEnvironment(binding profileBinding) (appEnvironmen
 	}
 	seen := map[string]bool{}
 	var latest session
+	var latestMagpie session
 	for _, s := range sessions {
 		if s.Profile != nil && *s.Profile == binding && (s.Mode == "local" || s.Mode == "magpie") && (latest.Mode == "" || !s.CreatedAt.Before(latest.CreatedAt)) {
 			latest = s
+		}
+		if s.Profile != nil && *s.Profile == binding && s.Mode == "magpie" && (latestMagpie.Mode == "" || !s.CreatedAt.Before(latestMagpie.CreatedAt)) {
+			latestMagpie = s
 		}
 		if !seen[s.WorkingDirectory] {
 			result.Projects = append(result.Projects, s.WorkingDirectory)
@@ -79,6 +84,12 @@ func (h harborService) ProfileEnvironment(binding profileBinding) (appEnvironmen
 		}
 	}
 	result.LastConnection = latest.Mode
+	result.LastMagpieInstance = latestMagpie.InstanceID
+	result.LastMagpieModel = latestMagpie.MagpieModel
+	if client.LastMagpieInstanceID != "" && client.LastMagpieModelID != "" {
+		result.LastMagpieInstance = client.LastMagpieInstanceID
+		result.LastMagpieModel = client.LastMagpieModelID
+	}
 	return result, nil
 }
 func (harborService) CompleteDirectory(path string) ([]string, error) {

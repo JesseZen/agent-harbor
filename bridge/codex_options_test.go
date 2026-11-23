@@ -71,6 +71,60 @@ func TestCodexOptionArgumentsKeepInheritanceAndExplicitZero(t *testing.T) {
 	}
 }
 
+func TestCodexPermissionProfilePreservesUnrelatedSettingsAndOwnership(t *testing.T) {
+	home := t.TempDir()
+	env := []string{"CODEX_HOME=" + home}
+	const id = "0123456789abcdef0123456789abcdef"
+	name, err := codexPermissionProfile(id, codexOptions{SandboxMode: "danger-full-access", ApprovalPolicy: "never"}, env)
+	if err != nil || name != "agent-harbor-"+id {
+		t.Fatalf("create profile: %q %v", name, err)
+	}
+	path := filepath.Join(home, name+".config.toml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "# Agent Harbor session "+id) ||
+		!strings.Contains(string(data), `sandbox_mode = "danger-full-access"`) ||
+		!strings.Contains(string(data), `approval_policy = "never"`) {
+		t.Fatalf("unexpected initial profile:\n%s", data)
+	}
+	// Simulate Codex /model saving a model and table into the owned profile.
+	if err := os.WriteFile(path, append(data, []byte("model = \"gpt-5.4\"\n[nested]\nsandbox_mode = \"keep-nested\"\n")...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := codexPermissionProfile(id, codexOptions{SandboxMode: "read-only"}, env); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(updated), `sandbox_mode = "read-only"`) ||
+		strings.Contains(string(updated), `approval_policy =`) ||
+		!strings.Contains(string(updated), `model = "gpt-5.4"`) ||
+		!strings.Contains(string(updated), `sandbox_mode = "keep-nested"`) {
+		t.Fatalf("update clobbered unrelated keys or kept stale approval:\n%s", updated)
+	}
+	if err := clearCodexPermissionProfile(id, env); err != nil {
+		t.Fatal(err)
+	}
+	cleared, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(cleared), `sandbox_mode = "read-only"`) || !strings.Contains(string(cleared), `model = "gpt-5.4"`) {
+		t.Fatalf("clear did not remove top-level permissions cleanly:\n%s", cleared)
+	}
+	// Refuse to overwrite an unowned profile file.
+	if err := os.WriteFile(path, []byte("sandbox_mode = \"workspace-write\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := codexPermissionProfile(id, codexOptions{SandboxMode: "danger-full-access"}, env); err == nil {
+		t.Fatal("overwrote unowned Codex profile")
+	}
+}
+
 func TestCodexOptionMemoryIsScopedAndIndependentOfSessions(t *testing.T) {
 	service, _ := profileFixture(t)
 	profileA, profileB := mustProfile(t, service, "A"), mustProfile(t, service, "B")
@@ -294,24 +348,45 @@ func TestProfileNativeCodexDefaultsVersionIsolationAndProjectPrecedence(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(plan.remote, `sandbox_mode="workspace-write"`) || !slices.Contains(plan.remote, `approval_policy="on-request"`) ||
-		strings.Contains(strings.Join(plan.remote, " "), "writable_roots") || !strings.Contains(strings.Join(plan.server, " "), "writable_roots") {
-		t.Fatalf("remote permissions and server-owned writable roots: %q / %q", plan.remote, plan.server)
+	if !plan.remoteProfile || plan.localOnly ||
+		strings.Contains(strings.Join(plan.remote, " "), "sandbox_mode") ||
+		strings.Contains(strings.Join(plan.remote, " "), "approval_policy") ||
+		strings.Contains(strings.Join(plan.remote, " "), "writable_roots") ||
+		!slices.Contains(plan.server, `sandbox_mode="workspace-write"`) ||
+		!slices.Contains(plan.server, `approval_policy="on-request"`) ||
+		!strings.Contains(strings.Join(plan.server, " "), "writable_roots") {
+		t.Fatalf("remote profile permissions and server-owned settings: remoteProfile=%v localOnly=%v %q / %q", plan.remoteProfile, plan.localOnly, plan.remote, plan.server)
 	}
 	fullAccess := codexOptions{SandboxMode: "danger-full-access", ApprovalPolicy: "never", ContextWindow: optionNumber(500000)}
 	plan, err = codexOptionLaunchPlans(context.Background(), native, env, s, newConversation, nil, fullAccess)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(plan.remote, plan.server) {
-		t.Fatalf("remote Full access configuration differs from server: %q / %q", plan.remote, plan.server)
+	if !plan.remoteProfile || plan.localOnly || !slices.Equal(plan.remote, []string{"-c", "model_context_window=500000"}) ||
+		!slices.Contains(plan.server, `sandbox_mode="danger-full-access"`) || !slices.Contains(plan.server, `approval_policy="never"`) {
+		t.Fatalf("remote Full access configuration: remoteProfile=%v localOnly=%v %q / %q", plan.remoteProfile, plan.localOnly, plan.remote, plan.server)
 	}
 	resumePlan, err := codexOptionLaunchPlans(context.Background(), native, env, s, resumeConversation, nil, fullAccess)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(resumePlan.remote, []string{"-c", "model_context_window=500000"}) || !slices.Equal(resumePlan.server, plan.server) {
-		t.Fatalf("remote resume permissions must come from the server: %q / %q", resumePlan.remote, resumePlan.server)
+	if !resumePlan.remoteProfile || resumePlan.localOnly || !slices.Equal(resumePlan.remote, []string{"-c", "model_context_window=500000"}) || !slices.Equal(resumePlan.server, plan.server) {
+		t.Fatalf("remote resume permissions must use profile + server: remoteProfile=%v localOnly=%v %q / %q", resumePlan.remoteProfile, resumePlan.localOnly, resumePlan.remote, resumePlan.server)
+	}
+	// A project .codex/config.toml setting a conflicting sandbox_mode beats -p,
+	// so launch planning must fall back to localOnly (--no-daemon).
+	if err := os.WriteFile(filepath.Join(project, ".codex/config.toml"), []byte("model_context_window = 24000\nsandbox_mode = \"read-only\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	conflictPlan, err := codexOptionLaunchPlans(context.Background(), native, env, s, newConversation, nil, fullAccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !conflictPlan.localOnly || conflictPlan.remoteProfile {
+		t.Fatalf("conflicting project sandbox_mode did not fall back to localOnly: %+v", conflictPlan)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".codex/config.toml"), []byte("model_context_window = 24000\n"), 0600); err != nil {
+		t.Fatal(err)
 	}
 	if err := withCodexConfigPipe(context.Background(), native, env, project, plan.server, func(rpc *codexConfigPipe) error {
 		resolved, err := rpc.config(project)

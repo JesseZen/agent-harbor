@@ -3,6 +3,7 @@ package main
 import (
 	tea "github.com/charmbracelet/bubbletea"
 	"testing"
+	"time"
 )
 
 func TestContextHelpRestoresParentControlAfterMouseBack(t *testing.T) {
@@ -115,9 +116,51 @@ func TestNewFormRemembersOnlyItsProfileConnection(t *testing.T) {
 		m.screen = "new-project-loading"
 		next, _ := m.Update(appNewReady{generation: m.generation, environment: appEnvironment{
 			Profile: test.binding, LastConnection: test.recorded,
+			LastMagpieInstance: "saved-instance", LastMagpieModel: "saved-model",
 		}})
-		if draft := next.(harborModel).draft; draft.Connection != test.want || draft.Instance != "" || draft.Model != "" {
+		if draft := next.(harborModel).draft; draft.Connection != test.want || draft.Instance != "saved-instance" || draft.Model != "saved-model" {
 			t.Fatal(draft)
 		}
+	}
+	m.draft = sessionDraft{Profile: &a, Connection: "magpie", Instance: "saved-instance", Model: "saved-model"}
+	m.formSaved = m.draft
+	m.screen = "new-connection"
+	m.connectionCursor = 0
+	next, _ := m.Update(uiKey("enter"))
+	if draft := next.(harborModel).draft; draft.Connection != "local" || draft.Instance != "saved-instance" || draft.Model != "saved-model" {
+		t.Fatalf("connection switch discarded remembered Magpie choice: %+v", draft)
+	}
+}
+
+func TestProfileEnvironmentRemembersLatestMagpieSessionSelection(t *testing.T) {
+	service, _ := profileFixture(t)
+	profileA, profileB := mustProfile(t, service, "A"), mustProfile(t, service, "B")
+	bindingA, bindingB := bindingFor(profileA), bindingFor(profileB)
+	older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := older.Add(time.Hour)
+	if err := withSessions(func([]session) ([]session, error) {
+		return []session{
+			{Profile: &bindingA, Mode: "magpie", InstanceID: "gateway-a", MagpieModel: "model-a", CreatedAt: older},
+			{Profile: &bindingA, Mode: "magpie", InstanceID: "gateway-b", MagpieModel: "group-b", CreatedAt: newer},
+			{Profile: &bindingA, Mode: "local", CreatedAt: newer.Add(time.Hour)},
+			{Profile: &bindingB, Mode: "magpie", InstanceID: "gateway-other", MagpieModel: "model-other", CreatedAt: newer.Add(time.Hour)},
+		}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	env, err := service.ProfileEnvironment(bindingA)
+	if err != nil || env.LastConnection != "local" || env.LastMagpieInstance != "gateway-b" || env.LastMagpieModel != "group-b" {
+		t.Fatalf("last choices: connection=%q Magpie=%q/%q (%v)", env.LastConnection, env.LastMagpieInstance, env.LastMagpieModel, err)
+	}
+	if err := service.RememberMagpieSelection(bindingA, "gateway-saved", "model-saved"); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := service.ProfileEnvironment(bindingA)
+	if err != nil || reopened.LastMagpieInstance != "gateway-saved" || reopened.LastMagpieModel != "model-saved" {
+		t.Fatalf("reopened preference: %q %q (%v)", reopened.LastMagpieInstance, reopened.LastMagpieModel, err)
+	}
+	other, err := service.ProfileEnvironment(bindingB)
+	if err != nil || other.LastMagpieInstance != "gateway-other" || other.LastMagpieModel != "model-other" {
+		t.Fatalf("preference crossed Profiles: %q %q (%v)", other.LastMagpieInstance, other.LastMagpieModel, err)
 	}
 }

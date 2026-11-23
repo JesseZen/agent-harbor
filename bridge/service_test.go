@@ -30,7 +30,7 @@ func TestSessionStatusExplainsMissingIdentity(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &view); err != nil {
 		t.Fatal(err)
 	}
-	if view.Status != "Unknown" || view.Reason == "" {
+	if view.Status != "Stopped" || view.Reason == "" {
 		t.Fatalf("unexplained status: %s", out)
 	}
 }

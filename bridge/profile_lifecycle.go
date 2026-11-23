@@ -150,6 +150,35 @@ func (harborService) SetProfileDefaultInstance(b profileBinding, id string) erro
 	})
 }
 
+func (harborService) RememberMagpieSelection(b profileBinding, instanceID, modelID string) error {
+	if !selectionTextValid(instanceID, 512) || !selectionTextValid(modelID, 512) {
+		return errors.New("invalid Magpie selection")
+	}
+	if _, _, err := resolveProfileRecord(b); err != nil {
+		return err
+	}
+	return withProfiles(false, func(r *profileRegistry) (bool, error) {
+		if r.WorkspaceID != b.WorkspaceID {
+			return false, ErrProfileIdentity
+		}
+		for i := range r.Profiles {
+			if r.Profiles[i].ID != b.ProfileID {
+				continue
+			}
+			for j := range r.Profiles[i].Clients {
+				client := &r.Profiles[i].Clients[j]
+				if client.ID == b.EnvironmentID && (client.Client == b.Client || r.Profiles[i].Kind == profileExisting) {
+					client.LastMagpieInstanceID = instanceID
+					client.LastMagpieModelID = modelID
+					return true, nil
+				}
+			}
+			return false, ErrProfileIdentity
+		}
+		return false, ErrProfileNotFound
+	})
+}
+
 // Explicit adoption records the user's reviewed original environment. It never
 // moves client data or changes a Conversation/connection. Running records stay put.
 func (h harborService) ReviewSessionProfile(a sessionApproval, b profileBinding) error {

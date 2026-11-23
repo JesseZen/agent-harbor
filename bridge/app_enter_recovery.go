@@ -166,6 +166,9 @@ func (m harborModel) recoveryBody(p *uiPage) {
 		return
 	}
 	if m.choosingRecoveryTarget() {
+		if m.recoveryCursor < 0 {
+			p.line(paint(fg("muted"), "Choose a conversation (↑↓ or click):"))
+		}
 		for index, candidate := range m.recoveryCandidates {
 			id := "recovery-candidate:" + strconv.Itoa(index)
 			row := m.rowStyle(id, index == m.recoveryCursor, false)

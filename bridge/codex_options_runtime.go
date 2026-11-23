@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -211,6 +212,95 @@ func (o codexOptions) checkPermissions(rpc *codexConfigPipe, read codexConfigRea
 
 type codexLaunchOptions struct {
 	local, remote, server []string
+	remoteProfile         bool
+	localOnly             bool
+}
+
+func codexLayerBeatsProfile(origin codexLayerMetadata) bool {
+	switch origin.Name.Type {
+	case "", "user", "profile":
+		return false
+	default:
+		return true
+	}
+}
+
+func codexHasUnrelatedProfileLayer(layers []codexConfigLayer, ownedProfile string) bool {
+	for _, layer := range layers {
+		if layer.Name.Type == "profile" && layer.DisabledReason == "" && layer.Name.Profile != "" && layer.Name.Profile != ownedProfile {
+			return true
+		}
+	}
+	return false
+}
+
+func codexPermissionProfile(id string, options codexOptions, env []string) (string, error) {
+	home, path, marker, err := magpieCodexProfilePath(id, env)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(home, 0700); err != nil {
+		return "", errors.New("cannot prepare Codex home for an isolated session profile")
+	}
+	existing, err := readOwnedCodexProfile(path, marker)
+	if err != nil && !os.IsNotExist(err) {
+		return "", errors.New("Codex profile is unavailable or not owned by this session; review the conflict")
+	}
+	content := updateCodexPermissionProfileContent(existing, marker, options)
+	if err := writePrivate(path, content); err != nil {
+		return "", errors.New("cannot save the isolated Codex session profile")
+	}
+	return "agent-harbor-" + id, nil
+}
+
+func clearCodexPermissionProfile(id string, env []string) error {
+	_, path, marker, err := magpieCodexProfilePath(id, env)
+	if err != nil {
+		return nil
+	}
+	existing, err := readOwnedCodexProfile(path, marker)
+	if err != nil {
+		return nil
+	}
+	content := updateCodexPermissionProfileContent(existing, marker, codexOptions{})
+	if string(content) == string(existing) {
+		return nil
+	}
+	return writePrivate(path, content)
+}
+
+func updateCodexPermissionProfileContent(existing []byte, marker string, options codexOptions) []byte {
+	var preserved []string
+	if len(existing) > 0 {
+		inTable := false
+		for _, line := range strings.Split(strings.TrimRight(string(existing), "\n"), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == marker {
+				continue
+			}
+			if strings.HasPrefix(trimmed, "[") {
+				inTable = true
+			}
+			if !inTable {
+				if key, _, ok := strings.Cut(trimmed, "="); ok {
+					switch strings.TrimSpace(key) {
+					case "sandbox_mode", "approval_policy":
+						continue
+					}
+				}
+			}
+			preserved = append(preserved, line)
+		}
+	}
+	lines := []string{marker}
+	if options.SandboxMode != "" {
+		lines = append(lines, "sandbox_mode = "+strconv.Quote(options.SandboxMode))
+	}
+	if options.ApprovalPolicy != "" {
+		lines = append(lines, "approval_policy = "+strconv.Quote(options.ApprovalPolicy))
+	}
+	lines = append(lines, preserved...)
+	return []byte(strings.Join(lines, "\n") + "\n")
 }
 
 func codexOptionLaunchPlans(ctx context.Context, binary string, env profileClientEnvironment, s session, kind launchKind, connectionArgs []string, options codexOptions) (codexLaunchOptions, error) {
@@ -219,6 +309,7 @@ func codexOptionLaunchPlans(ctx context.Context, binary string, env profileClien
 	}
 	var inheritedDirs []string
 	var resumeModel string
+	var remoteProfile, localOnly bool
 	err := withCodexConfigPipe(ctx, binary, env, s.WorkingDirectory, connectionArgs, func(rpc *codexConfigPipe) error {
 		read, err := rpc.config(s.WorkingDirectory)
 		if err != nil {
@@ -236,6 +327,24 @@ func codexOptionLaunchPlans(ctx context.Context, binary string, env profileClien
 			Roots []string `json:"writable_roots"`
 		}](read.Config, "sandbox_workspace_write")
 		inheritedDirs = workspace.Roots
+		if options.hasPermissionOverrides() {
+			owned := ""
+			if s.ID != "" {
+				owned = "agent-harbor-" + s.ID
+			}
+			conflict := codexHasUnrelatedProfileLayer(read.Layers, owned)
+			if !conflict && options.SandboxMode != "" && codexLayerBeatsProfile(read.Origins["sandbox_mode"]) && configValue[string](read.Config, "sandbox_mode") != options.SandboxMode {
+				conflict = true
+			}
+			if !conflict && options.ApprovalPolicy != "" && codexLayerBeatsProfile(read.Origins["approval_policy"]) && configValue[string](read.Config, "approval_policy") != options.ApprovalPolicy {
+				conflict = true
+			}
+			if conflict {
+				localOnly = true
+			} else {
+				remoteProfile = true
+			}
+		}
 		if options.ReasoningEffort == "" {
 			return nil
 		}
@@ -257,19 +366,23 @@ func codexOptionLaunchPlans(ctx context.Context, binary string, env profileClien
 	if err != nil {
 		return codexLaunchOptions{}, err
 	}
-	// A fresh remote TUI can send its resolved permissions with thread/start.
-	// Codex rejects client-side writable roots in remote mode and client-side
-	// permission overrides on remote resume. The server still gets them.
+	// Passing CLI permission overrides (-c sandbox_mode/approval_policy) to a
+	// --remote TUI makes Codex reject Command Center and /resume switches with
+	// "Permission overrides are not supported when resuming a remote task."
+	// Supply them via a session-owned -p profile instead, while the private App
+	// Server keeps the full overrides and writable roots. If a higher config
+	// layer (such as project .codex/config.toml) would beat -p, fall back to
+	// in-process (--no-daemon) mode where local CLI flags override it safely.
 	remote := options
 	remote.WritableDirs = nil
-	if kind == resumeConversation {
-		remote.SandboxMode = ""
-		remote.ApprovalPolicy = ""
-	}
+	remote.SandboxMode = ""
+	remote.ApprovalPolicy = ""
 	plan := codexLaunchOptions{
-		local:  options.arguments(false, nil),
-		remote: remote.arguments(true, nil),
-		server: options.arguments(true, inheritedDirs),
+		local:         options.arguments(false, nil),
+		remote:        remote.arguments(true, nil),
+		server:        options.arguments(true, inheritedDirs),
+		remoteProfile: remoteProfile,
+		localOnly:     localOnly,
 	}
 	if resumeModel != "" {
 		model := strconv.Quote(resumeModel)

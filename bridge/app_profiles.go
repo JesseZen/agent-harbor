@@ -191,6 +191,12 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		m.uiFocus = ""
 		if m.screen == "profile-list" {
 			m.screen = "sessions"
+			if m.profileReturn == "settings" {
+				m.profileReturn = ""
+				settings := m.openSettingsModel()
+				m.settings = &settings
+				return m, nil, true
+			}
 			if m.profileReturn != "" {
 				m.screen, m.scroll, m.uiFocus = m.profileReturn, m.profileReturnScroll, ""
 				m.profileReturn = ""
@@ -314,10 +320,25 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				n.accountSnapshot = nil
 				n.accountRow = ""
 				n.accountGeneration++
+				n.ext.profile = &b
+				n.ext.snapshot = nil
+				n.ext.notice = ""
+				n.ext.cursor = 0
 				n.generation++
 				n.screen = "sessions"
 				n.uiFocus = "list"
 				n.notice = "Profile selected: " + n.activeProfileLabel()
+				if n.profileReturn == "settings" {
+					n.profileReturn = ""
+					settings := n.openSettingsModel()
+					n.settings = &settings
+					return nil
+				}
+				if n.profileReturn == "extensions" {
+					n.screen, n.scroll, n.uiFocus = "extensions", n.profileReturnScroll, ""
+					n.profileReturn = ""
+					return n.beginExtensionsInspect()
+				}
 				if n.profileReturn != "" {
 					n.screen, n.scroll, n.uiFocus = n.profileReturn, n.profileReturnScroll, ""
 					n.profileReturn = ""

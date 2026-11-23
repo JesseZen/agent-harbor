@@ -22,6 +22,9 @@ func (m harborModel) editingText() bool {
 	if m.searchFocus == m.screen {
 		return true
 	}
+	if m.screen == "extensions" && m.ext.searching || m.screen == "extensions-add" {
+		return true
+	}
 	switch m.screen {
 	case "profile-new", "profile-rename", "filter", "rename", "magpie-bind", "magpie-filter", "new-project", "new-name", "new-instance-filter", "new-catalog-filter":
 		return true
@@ -120,6 +123,9 @@ func (m harborModel) updateFrame(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case appAccountStatus, appAccountRead, appAccountDone, appAccountRetry:
 		next, cmd, _ := m.accountsPageInput(msg)
 		return next, cmd
+	case appExtensionsLoaded, appExtensionToggled, appExtensionExecDone, appPluginSyncPlanned, appPluginSyncDone:
+		next, cmd, _ := m.extensionsPageInput(msg)
+		return next, cmd
 	}
 	if m.settings != nil && !isRuntimeRefresh(msg) {
 		return m.update(msg)
@@ -129,9 +135,6 @@ func (m harborModel) updateFrame(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if key, ok := msg.(tea.KeyMsg); ok && !m.editingText() {
 		tab := m.screen
-		if tab == "profile-list" {
-			tab = "profiles"
-		}
 		if next := adjacentTab(tab, key.String()); next != "" {
 			return m.activateSessions("nav:" + next)
 		}

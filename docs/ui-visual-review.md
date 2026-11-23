@@ -1,5 +1,13 @@
 # Harbor 视觉一致性检查
 
+## 5-Tab 导航、omp 风格双栏 Settings 与 Extensions（Milestone B，2026-11-23）
+
+顶层导航保持 5 项（`Sessions` / `Extensions` / `Connections` / `Accounts` / `Settings`），`Profiles` 归入 `Settings` 后不再占顶栏，单 Profile 时 `Sessions` / `Accounts` / `Extensions` 同步弱化 Profile 字段。
+
+`Settings` 参照 omp 双栏视觉层级：宽屏（`>= 76` 列）左列展示可点击分区导航与 `│` 竖线（当前分区使用光标青绿 `brand` 粗体，非当前暗灰），右列当前分区亮白、非当前分区暗灰；修改未保存项使用黄色（`warn`）常驻区分；底部固定灰字（`muted`）选项说明，有未保存改动尝试离开时在其上方插入醒目红色（`bad`）`⚠ Unsaved changes` 提示；窄屏隐藏左列与竖线，保持单列紧凑对齐。
+
+`Extensions` 复用共享 `groupBand` 分区横条、2 行紧凑条目、宽屏右侧预览与右侧比例滚动条，修复了窄屏非分栏溢出时滚动条占宽导致最右侧 1 列字符被误截断的问题（同步惠及 `Sessions`）。已在 macOS arm64 真实 Herdr `0.9.5` + 原生 Codex `0.169.0` 的 `160×45`、`100×30`、`80×24`、`60×24` 弹窗中核验带色 ANSI 与 RGB 序列；Unicode 15 PNG 重渲染与 Linux/远端复核待补。详见[走查记录](ui-flow-audit.md#5-tab-重排omp-风格双栏-settings-与-extensions-管理milestone-b2026-11-23)。
+
 ## Sessions 分组横条、语义色修复与 2 行降噪（Milestone A，2026-11-23）
 
 Sessions 与 Accounts 共用 `(*uiPage).groupBand` 灰色分组横条（无色/ASCII 模式退化为 `── Title (N) ──`）。修复 `statusRole()` 漏掉 `Idle`/`Working`/`Done`/`Starting` 导致所有活窗口掉进黄色的缺陷：`Working` 用柔和绿（`ok`）、`Idle`/`Done` 用平静浅灰（`label`）、`Starting` 用浅蓝（`title`）、仅 `Blocked` 用琥珀黄（`warn`）、`Stopped`/`Not started`/`External`/`Unknown` 用暗灰（`muted`）。

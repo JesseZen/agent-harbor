@@ -8,9 +8,35 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type settingsSaved struct{ err error }
+
+const (
+	settingProfiles = shortcutCount
+	settingTotal    = shortcutCount + 1
+)
+
+type settingsSection struct {
+	id    string
+	title string
+	items []int
+}
+
+var settingsSections = []settingsSection{
+	{
+		id:    "shortcuts",
+		title: "Workspace shortcuts",
+		items: []int{shortcutPrefix, shortcutHarbor, shortcutMagpie, shortcutNew, shortcutSettings},
+	},
+	{
+		id:    "environment",
+		title: "Environment & Profiles",
+		items: []int{settingProfiles},
+	},
+}
 
 type settingsModel struct {
 	details, help         bool
@@ -22,14 +48,16 @@ type settingsModel struct {
 	bindingCursor         int
 	overviewScroll        int
 	editing, busy, closed bool
+	unsavedWarn           bool
 	notice, bindingNotice string
 	query                 string
 	searching             bool
 	hover, nav            string
+	profileSummary        string
 }
 
 func newSettingsModel() settingsModel {
-	m := settingsModel{width: 80, height: 24, values: defaultShortcuts(), input: textinput.New()}
+	m := settingsModel{width: 80, height: 24, values: defaultShortcuts(), input: textinput.New(), profileSummary: "Default"}
 	m.input.CharLimit = 32
 	root, err := bridgeHome()
 	if err == nil {
@@ -40,6 +68,75 @@ func newSettingsModel() settingsModel {
 	}
 	m.saved = m.values
 	return m
+}
+
+func (m settingsModel) hasUnsaved() bool {
+	return m.values != m.saved
+}
+
+func (m settingsModel) controlModified(control int) bool {
+	if control < 0 || control >= shortcutCount {
+		return false
+	}
+	return !slices.Equal(m.values.bindings(control), m.saved.bindings(control))
+}
+
+func (m settingsModel) controlLabel(control int) string {
+	if control == settingProfiles {
+		return "Profiles & environments"
+	}
+	if control >= 0 && control < shortcutCount {
+		return settingsLabels[control]
+	}
+	return ""
+}
+
+func (m settingsModel) controlValue(control int) string {
+	if control == settingProfiles {
+		if m.profileSummary != "" {
+			return m.profileSummary
+		}
+		return "Default"
+	}
+	if control >= 0 && control < shortcutCount {
+		value := strings.Join(m.values.bindings(control), " · ")
+		if value == "" {
+			return "Unbound"
+		}
+		return value
+	}
+	return ""
+}
+
+func (m settingsModel) controlDescription(control int) string {
+	switch control {
+	case shortcutPrefix:
+		return "Herdr prefix key(s) used before prefix+<key> workspace actions."
+	case shortcutHarbor:
+		return "Open the Agent Harbor popup from any pane in this workspace."
+	case shortcutMagpie:
+		return "Open the Magpie gateway management popup for this workspace."
+	case shortcutNew:
+		return "Directly open Harbor's New session form from any pane."
+	case shortcutSettings:
+		return "Open Harbor workspace settings from any pane."
+	case settingProfiles:
+		return "Manage isolated Profiles, default Magpie instances, and Codex defaults."
+	default:
+		return shortcutScope
+	}
+}
+
+func (m settingsModel) activeSectionID() string {
+	for _, sec := range settingsSections {
+		if slices.Contains(sec.items, m.cursor) {
+			return sec.id
+		}
+	}
+	if len(settingsSections) > 0 {
+		return settingsSections[0].id
+	}
+	return ""
 }
 
 func (m settingsModel) Init() tea.Cmd { return nil }
@@ -57,6 +154,9 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	n, cmd := m.update(msg)
+	if !n.hasUnsaved() {
+		n.unsavedWarn = false
+	}
 	n.scroll = max(0, min(n.scroll, n.layout().MaxScroll))
 	_, resized := msg.(tea.WindowSizeMsg)
 	if !n.help && !n.details && !n.searching && !n.editing &&
@@ -68,10 +168,11 @@ func (m settingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *settingsModel) revealSelection() {
-	id := "control:" + strconv.Itoa(m.cursor)
-	if m.bindingsOpen {
-		id = "binding:" + strconv.Itoa(m.bindingCursor)
+	if !m.bindingsOpen {
+		// Overview layout keeps the focused row visible via virtual scroll directly.
+		return
 	}
+	id := "binding:" + strconv.Itoa(m.bindingCursor)
 	page := m.shortcutContent()
 	available := max(1, page.Height-len(page.shortcutBar().Lines))
 	for _, hit := range page.Hits {
@@ -93,6 +194,7 @@ func (m settingsModel) update(msg tea.Msg) (settingsModel, tea.Cmd) {
 		} else {
 			m.notice = "Saved for this workspace and restart."
 			m.saved = m.values
+			m.unsavedWarn = false
 		}
 	case tea.MouseMsg:
 		return m.updateMouse(v)
@@ -161,7 +263,15 @@ func (m settingsModel) update(msg tea.Msg) (settingsModel, tea.Cmd) {
 		case "i":
 			m.details = true
 			m.scroll = 0
+		case "p":
+			n, cmd := m.navigate("profiles")
+			return n.(settingsModel), cmd
 		case "esc", "q":
+			if m.hasUnsaved() && !m.unsavedWarn {
+				m.unsavedWarn = true
+				m.notice = "Unsaved changes — press ^S to save, or Esc again to discard."
+				return m, nil
+			}
 			m.closed = true
 			return m, tea.Quit
 		case "left", "right":
@@ -175,8 +285,10 @@ func (m settingsModel) update(msg tea.Msg) (settingsModel, tea.Cmd) {
 				delta = -1
 			}
 			m.cursor = m.nextControl(delta)
+			m.unsavedWarn = false
 		case "ctrl+r":
 			m.values = defaultShortcuts()
+			m.unsavedWarn = false
 			m.notice = "Defaults restored in draft. Save to apply."
 		case "ctrl+s":
 			if err := validateShortcuts(m.values); err != nil {
@@ -184,14 +296,20 @@ func (m settingsModel) update(msg tea.Msg) (settingsModel, tea.Cmd) {
 				return m, nil
 			}
 			m.busy = true
+			m.unsavedWarn = false
 			p, expected := m.values, m.saved
 			return m, func() tea.Msg { return settingsSaved{saveShortcuts(p, expected)} }
 		case "enter":
 			if slices.Contains(m.filtered(), m.cursor) {
+				if m.cursor == settingProfiles {
+					n, cmd := m.navigate("profiles")
+					return n.(settingsModel), cmd
+				}
 				m.bindingsOpen = true
 				m.bindingCursor = 0
 				m.overviewScroll, m.scroll = m.scroll, 0
 				m.bindingNotice = ""
+				m.unsavedWarn = false
 			}
 		}
 	}
@@ -236,6 +354,20 @@ func (m settingsModel) updateMouse(v tea.MouseMsg) (settingsModel, tea.Cmd) {
 	case "nav":
 		n, cmd := m.navigate(suffix)
 		return n.(settingsModel), cmd
+	case "section":
+		filtered := m.filtered()
+		for _, sec := range settingsSections {
+			if sec.id == suffix {
+				for _, item := range sec.items {
+					if slices.Contains(filtered, item) {
+						m.cursor = item
+						m.searching = false
+						m.unsavedWarn = false
+						return m, nil
+					}
+				}
+			}
+		}
 	case "binding":
 		index, _ := strconv.Atoi(suffix)
 		if m.bindingCursor == index {
@@ -250,6 +382,7 @@ func (m settingsModel) updateMouse(v tea.MouseMsg) (settingsModel, tea.Cmd) {
 		}
 		m.cursor = index
 		m.searching = false
+		m.unsavedWarn = false
 	}
 	return m, nil
 }
@@ -337,8 +470,9 @@ func (m settingsModel) navigate(nav string) (tea.Model, tea.Cmd) {
 	if nav == "settings" {
 		return m, nil
 	}
-	if m.values != m.saved {
-		m.notice = "Save changes or cancel this draft before changing pages."
+	if m.hasUnsaved() {
+		m.unsavedWarn = true
+		m.notice = "Unsaved changes — Save changes (^S) or cancel this draft before changing pages."
 		return m, nil
 	}
 	m.nav = nav
@@ -348,10 +482,13 @@ func (m settingsModel) navigate(nav string) (tea.Model, tea.Cmd) {
 
 func (m settingsModel) filtered() []int {
 	var rows []int
-	for _, action := range []int{shortcutPrefix, shortcutHarbor, shortcutMagpie, shortcutNew, shortcutSettings} {
-		text := settingsLabels[action] + " " + strings.Join(m.values.bindings(action), " ")
-		if strings.Contains(strings.ToLower(text), strings.ToLower(m.query)) {
-			rows = append(rows, action)
+	q := strings.ToLower(m.query)
+	for _, sec := range settingsSections {
+		for _, item := range sec.items {
+			text := sec.title + " " + m.controlLabel(item) + " " + m.controlValue(item)
+			if q == "" || strings.Contains(strings.ToLower(text), q) {
+				rows = append(rows, item)
+			}
 		}
 	}
 	return rows
@@ -382,61 +519,265 @@ func (m settingsModel) layout() uiPage {
 		}
 		return secondaryDocument(m.width, m.height, "Settings details", text, []uiAction{{ID: "back", Key: "Esc", Label: "Back"}}, "back", m.scroll)
 	}
-	return m.shortcutContent().finish(m.scroll)
+	if m.bindingsOpen {
+		return m.bindingContent().finish(m.scroll)
+	}
+	return m.overviewLayout()
 }
 
 func (m settingsModel) shortcutContent() uiPage {
 	if m.bindingsOpen {
 		return m.bindingContent()
 	}
+	return m.overviewLayout()
+}
 
+func (m settingsModel) overviewFooter() uiPage {
+	f := newUIPage(m.width, m.height)
+	if m.searching {
+		f.Hint = "Type search · Enter fields · Esc clear/back"
+		return f
+	}
+	if m.busy {
+		return f
+	}
+	rows := m.filtered()
+	if len(rows) > 0 {
+		label := "Edit bindings"
+		if m.cursor == settingProfiles {
+			label = "Open Profiles"
+		}
+		f.shortcut(uiAction{ID: "accept", Key: "Enter", Label: label}, false)
+	}
+	f.shortcuts([]uiAction{
+		{ID: "save", Key: "Ctrl+S", Label: "Save changes", Primary: true},
+		{ID: "back", Key: "Esc", Label: "Back"},
+		{ID: "restore", Key: "Ctrl+R", Label: "Restore defaults"},
+		{ID: "details", Key: "i", Label: "Details"},
+	}, "")
+	f.Hint = "↑↓/jk fields · " + tabHint + " · / search · ? help"
+	return f
+}
+
+// renderSettingsRow renders one option row using Harbor's shared cursor/hover
+// interaction model plus omp-style active-section brightness and yellow unsaved
+// indicators.
+func (m settingsModel) renderSettingsRow(control, width int, activeSection bool) string {
+	id := "control:" + strconv.Itoa(control)
+	cursor := m.cursor == control && !m.searching
+	hovered := m.hover == id
+	modified := m.controlModified(control)
+	marker := "  "
+	if cursor {
+		marker = "> "
+	}
+	labelRole := "muted"
+	valueRole := "muted"
+	if activeSection {
+		labelRole = "text"
+		valueRole = "value"
+	}
+	if cursor {
+		labelRole = "brand"
+	}
+	if modified {
+		// Unsaved modifications always show in yellow, matching Accounts'
+		// persistent selection foreground rule even under cursor/hover.
+		labelRole = "warn"
+		valueRole = "warn"
+	}
+	styleFor := func(role string) lipgloss.Style {
+		st := fg(role)
+		if hovered {
+			st = st.Background(lipgloss.Color(harborPalette["selBg"]))
+		}
+		return st
+	}
+	label := marker + cleanUI(m.controlLabel(control))
+	val := cleanUI(m.controlValue(control))
+	col := min(28, max(18, width/2))
+	if col > width-8 {
+		col = max(10, width/2)
+	}
+	labelText := ansi.Truncate(label, max(1, col-1), "…")
+	pad := strings.Repeat(" ", max(1, col-ansi.StringWidth(labelText)))
+	valAvail := max(1, width-ansi.StringWidth(labelText)-ansi.StringWidth(pad))
+	valText := ansi.Truncate(val, valAvail, "…")
+	trailing := strings.Repeat(" ", max(0, width-ansi.StringWidth(labelText)-ansi.StringWidth(pad)-ansi.StringWidth(valText)))
+	return paint(styleFor(labelRole), labelText+pad) + paint(styleFor(valueRole), valText+trailing)
+}
+
+func (m settingsModel) overviewLayout() uiPage {
 	p := newUIPage(m.width, m.height)
 	p.line(paint(fg("brand"), "⚓ Harbor · Settings"))
 	if p.Height >= 13 {
 		p.tabs("settings", strings.TrimPrefix(m.hover, "nav:"), "")
 	}
 	p.search(m.query, "Search settings", m.searching)
-	if p.Height >= 19 {
-		p.line(paint(fg("section"), "Workspace shortcuts"))
-	}
-	rows := m.filtered()
-	if len(rows) == 0 {
-		p.line(paint(fg("muted"), "No matching settings"))
-	}
-	for _, action := range rows {
-		value := strings.Join(m.values.bindings(action), " · ")
-		if value == "" {
-			value = "Unbound"
-		}
-		icon := [shortcutCount]string{"🚢", "⚙", "🐦", "⌨️", "➕"}[action]
-		p.field("control:"+strconv.Itoa(action), icon, settingsLabels[action], value, m.cursor == action && !m.searching, true)
-	}
-	switch {
-	case m.busy:
-		p.line(paint(fg("value"), "Saving and reloading workspace…"))
-	case m.notice != "":
-		p.line(paint(fg("value"), cleanUI(m.notice)))
-	case m.values != m.saved:
-		p.line(paint(fg("muted"), "Unsaved changes"))
-	}
-	if m.searching {
-		p.Hint = "Type search · Enter fields · Esc clear/back"
-		return p
-	}
+
+	footer := m.overviewFooter()
+	bar := footer.shortcutBar()
+
+	// Bottom info zone: optional prominent red Unsaved changes warning above a
+	// muted gray description of the focused option (just like omp settings).
+	var bottomLines []string
 	if m.busy {
-		return p
+		bottomLines = append(bottomLines, paint(fg("value"), "Saving and reloading workspace…"))
+	} else if m.unsavedWarn && m.hasUnsaved() {
+		msg := m.notice
+		if msg == "" {
+			msg = "Unsaved changes — press ^S to save or Esc again to discard."
+		}
+		bottomLines = append(bottomLines, paint(fg("bad").Bold(true), "⚠ "+cleanUI(msg)))
+	} else if m.notice != "" {
+		bottomLines = append(bottomLines, paint(fg("value"), cleanUI(m.notice)))
 	}
-	if len(rows) > 0 {
-		p.shortcut(uiAction{ID: "accept", Key: "Enter", Label: "Edit bindings"}, false)
+	// Reserve gray description line when there is room for all core rows.
+	if m.height >= 16 {
+		desc := m.controlDescription(m.cursor)
+		bottomLines = append(bottomLines, paint(fg("muted"), ansi.Truncate(cleanUI(desc), max(1, p.Width-2), "…")))
 	}
-	p.shortcuts([]uiAction{
-		{ID: "save", Key: "Ctrl+S", Label: "Save changes", Primary: true},
-		{ID: "back", Key: "Esc", Label: "Back"},
-		{ID: "restore", Key: "Ctrl+R", Label: "Restore defaults"},
-		{ID: "details", Key: "i", Label: "Details"},
-	}, "")
-	p.Hint = "↑↓/jk fields · " + tabHint + " · / search · ? help"
-	return p
+
+	top := len(p.Lines)
+	bodyH := max(1, m.height-top-len(bottomLines)-len(bar.Lines))
+
+	filtered := m.filtered()
+	activeSec := m.activeSectionID()
+	split := p.Width >= 76
+	leftW := 0
+	dividerW := 0
+	rightW := max(1, p.Width-2)
+	if split {
+		leftW = min(24, max(18, p.Width/4))
+		dividerW = 3 // " │ "
+		rightW = max(16, p.Width-2-leftW-dividerW)
+	}
+
+	// Build right-column virtual lines (underlined section headings + items).
+	type rightLine struct {
+		text     string
+		hitID    string
+		isCursor bool
+	}
+	var rLines []rightLine
+	showSectionHeaders := m.height >= 16 || split
+	for _, sec := range settingsSections {
+		secItems := []int{}
+		for _, item := range sec.items {
+			if slices.Contains(filtered, item) {
+				secItems = append(secItems, item)
+			}
+		}
+		if len(secItems) == 0 {
+			continue
+		}
+		isActive := sec.id == activeSec
+		if showSectionHeaders {
+			headRole := "muted"
+			if isActive {
+				headRole = "text"
+			}
+			headStyle := fg(headRole).Underline(true)
+			rLines = append(rLines, rightLine{text: "  " + paint(headStyle, cleanUI(sec.title))})
+		}
+		for _, item := range secItems {
+			rLines = append(rLines, rightLine{
+				text:     m.renderSettingsRow(item, rightW, isActive),
+				hitID:    "control:" + strconv.Itoa(item),
+				isCursor: item == m.cursor && !m.searching,
+			})
+		}
+	}
+	if len(rLines) == 0 {
+		rLines = append(rLines, rightLine{text: paint(fg("muted"), "No matching settings")})
+	}
+
+	// Keep the cursor row inside the visible viewport.
+	scrollTop := max(0, min(m.scroll, max(0, len(rLines)-bodyH)))
+	for idx, rl := range rLines {
+		if rl.isCursor {
+			if idx < scrollTop {
+				scrollTop = idx
+				if idx > 0 && rLines[idx-1].hitID == "" {
+					scrollTop = idx - 1
+				}
+			} else if idx >= scrollTop+bodyH {
+				scrollTop = idx - bodyH + 1
+			}
+			break
+		}
+	}
+	scrollTop = max(0, min(scrollTop, max(0, len(rLines)-bodyH)))
+
+	// Build left-column clickable section list (wide mode only).
+	type leftLine struct {
+		text  string
+		hitID string
+	}
+	var lLines []leftLine
+	if split {
+		for _, sec := range settingsSections {
+			hasMatch := false
+			for _, item := range sec.items {
+				if slices.Contains(filtered, item) {
+					hasMatch = true
+					break
+				}
+			}
+			if !hasMatch {
+				continue
+			}
+			id := "section:" + sec.id
+			isActive := sec.id == activeSec
+			st := fg("muted")
+			if isActive {
+				st = fg("brand").Bold(true)
+			}
+			if m.hover == id {
+				st = st.Background(lipgloss.Color(harborPalette["selBg"]))
+			}
+			label := ansi.Truncate(cleanUI(sec.title), max(1, leftW-1), "…")
+			label += strings.Repeat(" ", max(0, leftW-ansi.StringWidth(label)))
+			lLines = append(lLines, leftLine{text: paint(st, label), hitID: id})
+		}
+	}
+
+	divider := paint(fg("border"), " │ ")
+	for i := 0; i < bodyH; i++ {
+		y := len(p.Lines)
+		var line string
+		if split {
+			if i < len(lLines) {
+				line = lLines[i].text
+				p.hit(lLines[i].hitID, 1, y, leftW, 1)
+			} else {
+				line = strings.Repeat(" ", leftW)
+			}
+			line += divider
+		}
+		rIdx := scrollTop + i
+		if rIdx < len(rLines) {
+			rText := rLines[rIdx].text
+			line += rText
+			if rLines[rIdx].hitID != "" {
+				hitX := 1
+				if split {
+					hitX = 1 + leftW + dividerW
+				}
+				p.hit(rLines[rIdx].hitID, hitX, y, rightW, 1)
+			}
+		}
+		p.line(line)
+	}
+	p.scrollRail(top, bodyH, len(rLines), scrollTop)
+	for _, bl := range bottomLines {
+		p.line(bl)
+	}
+	p.Actions = footer.Actions
+	p.Hint = footer.Hint
+	out := p.finish(0)
+	out.MaxScroll = max(0, len(rLines)-bodyH)
+	return out
 }
 
 func (m settingsModel) bindingContent() uiPage {
@@ -496,6 +837,9 @@ func runSettingsApp() error {
 		m := newHarborModel(appService)
 		defer m.cancelRefresh()
 		m.screen = settings.nav
+		if m.screen == "profiles" {
+			m.screen = "profile-list"
+		}
 		_, err = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion()).Run()
 	}
 	return err

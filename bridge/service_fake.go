@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"os/exec"
 )
 
 // UI tests can seed results and inspect calls without starting any process.
@@ -21,6 +22,8 @@ type fakeApplicationService struct {
 	Selection        *codexSelection
 	SelectionErr     error
 	LastApproval     *sessionApproval
+	Extensions       map[profileBinding]extensionSnapshot
+	ExecCommands     []string
 	Calls            []string
 	Err              error
 }
@@ -368,4 +371,60 @@ func (f *fakeApplicationService) ProfileCatalog(b profileBinding, id string) ([]
 		return nil, err
 	}
 	return f.Catalog(id)
+}
+
+func (f *fakeApplicationService) InspectExtensions(_ context.Context, b profileBinding) (extensionSnapshot, error) {
+	if err := f.call("extensions-inspect"); err != nil {
+		return extensionSnapshot{}, err
+	}
+	if snap, ok := f.Extensions[b]; ok {
+		return snap, nil
+	}
+	return extensionSnapshot{Profile: b, ProfileName: "Default", SkillsCLI: "path"}, nil
+}
+
+func (f *fakeApplicationService) ToggleExtension(_ context.Context, b profileBinding, item extensionItem, enabled bool) error {
+	if err := f.call("extensions-toggle"); err != nil {
+		return err
+	}
+	if f.Extensions != nil {
+		if snap, ok := f.Extensions[b]; ok {
+			for i := range snap.Skills {
+				if snap.Skills[i].ID == item.ID {
+					snap.Skills[i].Enabled = enabled
+				}
+			}
+			f.Extensions[b] = snap
+		}
+	}
+	return nil
+}
+
+func (f *fakeApplicationService) PlanPluginSync(_ context.Context, src, dst profileBinding) (pluginSyncPlan, error) {
+	if err := f.call("extensions-sync-plan"); err != nil {
+		return pluginSyncPlan{}, err
+	}
+	return buildPluginSyncPlan(f.Extensions[src], f.Extensions[dst]), nil
+}
+
+func (f *fakeApplicationService) ExecutePluginSync(_ context.Context, plan pluginSyncPlan) (pluginSyncResult, error) {
+	if err := f.call("extensions-sync-exec"); err != nil {
+		return pluginSyncResult{}, err
+	}
+	res := pluginSyncResult{Plan: plan}
+	for _, p := range plan.PluginsToAdd {
+		res.Outcomes = append(res.Outcomes, pluginSyncOutcome{Kind: "plugin", Name: p.Name, State: "installed"})
+	}
+	for _, name := range plan.AlreadyInstalled {
+		res.Outcomes = append(res.Outcomes, pluginSyncOutcome{Kind: "plugin", Name: name, State: "skipped", Detail: "already installed"})
+	}
+	return res, nil
+}
+
+func (f *fakeApplicationService) ExtensionExecCommand(_ context.Context, _ profileBinding, action string, kind extensionKind, target string) (*exec.Cmd, error) {
+	f.ExecCommands = append(f.ExecCommands, string(kind)+":"+action+":"+target)
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	return exec.Command("true"), nil
 }

@@ -193,16 +193,18 @@ func (m harborModel) accountDetail(p *uiPage, wrap func(string)) {
 }
 
 func (m harborModel) accountOverview(p *uiPage) {
-	label := "None selected"
-	if m.accountProfile != nil {
-		label = m.profileDisplayLabel(m.accountProfile)
-		if m.accountSnapshot != nil && m.accountSnapshot.ProfileName != "" {
-			label = m.accountSnapshot.ProfileName
+	if len(m.profiles) > 1 || m.accountProfile == nil {
+		label := "None selected"
+		if m.accountProfile != nil {
+			label = m.profileShortLabel(m.accountProfile)
+			if m.accountSnapshot != nil && m.accountSnapshot.ProfileName != "" {
+				label = m.accountSnapshot.ProfileName
+			}
 		}
-	}
-	p.line(kvw("Profile", cleanUI(label), 9))
-	if p.Width >= 60 {
-		p.line("")
+		p.line(kvw("Profile", cleanUI(label), 9))
+		if p.Width >= 60 {
+			p.line("")
+		}
 	}
 	status := "Select a Profile"
 	if m.accountProfile != nil {

@@ -55,7 +55,7 @@ func TestAccountsOverviewHasOneEmptyStateAndNoDecorativeProfileIcon(t *testing.T
 	m.accountProfile = &profileBinding{ProfileID: "p"}
 	m.accountSnapshot = &profileAccountResult{State: "signed-out"}
 	content := ansi.Strip(strings.Join(m.accountContent().Lines, "\n"))
-	if strings.Count(content, "No saved logins") != 1 || strings.Count(content, "🗂") != 1 {
+	if strings.Count(content, "No saved logins") != 1 || strings.Count(content, "🗂") != 0 || strings.Count(content, "🧩") != 1 {
 		t.Fatal(content)
 	}
 	for _, old := range []string{"Switch between replies", "Status details available", "adds a login"} {

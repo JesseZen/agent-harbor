@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -137,6 +138,7 @@ type harborModel struct {
 	accountListScroll   int
 	accountResetReview  string
 	accountResetNotice  string
+	ext                 extensionState
 	reviewedSelection   *codexSelection
 	selectionReviewErr  error
 	selectionFallback   bool
@@ -257,6 +259,21 @@ func (m harborModel) selected() (sessionView, bool) {
 	}
 	return rows[min(m.cursor, len(rows)-1)], true
 }
+func (m harborModel) openSettingsModel() settingsModel {
+	settings := newSettingsModel()
+	settings.width, settings.height = m.width, m.height
+	switch len(m.profiles) {
+	case 0:
+		settings.profileSummary = "Default"
+	case 1:
+		settings.profileSummary = m.profiles[0].Name
+	default:
+		active := m.profileShortLabel(m.activeProfile)
+		settings.profileSummary = fmt.Sprintf("%d profiles · %s", len(m.profiles), active)
+	}
+	return settings
+}
+
 func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.settings != nil && !isRuntimeRefresh(msg) {
 		next, cmd := m.settings.Update(msg)
@@ -268,8 +285,14 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.screen = "sessions"
 					return m.Update(uiKey("a"))
 				}
+				if settings.nav == "extensions" {
+					m.screen = "extensions"
+					m.scroll = 0
+					return m, m.beginExtensionsInspect()
+				}
 				m.screen = settings.nav
 				if m.screen == "profiles" {
+					m.profileReturn = "settings"
 					m.screen = "profile-list"
 					return m, m.loadProfiles()
 				}
@@ -369,6 +392,12 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.accountProfile = m.activeProfile
 			accounts = m.beginAccountInspect()
 		}
+		var extensions tea.Cmd
+		if m.screen == "extensions" && m.ext.profile == nil && m.activeProfile != nil {
+			b := *m.activeProfile
+			m.ext.profile = &b
+			extensions = m.beginExtensionsInspect()
+		}
 		m.refreshing = false
 		previousDiscovery := m.discoveryNotice
 		m.discoveryNotice = ""
@@ -406,9 +435,9 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if !m.pollScheduled {
 			m.pollScheduled = true
-			return m, tea.Batch(m.refreshTimer(), accounts, newSession)
+			return m, tea.Batch(m.refreshTimer(), accounts, extensions, newSession)
 		}
-		return m, tea.Batch(accounts, newSession)
+		return m, tea.Batch(accounts, extensions, newSession)
 	case appSessionInspected:
 		if m.refreshContext.Err() != nil || m.screen != "busy" || m.reviewed.ID != msg.expected.ID {
 			return m, nil

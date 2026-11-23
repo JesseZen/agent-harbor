@@ -309,6 +309,11 @@ func (m harborModel) sessionsLayout() uiPage {
 	if len(entries) == 0 {
 		left.emptyState("No matching sessions")
 	}
+	railReserve := 0
+	if !split && totalLines > bodyH {
+		railReserve = 1
+	}
+	bandPage := newUIPage(max(3, leftW-railReserve), 10)
 	for _, entry := range entries {
 		h := 2
 		if entry.isHeader {
@@ -319,7 +324,9 @@ func (m harborModel) sessionsLayout() uiPage {
 		}
 		if entry.isHeader {
 			if entry.top >= scrollTop && len(left.Lines) < bodyH {
-				left.groupBand(entry.title, entry.meta)
+				bandPage.Lines = nil
+				bandPage.groupBand(entry.title, entry.meta)
+				left.line(bandPage.Lines[0])
 			}
 			continue
 		}
@@ -331,7 +338,7 @@ func (m harborModel) sessionsLayout() uiPage {
 		id := "session:" + s.ID
 		row := m.rowStyle(id, m.sessionCursorAt(entry.index), false)
 		y := len(left.Lines)
-		lineW := max(1, leftW-2)
+		lineW := max(1, leftW-2-railReserve)
 		rendered := 0
 		if entry.top >= scrollTop && len(left.Lines) < bodyH {
 			left.line(m.renderSessionPrimaryLine(s, row, lineW))
@@ -345,7 +352,9 @@ func (m harborModel) sessionsLayout() uiPage {
 			left.hit(id, 1, y, lineW, rendered)
 		}
 	}
-	left.scrollRail(0, min(bodyH, len(left.Lines)), totalLines, scrollTop)
+	if split {
+		left.scrollRail(0, min(bodyH, len(left.Lines)), totalLines, scrollTop)
+	}
 	for _, r := range left.Hits {
 		p.hit(r.ID, r.X, r.Y+top, r.W, r.H)
 	}
@@ -397,6 +406,9 @@ func (m harborModel) sessionsLayout() uiPage {
 		}
 		p.line(l)
 	}
+	if !split && totalLines > bodyH {
+		p.scrollRail(top, min(bodyH, len(left.Lines)), totalLines, scrollTop)
+	}
 	actions := m.sessionActions(false)
 	// Short popups reserve two rows for actions rather than clipping Create/Back.
 	if _, ok := m.selected(); ok {
@@ -444,14 +456,18 @@ func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 		m.profileReturn = ""
 		m.scroll = 0
 		if nav == "settings" {
-			settings := newSettingsModel()
-			settings.width, settings.height = m.width, m.height
+			settings := m.openSettingsModel()
 			m.settings = &settings
 			return m, nil
 		}
 		if nav == "sessions" {
 			m.screen = "sessions"
 			return m, nil
+		}
+		if nav == "extensions" {
+			m.screen = "extensions"
+			m.scroll = 0
+			return m, m.beginExtensionsInspect()
 		}
 		m.screen = "sessions"
 		switch nav {

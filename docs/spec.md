@@ -69,9 +69,27 @@ Older records retain their names. Other clients keep the project/connection
 fallback until their title capability is verified. Display naming never changes
 Conversation identity or recovery target. See [Herdr integration](herdr-integration.md).
 
-Settings → Workspace shortcuts configures the Herdr prefix and one or more
-bindings per action. See [Workspace shortcuts](workspace-shortcuts.md) for
-defaults, editing and the direct New session entry.
+Settings configures Herdr workspace shortcuts and houses Profiles under
+Environment & Profiles (also directly reachable via `p`). Wide viewports split
+Settings into a clickable left section sidebar and a right option list where
+active-section items are bright, inactive sections are dimmed, modified unsaved
+options highlight in yellow, the bottom gray line describes the focused option,
+and attempting to leave with unsaved edits surfaces a red `Unsaved changes`
+banner above that description; narrow viewports hide the left sidebar. See
+[Workspace shortcuts](workspace-shortcuts.md) for defaults, editing and the
+direct New session entry.
+
+Extensions (`🧩 Extensions`) manages Skills and Codex Plugins for the active
+Profile. Skills are discovered from the shared `~/.agents/skills` store and
+`$CODEX_HOME/skills` (using Codex `skills/list` RPC with pure-Go fallback) and
+enabled/disabled per Profile in `$CODEX_HOME/config.toml` (`[[skills.config]]`)
+without modifying shared source files or requiring Node. Searching, adding,
+updating and removing Skills hand off interactively to `skills` CLI (resolved
+from `AGENT_HARBOR_SKILLS_BIN`, companion dir, `PATH`, or `npx skills`), while
+Codex Plugins use `codex plugin` scoped to the Profile. When multiple Profiles
+exist, Extensions offers an explicit declarative plugin-manifest sync between
+Profiles that installs missing marketplaces and plugins without symlinking
+`plugins/` or copying credentials, histories or MCP OAuth tokens.
 
 New session → Options sets Codex-only launch overrides: Sandbox, Approval,
 Reasoning, configured context window, automatic compaction token limit,

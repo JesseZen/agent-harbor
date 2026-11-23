@@ -73,8 +73,7 @@ func (m harborModel) updateAccounts(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.screen == "accounts" && key == "," {
-		settings := newSettingsModel()
-		settings.width, settings.height = m.width, m.height
+		settings := m.openSettingsModel()
 		m.settings = &settings
 		return m, nil
 	}

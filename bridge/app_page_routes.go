@@ -7,7 +7,7 @@ import (
 
 // The integration owner owns page ordering, navigation and shared dispatch.
 func (m harborModel) additionalPage() (uiPage, bool) {
-	for _, render := range []func() (uiPage, bool){m.codexOptionsPage, m.profilePage, m.newSessionPage, m.connectionPage, m.accountsPage, m.secondaryPage} {
+	for _, render := range []func() (uiPage, bool){m.codexOptionsPage, m.profilePage, m.extensionsPage, m.newSessionPage, m.connectionPage, m.accountsPage, m.secondaryPage} {
 		if p, ok := render(); ok {
 			return p, true
 		}
@@ -23,7 +23,7 @@ func (m harborModel) additionalPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			}
 		}
 	}
-	for _, update := range []func(tea.Msg) (tea.Model, tea.Cmd, bool){m.codexOptionsInput, m.profilePageInput, m.newSessionPageInput, m.connectionPageInput, m.accountsPageInput, m.secondaryPageInput} {
+	for _, update := range []func(tea.Msg) (tea.Model, tea.Cmd, bool){m.codexOptionsInput, m.profilePageInput, m.extensionsPageInput, m.newSessionPageInput, m.connectionPageInput, m.accountsPageInput, m.secondaryPageInput} {
 		if next, cmd, ok := update(msg); ok {
 			return next, cmd, true
 		}

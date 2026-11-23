@@ -345,9 +345,9 @@ func (p *uiPage) search(value, placeholder string, focused bool, inputs ...texti
 
 var mainTabs = []uiAction{
 	{ID: "sessions", Label: "🚢 Sessions"},
+	{ID: "extensions", Label: "🧩 Extensions"},
 	{ID: "magpie", Label: "🐦 Connections"},
 	{ID: "accounts", Label: "👤 Accounts"},
-	{ID: "profiles", Label: "🗂 Profiles"},
 	{ID: "settings", Label: "⚙ Settings"},
 }
 

@@ -1,5 +1,18 @@
 # UI 实机走查 — 2026-11-17
 
+## 会话槽位自动跟随与 Sessions 分组降噪（Milestone A，2026-11-23）
+
+| 入口 | 交互与状态 |
+|---|---|
+| Sessions 列表 | 复用 Accounts 的共享灰色分组横条（`groupBand`），底层抽离可扩展的 `sessionGrouper` 接口，本期内置 `Active` / `Stopped` / `External` 三组（空组隐藏）。受管记录固定紧凑 2 行（主行名称 + Herdr 语义状态 + 可选短状态码 `[Conflict]`/`[No ID]`/`[Review]`/`[Offline]`；副行用低饱和色区分项目名、客户端、连接，单 Profile 时隐藏 Profile 名和顶部冗长后缀）。外部未托管进程（如 `agy`）仅显低调灰色 `External`，不再生成黄色警告行。 |
+| 窗口内切对话 | 已核实前台运行内 `/resume`、`/agents`、`/new` 切到新合法对话并触发 hook 时自动跟随最新对话，在 `conversation.history` 记录切换轨迹（Details 可见），保持 `ready`；双活撞同一 UUID 仍标 `conflict`；升级前遗留旧 `conflict` 保留显式二选一。 |
+| Enter 恢复确认 | 正常 `ready` 停止会话保留轻量一次确认页，`Current login and other writers: unverified.` 由黄色降为低调 `muted` 灰字。`--no-daemon` 回退窗口与旧窗口保持诚实上报，不自动关窗重开。 |
+
+macOS arm64 隔离验证：
+- Go `go vet ./...` 与 Milestone A 全组 `-race` 回归（含 `TestCandidateVerifiedInWindowSwitchFollowsAndRecordsHistory`、`TestCandidateDuplicateActiveConversationMarksConflict`、`TestStatusGrouperPartitionsAndHidesEmptyGroups`、`TestStatusRoleAvoidsYellowForNormalLiveStates`、`TestSessionsGroupedLayoutNoiseReductionAndNavigation`、`TestProfileNative*`、`TestMouse*`）全部通过。
+- 隔离真实 Herdr `0.9.5` + 原生 Codex `0.169.0` + Magpie `0.1.3528-harbor-dev`：`query_recovery_real.py --enter-recovery` 通过（含活窗口聚焦、遗留旧冲突二选一恢复与旧 shell 保留）；隔离实机 `/new` A → B 窗口内切换通过（自动跟随 B、记录 `herdr-hook` 轨迹、外层 160×45 / 100×30 / 80×24 / 60×24 实时弹窗验证 `Active` 分组与零黄字状态、退出后 Enter 精确恢复 B 历史且确认页无黄字告警）。
+- 仍待验证：Linux / 远端工作区实测、真实线上账号切换、Unicode 15 渲染 PNG 截图基线（本次在真实 Herdr/tmux 四尺寸直接校验了带色 ANSI 文本与 RGB 序列）。
+
 ## Codex 权限与 Magpie 选模型（2026-11-20）
 
 | 入口 | 交互 |

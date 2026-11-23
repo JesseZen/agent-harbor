@@ -26,11 +26,34 @@ func candidateRunPlan(s session, env []string) (runPlan, error) {
 	return runPlan{Profile: s.Profile, SessionID: s.ID, Token: hex.EncodeToString(token), Home: home}, err
 }
 
+func activeDuplicateConversation(all []session, self session, ref herdrIdentity) bool {
+	for _, other := range all {
+		if other.ID == self.ID || other.CLI != self.CLI {
+			continue
+		}
+		if self.Profile != nil && other.Profile != nil && *self.Profile != *other.Profile {
+			continue
+		}
+		if !processGroupActive(other.ProcessGroup) && !sessionLaunchPending(other) {
+			continue
+		}
+		if other.Conversation != nil && other.Conversation.Reference == ref {
+			return true
+		}
+		if self.CLI == "codex" && ref.Kind == "id" && other.CodexSessionID != "" && other.CodexSessionID == ref.Value {
+			return true
+		}
+	}
+	return false
+}
+
 // Installation and hook enablement are not identity evidence. Only a fresh
 // pane report in this run can establish the Conversation reference. When
 // resuming a previously verified Conversation, retain that verified reference
 // if the client does not emit a new hook report and no conflict or transport
-// failure occurs.
+// failure occurs. Within a verified foreground run, a clean in-window switch
+// to another valid Conversation automatically updates the recovery target while
+// preserving transition history, unless another active session owns it.
 func candidateIdentityCapture(id, token, client string, startup *conversationEvidence) (func(), func() error) {
 	herdr, pane, socket := os.Getenv("HERDR_BIN_PATH"), os.Getenv("HERDR_PANE_ID"), os.Getenv("HERDR_SOCKET_PATH")
 	socketID := socketIdentity(socket)
@@ -115,21 +138,38 @@ func candidateIdentityCapture(id, token, client string, startup *conversationEvi
 				}
 				expected := s.Conversation
 				sameObservation := expected != nil && expected.Status == "observed" && expected.Reference == *ref && expected.RunToken == token && expected.Pane == pane && expected.SocketIdentity == socketID
+				differs := (expected != nil && expected.Reference != *ref) || (s.CodexSessionID != "" && (ref.Kind != "id" || ref.Value != s.CodexSessionID))
+				duplicateActive := activeDuplicateConversation(all, *s, *ref)
+				validFollowRef := s.CLI != "codex" || (ref.Kind == "id" && validCodexID(ref.Value))
+				legacyConflict := (expected != nil && expected.Status == "conflict") || s.ReportedCodexID != ""
+				canFollow := differs && !baselineUnknown && !blocked && !legacyConflict && validFollowRef && !duplicateActive
 				status := "observed"
 				if baselineUnknown || blocked {
 					status = "initial_unverified"
-				}
-				if expected != nil && expected.Reference != *ref {
+				} else if differs && !canFollow {
 					status = "conflict"
 					blocked = true
 				}
-				if s.CodexSessionID != "" && (ref.Kind != "id" || ref.Value != s.CodexSessionID) {
-					status = "conflict"
-					blocked = true
-				}
+				now := time.Now().UTC()
 				if expected == nil {
 					s.Version = 3
-					s.Conversation = &conversationEvidence{Reference: *ref, Provenance: "herdr-pane-observation", ObservedAt: time.Now().UTC(), Pane: pane, SocketIdentity: socketID, RunToken: token, Status: status}
+					s.Conversation = &conversationEvidence{Reference: *ref, Provenance: "herdr-pane-observation", ObservedAt: now, Pane: pane, SocketIdentity: socketID, RunToken: token, Status: status}
+				} else if canFollow {
+					prev := expected.Reference
+					if prev.Value == "" && s.CodexSessionID != "" {
+						prev = herdrIdentity{Source: "herdr:codex", Agent: s.CLI, Kind: "id", Value: s.CodexSessionID}
+					}
+					s.Version = 3
+					s.Conversation.History = appendConversationHistory(s.Conversation.History, conversationTransition{
+						From:     prev,
+						To:       *ref,
+						At:       now,
+						Source:   "herdr-hook",
+						RunToken: token,
+					})
+					s.Conversation.Reference = *ref
+					s.Conversation.Provenance = "herdr-pane-observation"
+					s.Conversation.Status = "observed"
 				} else {
 					s.Conversation.Status = status
 				}
@@ -140,7 +180,7 @@ func candidateIdentityCapture(id, token, client string, startup *conversationEvi
 					// Repeated reports of the same accepted run/context are not new
 					// evidence. Preserve approvals until meaningful evidence changes.
 					if !sameObservation {
-						s.Conversation.ObservedAt = time.Now().UTC()
+						s.Conversation.ObservedAt = now
 					}
 					s.Conversation.RunToken = token
 					s.Conversation.Pane = pane
@@ -151,9 +191,23 @@ func candidateIdentityCapture(id, token, client string, startup *conversationEvi
 					s.ConversationIDSource = "herdr-hook"
 					s.Recovery = "ready"
 					s.IdentityWarning = ""
+					if canFollow {
+						s.ReportedCodexID = ""
+						s.CandidateIDs = nil
+						s.Candidates = nil
+						s.LastActivityAt = &now
+						if startup != nil {
+							copy := *s.Conversation
+							startup = &copy
+						}
+					}
 				} else {
 					s.Recovery = "needs_review"
-					s.IdentityWarning = "Pane identity is initial/unverified or changed; inspect show and use reassociate with the saved reference to explicitly review the original conversation and connection."
+					if duplicateActive {
+						s.IdentityWarning = "Conversation is already active in another session; inspect details and review recovery."
+					} else {
+						s.IdentityWarning = "Pane identity is initial/unverified or changed; inspect show and use reassociate with the saved reference to explicitly review the original conversation and connection."
+					}
 					if s.CLI == "codex" && ref.Kind == "id" && ref.Value != s.CodexSessionID {
 						s.ReportedCodexID = ref.Value
 					}

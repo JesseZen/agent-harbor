@@ -508,6 +508,34 @@ func (p *uiPage) scrollRail(top, height, total, offset int) {
 }
 func (p *uiPage) emptyState(text string) { p.line(paint(fg("muted"), cleanUI(text))) }
 
+// groupBand renders a full-width low-contrast section band (matching Accounts
+// client headers) to visually separate groups of items without extra borders.
+func (p *uiPage) groupBand(title, meta string) {
+	width := max(1, p.Width-2)
+	titleText := cleanUI(title)
+	metaText := cleanUI(meta)
+	if colorOff() {
+		label := titleText
+		if metaText != "" {
+			label += " (" + metaText + ")"
+		}
+		prefix, fill := "── ", "─"
+		if asciiUI() {
+			prefix, fill = "-- ", "-"
+		}
+		text := prefix + label + " "
+		rem := max(0, width-ansi.StringWidth(text))
+		p.line(text + strings.Repeat(fill, rem))
+		return
+	}
+	left := " " + titleText
+	right := ansi.Truncate(metaText, max(0, width-ansi.StringWidth(left)-3), "…")
+	padding := max(0, width-ansi.StringWidth(left)-ansi.StringWidth(right)-1)
+	band := lipgloss.Color(harborPalette["button"])
+	p.line(paint(fg("text").Background(band).Bold(true), left) +
+		paint(fg("value").Background(band), strings.Repeat(" ", padding)+right+" "))
+}
+
 // Footer hints remain clickable, but are not keyboard focus targets.
 func (p uiPage) focusHits() []uiRect {
 	actions := map[string]bool{}

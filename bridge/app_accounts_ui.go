@@ -235,13 +235,7 @@ func (m harborModel) accountOverview(p *uiPage) {
 }
 
 func appendAccountClient(p *uiPage, name, status string) {
-	title := " " + name
-	width := max(1, p.Width-2)
-	status = ansi.Truncate(status, max(0, width-ansi.StringWidth(title)-3), "…")
-	padding := max(0, width-ansi.StringWidth(title)-ansi.StringWidth(status)-1)
-	band := lipgloss.Color(harborPalette["button"])
-	p.line(paint(fg("text").Background(band).Bold(true), title) +
-		paint(fg("value").Background(band), strings.Repeat(" ", padding)+status+" "))
+	p.groupBand(name, status)
 }
 
 const (

@@ -127,6 +127,9 @@ func sessionAttention(s sessionView) string {
 	if s.DiscoveryWarning != "" {
 		return s.DiscoveryWarning
 	}
+	if s.External {
+		return ""
+	}
 	if s.Runtime.RunVerified && s.Reason != "" {
 		return s.Reason
 	}
@@ -143,6 +146,30 @@ func sessionAttention(s sessionView) string {
 		return "Conversation identity needs review; inspect session details."
 	}
 	return ""
+}
+
+// sessionStatusBadge returns a compact status tag for the Sessions list row so
+// long diagnostic sentences stay in the right preview pane and Details.
+func sessionStatusBadge(s sessionView) (string, string) {
+	if s.DiscoveryWarning != "" {
+		return "Offline", "bad"
+	}
+	if s.External {
+		return "", ""
+	}
+	if recoveryConflict(s.session) || (s.Conversation != nil && s.Conversation.Status == "conflict") || (s.Runtime.RunVerified && conversationAssociationWarning(s.session, s.Runtime.Reference) != "") {
+		return "Conflict", "warn"
+	}
+	if s.Conversation == nil && s.Started {
+		if s.Running {
+			return "Pending ID", "muted"
+		}
+		return "No ID", "warn"
+	}
+	if sessionAttention(s) != "" {
+		return "Review", "warn"
+	}
+	return "", ""
 }
 
 // Prepare before publishing a record or opening a pane. Recheck the exact

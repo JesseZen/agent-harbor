@@ -6,12 +6,17 @@ A session records a stable Profile binding, project, client, conversation refere
 
 On restart or recovery Harbor must preserve the intended conversation and connection. If either cannot be established, show the uncertainty and require explicit review; never silently substitute a client, account, route or conversation. External Herdr agents may be listed and focused without claiming ownership or inferring their connection.
 
-If a live client reports a different Conversation, Harbor can still verify the
-unique foreground run using the terminal and process evidence. Sessions shows
-one focusable managed row with the live activity and a Conversation warning.
-The saved Conversation and connection stay unchanged, and verifying the run
-does not authorize recovery or reassociation. Unverified or ambiguous runs
-remain separate from saved records.
+If a verified owned foreground run switches to another valid main Conversation
+inside Codex (through `/resume`, `/agents` or `/new`) and reports it through the
+official Herdr hook, Harbor updates that Session's current recovery target to
+the newly reported Conversation and records the transition in Details history,
+preserving the Session's Profile, project, connection and options. Automatic
+titles follow the latest Conversation unless the Session was manually renamed.
+If another currently active Harbor Session already owns that Conversation, or if
+the run association is lost, the baseline is unverified, or an older record
+already carries an unresolved conflict, Harbor keeps the saved target unchanged
+and requires explicit review. Unverified or ambiguous runs remain separate from
+saved records.
 
 Use documented upstream integration interfaces. Unsupported operations must be presented clearly. Keep user credentials and conversations out of logs and test fixtures.
 
@@ -140,10 +145,10 @@ these checks cannot lock out new input to Codex.
 
 Harbor reports the stored login separately from each affected window's result.
 `app/list` refresh uses an undocumented Codex side effect. Verify the selected
-identity in the owned App Server before reporting a live switch. A verified idle
-older window without a dedicated server does not block saving. Older windows,
-failed refreshes and live sign-out are reported as not confirmed. Do not restart
-any window automatically or change its Conversation, model, or connection.
+identity in the owned App Server before reporting a live switch. A verified idle older window without a dedicated server does not block saving.
+Older windows, `--no-daemon` fallback windows, failed refreshes and live
+sign-out are reported honestly as not confirmed. Do not restart any window
+automatically or change its Conversation, model, or connection.
 Magpie keeps its providers and does not rotate the caller's official account.
 Opening Accounts loads saved Codex logins for the selected Profile and
 automatically refreshes 5-hour and weekly availability and reset cards

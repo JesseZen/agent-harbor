@@ -60,14 +60,33 @@ func statusDot(status string) string {
 
 func statusRole(word string) string {
 	switch strings.ToLower(word) {
-	case "running", "ready", "verified":
+	case "working", "running", "ready", "verified":
 		return "ok"
-	case "exited", "stopped", "not observed", "not started":
-		return "idle"
+	case "idle", "done":
+		return "label"
+	case "starting":
+		return "title"
+	case "blocked":
+		return "warn"
+	case "exited", "stopped", "not observed", "not started", "external", "unknown":
+		return "muted"
 	case "failed", "error":
 		return "bad"
 	}
 	return "warn"
+}
+
+func clientRole(client string) string {
+	switch strings.ToLower(strings.TrimSpace(client)) {
+	case "codex":
+		return "title"
+	case "claude", "claude-code":
+		return "section"
+	case "pi":
+		return "brand"
+	default:
+		return "value"
+	}
 }
 
 // paintKeys renders "k label  k label" or "k label · k label" hint strings.

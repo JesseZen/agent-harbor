@@ -120,7 +120,7 @@ func (m harborModel) reviewLayout() uiPage {
 	}
 	if m.action == "query-resume" {
 		for _, line := range strings.Split(ansi.Wrap("Current login and other writers: unverified.", max(1, m.width-2), ""), "\n") {
-			p.line(paint(fg("warn"), line))
+			p.line(paint(fg("muted"), line))
 		}
 		if !m.isEnterRecovery() && m.reviewed.Conversation != nil && m.reviewed.Conversation.Status != "observed" {
 			p.field("", "", "Saved identity", m.reviewed.Conversation.Status, false, false)

@@ -1,5 +1,13 @@
 # Harbor 视觉一致性检查
 
+## Sessions 分组横条、语义色修复与 2 行降噪（Milestone A，2026-11-23）
+
+Sessions 与 Accounts 共用 `(*uiPage).groupBand` 灰色分组横条（无色/ASCII 模式退化为 `── Title (N) ──`）。修复 `statusRole()` 漏掉 `Idle`/`Working`/`Done`/`Starting` 导致所有活窗口掉进黄色的缺陷：`Working` 用柔和绿（`ok`）、`Idle`/`Done` 用平静浅灰（`label`）、`Starting` 用浅蓝（`title`）、仅 `Blocked` 用琥珀黄（`warn`）、`Stopped`/`Not started`/`External`/`Unknown` 用暗灰（`muted`）。
+
+列表项取消 2/3 行跳动，统一固定 2 行并避免底缘半裁切；告警收敛为首行短状态码，长文案收进宽屏右栏预览、窄屏单行底栏提示与 `i` Details。外部进程去掉黄色告警行，仅标低调 `External`。单 Profile 时顶部标题精简为 `⚓ Harbor`，副行隐藏 Profile 尾缀；多 Profile 时显示短 Profile 名。恢复确认页常规 `Current login and other writers: unverified.` 改用 `muted` 灰字。
+
+已在隔离 Go 渲染/鼠标/颜色测试及 macOS arm64 真实 Herdr `0.9.5` + 原生 Codex `0.169.0` 的外层 160×45、100×30、80×24、60×24 弹窗中校验分组、配色 RGB 与对齐；Unicode 15 PNG 重渲染与 Linux/远端实机复核待补。详见[走查记录](ui-flow-audit.md#会话槽位自动跟随与-sessions-分组降噪milestone-a2026-11-23)。
+
 ## Options 说明与 Magpie 目录焦点（2026-11-20）
 
 Options 保留七个对齐字段和固定底栏，说明跟随当前字段。Magpie 目录复用搜索框，输入光标与结果行的位置同时可见。没有匹配结果时显示一行空状态。窄窗口仍是单列，目录通过滚动保留路由提示，Ctrl+O 可从输入框切到实例选择。

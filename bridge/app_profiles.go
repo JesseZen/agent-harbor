@@ -412,6 +412,18 @@ func (m harborModel) profileDisplayLabel(b *profileBinding) string {
 	return "Profile " + b.ProfileID
 }
 
+func (m harborModel) profileShortLabel(b *profileBinding) string {
+	if b == nil {
+		return "Unbound"
+	}
+	for _, p := range m.profiles {
+		if p.ID == b.ProfileID && p.WorkspaceID == b.WorkspaceID {
+			return p.Name
+		}
+	}
+	return "Profile " + b.ProfileID
+}
+
 func (m harborModel) saveProfileDefault(b profileBinding, id string) (tea.Model, tea.Cmd, bool) {
 	return m.serviceTask(func() error { return m.service.SetProfileDefaultInstance(b, id) }, func(n *harborModel, err error) tea.Cmd {
 		if err != nil {

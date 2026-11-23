@@ -131,12 +131,12 @@ fi
 			}
 			firstReported = true
 		}
-		if len(all) == 1 && all[0].ReportedCodexID == "01912345-6789-7abc-8def-0123456789ac" && all[0].Recovery == "needs_review" {
+		if len(all) == 1 && firstReported && all[0].CodexSessionID == "01912345-6789-7abc-8def-0123456789ac" && all[0].Recovery == "ready" && all[0].Conversation != nil && len(all[0].Conversation.History) == 1 && all[0].Conversation.History[0].From.Value == "01912345-6789-7abc-8def-0123456789ab" {
 			return
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
-	t.Fatal("initial and changed Codex identities were not recorded for review")
+	t.Fatal("initial and switched Codex identities were not recorded")
 }
 
 func TestExplicitHerdrExecutableIsUsed(t *testing.T) {

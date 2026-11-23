@@ -104,6 +104,7 @@ type harborModel struct {
 	routeSessionID      string
 	codexWindow         codexWindowObservation
 	service             applicationService
+	grouper             sessionGrouper
 	width, height       int
 	sessions            []sessionView
 	cursor              int
@@ -224,14 +225,28 @@ func (m harborModel) refreshTimer() tea.Cmd {
 		return tea.BatchMsg{tea.Tick(2*time.Second, func(time.Time) tea.Msg { return appRefreshTick{} })}
 	}
 }
-func (m harborModel) visible() []sessionView {
-	out := []sessionView{}
+func (m harborModel) sessionGrouper() sessionGrouper {
+	if m.grouper != nil {
+		return m.grouper
+	}
+	return statusGrouper{}
+}
+func (m harborModel) sessionGroups() []sessionGroup {
+	filtered := make([]sessionView, 0, len(m.sessions))
 	texts := make([]string, len(m.sessions))
 	for i, s := range m.sessions {
 		texts[i] = s.Name + " " + s.WorkingDirectory + " " + s.MagpieModel
 	}
 	for _, hit := range searchMatches(m.filter, texts) {
-		out = append(out, m.sessions[hit.Index])
+		filtered = append(filtered, m.sessions[hit.Index])
+	}
+	return m.sessionGrouper().Group(filtered)
+}
+func (m harborModel) visible() []sessionView {
+	groups := m.sessionGroups()
+	out := make([]sessionView, 0, len(m.sessions))
+	for _, g := range groups {
+		out = append(out, g.Sessions...)
 	}
 	return out
 }

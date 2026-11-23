@@ -49,9 +49,13 @@ reminders in the Sessions list; uncertain observations remain visible in details
 [The Herdr patch](herdr-primary-selection.patch) is based on the 0.9.5 Harbor
 fork at `7a19fabf023d1cf2d23cf58eeeb8028a9f282b61`. Build both in separate
 checkouts and set `AGENT_HARBOR_EXPERIMENTAL_CODEX_PRIMARY_SELECTION=1` for an
-isolated Harbor workspace. The patches are local candidates. Standard packages
-still recover the saved conversation and make no claim about later `/resume`
-selections. The Codex tag's `Cargo.lock` still lists unpublished workspace
+isolated Harbor workspace. The patches are local candidates. With stock Codex and Herdr, Harbor automatically follows verified in-window
+conversation transitions (such as `/resume`, `/agents` or `/new`) once a turn
+triggers an official Herdr hook report on that verified foreground run, while
+retaining transition history in Details and flagging concurrent active writers.
+Without a new hook report (switching and exiting with no prompt), standard
+packages recover the last confirmed conversation and make no claim about
+unreported `/resume` selections. The Codex tag's `Cargo.lock` still lists unpublished workspace
 crates as `0.0.0` after their manifests moved to `0.170.0`. Refresh the lock with
 the pinned Cargo before a `--locked` build and check that the resulting changes
 are workspace version substitutions. The candidate adds no dependencies.

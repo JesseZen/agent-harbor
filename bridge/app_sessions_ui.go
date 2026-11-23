@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"path/filepath"
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-	"strings"
 )
 
 func uiKey(key string) tea.KeyMsg {
@@ -83,9 +86,15 @@ func (m harborModel) sessionActions(more bool) []uiAction {
 	}
 	return append(actions, uiAction{ID: "back", Label: "Back", Key: "esc"})
 }
+func (m harborModel) sessionsTitle() string {
+	if len(m.profiles) > 1 && m.activeProfile != nil {
+		return "⚓ Harbor · " + m.profileShortLabel(m.activeProfile)
+	}
+	return "⚓ Harbor"
+}
 func (m harborModel) sessionsHeader() uiPage {
 	p := newUIPage(m.width, m.height)
-	p.line(paint(fg("brand"), "⚓ Harbor · Profile: "+m.activeProfileLabel()))
+	p.line(paint(fg("brand"), m.sessionsTitle()))
 	p.tabs("sessions", m.uiHover, m.uiFocus)
 	p.shortcuts([]uiAction{{ID: "action:n", Label: "New session", Key: "n", Primary: true}, {ID: "action:r", Label: "Refresh", Key: "r"}}, m.uiFocus)
 	p.search(m.searchQuery(), "Search sessions, projects or connections", m.searchFocus == "sessions", m.input)
@@ -103,44 +112,179 @@ func (m harborModel) sessionsFooterHeight() int {
 	}
 	return len(p.shortcutBar().Lines) + 1
 }
-func (m harborModel) sessionRowHeight(s sessionView) int {
-	if sessionAttention(s) != "" || m.selectionMissing {
-		return 3
-	}
-	return 2
+
+type sessionListEntry struct {
+	isHeader     bool
+	title, meta  string
+	index        int
+	view         sessionView
+	top          int
+	firstInGroup bool
 }
-func (m harborModel) sessionsWindow() (int, int) {
-	rows := m.visible()
-	if len(rows) == 0 {
-		return 0, 0
+
+func (m harborModel) sessionListPlan(bodyH int) ([]sessionListEntry, int, int) {
+	groups := m.sessionGroups()
+	if len(groups) == 0 {
+		return nil, 0, 0
 	}
-	cursor := max(0, min(m.cursor, len(rows)-1))
-	start, used := cursor, m.sessionRowHeight(rows[cursor])
-	for start > 0 && used+m.sessionRowHeight(rows[start-1]) <= m.sessionsBodyHeight() {
-		start--
-		used += m.sessionRowHeight(rows[start])
-	}
-	// Preserve the visible window on a click when it can still contain the selection.
-	if m.mouseListScreen == m.screen && m.mouseListStart <= cursor {
-		total := 0
-		for i := m.mouseListStart; i <= cursor; i++ {
-			total += m.sessionRowHeight(rows[i])
+	entries := make([]sessionListEntry, 0, len(groups)*4)
+	top, flatIdx := 0, 0
+	for _, g := range groups {
+		entries = append(entries, sessionListEntry{
+			isHeader: true,
+			title:    g.Title,
+			meta:     g.Meta,
+			top:      top,
+		})
+		top++
+		for i, s := range g.Sessions {
+			entries = append(entries, sessionListEntry{
+				index:        flatIdx,
+				view:         s,
+				top:          top,
+				firstInGroup: i == 0,
+			})
+			top += 2
+			flatIdx++
 		}
-		if total <= m.sessionsBodyHeight() {
-			start = m.mouseListStart
+	}
+	totalLines := top
+	cursor := max(0, min(m.cursor, flatIdx-1))
+	itemTop, itemBottom, preferredTop := 0, 2, 0
+	for _, e := range entries {
+		if !e.isHeader && e.index == cursor {
+			itemTop = e.top
+			itemBottom = e.top + 2
+			preferredTop = itemTop
+			if e.firstInGroup && bodyH >= 3 {
+				preferredTop = itemTop - 1
+			}
+			break
 		}
 	}
-	end, used := start, 0
-	for end < len(rows) && (end == start || used+m.sessionRowHeight(rows[end]) <= m.sessionsBodyHeight()) {
-		used += m.sessionRowHeight(rows[end])
-		end++
+	scrollTop := 0
+	if itemBottom > bodyH {
+		scrollTop = itemBottom - bodyH
 	}
-	return start, end
+	if scrollTop > preferredTop && preferredTop+bodyH >= itemBottom {
+		scrollTop = preferredTop
+	}
+	// Preserve the visible scroll offset on a click when it still contains the clicked row.
+	if m.mouseListScreen == m.screen && m.mouseListStart >= 0 && m.mouseListStart <= itemTop && itemBottom <= m.mouseListStart+bodyH {
+		scrollTop = m.mouseListStart
+	}
+	scrollTop = max(0, min(scrollTop, max(0, totalLines-bodyH)))
+	return entries, totalLines, scrollTop
 }
-func (m harborModel) sessionsCount() int { start, end := m.sessionsWindow(); return max(1, end-start) }
+
+func sessionProjectShort(dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return ""
+	}
+	base := filepath.Base(filepath.Clean(dir))
+	if base == "." || base == string(osPathSep) {
+		return cleanUI(dir)
+	}
+	return cleanUI(base)
+}
+
+const osPathSep = filepath.Separator
+
+func (m harborModel) renderSessionPrimaryLine(s sessionView, row uiRowStyle, width int) string {
+	statusWord := orUnknown(s.Status)
+	statusPlain := statusDot(statusWord)
+	var extraPlain, extraStyled string
+	if s.External {
+		extraPlain = "  External"
+		extraStyled = paint(row.style("muted"), extraPlain)
+	} else if badge, role := sessionStatusBadge(s); badge != "" {
+		extraPlain = " [" + badge + "]"
+		extraStyled = paint(row.style(role), extraPlain)
+	}
+	maxStatusWidth := max(1, width-6)
+	rightPlainWidth := ansi.StringWidth(statusPlain) + ansi.StringWidth(extraPlain)
+	var statusStyled string
+	if rightPlainWidth > maxStatusWidth {
+		if ansi.StringWidth(statusPlain) > maxStatusWidth {
+			statusPlain = ansi.Truncate(statusPlain, maxStatusWidth, "…")
+			extraPlain, extraStyled = "", ""
+		} else {
+			rem := max(0, maxStatusWidth-ansi.StringWidth(statusPlain))
+			if rem < 4 {
+				extraPlain, extraStyled = "", ""
+			} else {
+				extraPlain = ansi.Truncate(extraPlain, rem, "…")
+				if s.External {
+					extraStyled = paint(row.style("muted"), extraPlain)
+				} else if _, role := sessionStatusBadge(s); role != "" {
+					extraStyled = paint(row.style(role), extraPlain)
+				}
+			}
+		}
+		rightPlainWidth = ansi.StringWidth(statusPlain) + ansi.StringWidth(extraPlain)
+	}
+	statusStyled = paint(row.style(statusRole(statusWord)), statusPlain) + extraStyled
+	nameWidth := max(1, width-rightPlainWidth-1)
+	name := row.line(row.marker()+cleanUI(s.Name), "text", nameWidth)
+	name = highlightSearch(name, m.filter)
+	return name + paint(row.style("value"), " ") + statusStyled
+}
+
+func (m harborModel) renderSessionSecondaryLine(s sessionView, row uiRowStyle, width int) string {
+	type segment struct{ text, role string }
+	parts := make([]segment, 0, 4)
+	if proj := sessionProjectShort(s.WorkingDirectory); proj != "" {
+		parts = append(parts, segment{proj, "key"})
+	}
+	if cli := cleanUI(s.CLI); cli != "" {
+		parts = append(parts, segment{cli, clientRole(s.CLI)})
+	}
+	if !s.External {
+		conn := "Native"
+		if s.Mode == "magpie" {
+			conn = "Magpie"
+			if model := cleanUI(s.MagpieModel); model != "" {
+				conn += " · " + model
+			}
+		}
+		parts = append(parts, segment{conn, "muted"})
+		if len(m.profiles) > 1 || s.Profile == nil {
+			parts = append(parts, segment{cleanUI(m.profileShortLabel(s.Profile)), "section"})
+		}
+	}
+	var b strings.Builder
+	used := 2
+	b.WriteString(paint(row.style("value"), "  "))
+	for i, part := range parts {
+		if used >= width {
+			break
+		}
+		if i > 0 {
+			if used+2 >= width {
+				break
+			}
+			b.WriteString(paint(row.style("value"), "  "))
+			used += 2
+		}
+		avail := width - used
+		text := ansi.Truncate(part.text, avail, "…")
+		w := ansi.StringWidth(text)
+		if w == 0 {
+			continue
+		}
+		b.WriteString(paint(row.style(part.role), text))
+		used += w
+	}
+	if used < width {
+		b.WriteString(paint(row.style("value"), strings.Repeat(" ", width-used)))
+	}
+	return b.String()
+}
+
 func (m harborModel) sessionsLayout() uiPage {
 	p := newUIPage(m.width, m.height)
-	p.line(paint(fg("brand"), "⚓ Harbor · Profile: "+m.activeProfileLabel()))
+	p.line(paint(fg("brand"), m.sessionsTitle()))
 	p.tabs("sessions", m.uiHover, m.uiFocus)
 	if m.screen == "sessions-more" {
 		if s, ok := m.selected(); ok {
@@ -153,8 +297,6 @@ func (m harborModel) sessionsLayout() uiPage {
 		return p.finish(0)
 	}
 	p = m.sessionsHeader()
-	rows := m.visible()
-	start, end := m.sessionsWindow()
 	top := len(p.Lines)
 	bodyH := m.sessionsBodyHeight()
 	leftW := p.Width
@@ -163,46 +305,47 @@ func (m harborModel) sessionsLayout() uiPage {
 		leftW = max(30, p.Width*45/100)
 	}
 	left := newUIPage(leftW, bodyH)
-	if len(rows) == 0 {
+	entries, totalLines, scrollTop := m.sessionListPlan(bodyH)
+	if len(entries) == 0 {
 		left.emptyState("No matching sessions")
 	}
-	for i := start; i < end; i++ {
-		s := rows[i]
-		y := len(left.Lines)
+	for _, entry := range entries {
+		h := 2
+		if entry.isHeader {
+			h = 1
+		}
+		if entry.top+h <= scrollTop || entry.top >= scrollTop+bodyH {
+			continue
+		}
+		if entry.isHeader {
+			if entry.top >= scrollTop && len(left.Lines) < bodyH {
+				left.groupBand(entry.title, entry.meta)
+			}
+			continue
+		}
+		// Never render a half-clipped session row when at least 2 rows fit.
+		if bodyH >= 2 && (entry.top < scrollTop || len(left.Lines)+2 > bodyH) {
+			continue
+		}
+		s := entry.view
 		id := "session:" + s.ID
-		row := m.rowStyle(id, m.sessionCursorAt(i), false)
-		name := row.marker() + cleanUI(s.Name)
-		status := statusDot(orUnknown(s.Status))
-		status = ansi.Truncate(status, max(1, leftW-7), "…")
-		text := row.line(name, "text", leftW-2-ansi.StringWidth(status)-1) +
-			paint(row.style(statusRole(s.Status)), " "+status)
-		text = highlightSearch(text, m.filter)
-		left.line(text)
-		connection := "Native"
-		if s.Mode == "magpie" {
-			connection = "Magpie · " + s.MagpieModel
+		row := m.rowStyle(id, m.sessionCursorAt(entry.index), false)
+		y := len(left.Lines)
+		lineW := max(1, leftW-2)
+		rendered := 0
+		if entry.top >= scrollTop && len(left.Lines) < bodyH {
+			left.line(m.renderSessionPrimaryLine(s, row, lineW))
+			rendered++
 		}
-		if s.External {
-			connection = "External · connection unknown"
+		if entry.top+1 >= scrollTop && len(left.Lines) < bodyH {
+			left.line(m.renderSessionSecondaryLine(s, row, lineW))
+			rendered++
 		}
-		left.line(row.line("  "+cleanUI(s.CLI)+" · "+connection+" · "+m.profileDisplayLabel(s.Profile), "value", leftW-2))
-		reason := sessionAttention(s)
-		if m.selectionMissing {
-			reason = "Selected target changed. Select a session."
+		if rendered > 0 {
+			left.hit(id, 1, y, lineW, rendered)
 		}
-		if reason != "" {
-			left.line(row.line(cleanUI(reason), "warn", leftW-2))
-		}
-		left.hit(id, 1, y, leftW-2, min(len(left.Lines)-y, bodyH-y))
 	}
-	total, offset := 0, 0
-	for i, row := range rows {
-		if i < start {
-			offset += m.sessionRowHeight(row)
-		}
-		total += m.sessionRowHeight(row)
-	}
-	left.scrollRail(0, min(bodyH, len(left.Lines)), total, offset)
+	left.scrollRail(0, min(bodyH, len(left.Lines)), totalLines, scrollTop)
 	for _, r := range left.Hits {
 		p.hit(r.ID, r.X, r.Y+top, r.W, r.H)
 	}
@@ -220,15 +363,23 @@ func (m harborModel) sessionsLayout() uiPage {
 				connection = "Unknown · external session"
 			}
 			right.field("", "🔌", "Connection", cleanUI(connection), false, false)
+			if !s.External && (len(m.profiles) > 1 || s.Profile == nil) {
+				right.field("", "🗂", "Profile", cleanUI(m.profileShortLabel(s.Profile)), false, false)
+			}
 			conversation := s.CodexSessionID
 			if s.Conversation != nil {
 				conversation = s.Conversation.Reference.Value
 			}
 			right.field("", "💬", "Conversation", orUnknown(conversation), false, false)
-			if warning := sessionAttention(s); warning != "" {
+			if s.External {
+				right.line(paint(fg("muted"), "Unmanaged Herdr agent · Enter focuses this terminal."))
+			} else if warning := sessionAttention(s); warning != "" {
 				for _, r := range strings.Split(ansi.Wrap(cleanUI(warning), max(1, right.Width-2), ""), "\n") {
 					right.line(paint(fg("warn"), r))
 				}
+			}
+			if !s.External && s.Conversation != nil && len(s.Conversation.History) > 0 {
+				right.line(paint(fg("muted"), fmt.Sprintf("%d prior conversation transitions · press i for Details", len(s.Conversation.History))))
 			}
 		}
 	}
@@ -258,14 +409,26 @@ func (m harborModel) sessionsLayout() uiPage {
 		actions = nil
 	}
 	p.shortcuts(actions, m.uiFocus)
-	notice := m.notice
+	notice, noticeRole := m.notice, "value"
 	if notice == "" {
 		notice = m.discoveryNotice
+		if notice != "" {
+			noticeRole = "warn"
+		}
 	}
-	if notice == "" {
-		notice = ""
+	if notice == "" && m.selectionMissing {
+		notice = "Selected target changed. Select a session."
+		noticeRole = "warn"
 	}
-	p.line(paint(fg("value"), ansi.Truncate(cleanUI(notice), max(1, p.Width-2), "…")))
+	if notice == "" && !split {
+		if s, ok := m.selected(); ok {
+			if warning := sessionAttention(s); warning != "" {
+				notice = warning
+				noticeRole = "warn"
+			}
+		}
+	}
+	p.line(paint(fg(noticeRole), ansi.Truncate(cleanUI(notice), max(1, p.Width-2), "…")))
 	hint := m.sessionsHint()
 	p.Hint = hint
 	return p.finish(0)
@@ -406,7 +569,7 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 					next, cmd := m.activateSessions("action:enter")
 					return next, cmd, true
 				}
-				m.mouseListStart, _ = m.sessionsWindow()
+				_, _, m.mouseListStart = m.sessionListPlan(m.sessionsBodyHeight())
 				m.mouseListScreen = "sessions"
 				m.cursor = i
 				m.selectionMissing = false

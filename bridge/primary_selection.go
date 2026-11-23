@@ -199,6 +199,13 @@ func savePrimarySelection(id, socket, socketID string, report primarySelectionRe
 			updated.Status, updated.Provenance = "observed", "herdr-pane-observation"
 			updated.RunToken, updated.Pane, updated.SocketIdentity = report.RunToken, report.Pane, socketID
 			updated.ObservedAt = time.Now().UTC()
+			updated.History = appendConversationHistory(updated.History, conversationTransition{
+				From:     herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: report.PreviousID},
+				To:       reference,
+				At:       updated.ObservedAt,
+				Source:   "primary-selection",
+				RunToken: report.RunToken,
+			})
 			if !slices.Contains(priorReferences, report.PreviousID) {
 				priorReferences = append(priorReferences, report.PreviousID)
 			}

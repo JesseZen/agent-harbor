@@ -8,6 +8,17 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+func shortConversationID(id string) string {
+	id = cleanUI(strings.TrimSpace(id))
+	if id == "" {
+		return "unknown"
+	}
+	if len(id) > 13 {
+		return id[:8] + "…" + id[len(id)-4:]
+	}
+	return id
+}
+
 func cleanUI(s string) string {
 	s = ansi.Strip(s)
 	return strings.Map(func(r rune) rune {
@@ -92,6 +103,14 @@ func (m harborModel) details(s sessionView) string {
 	}
 	if s.Conversation != nil {
 		lines = append(lines, "", "UPSTREAM CONVERSATION", kv("Client", s.Conversation.Reference.Agent), kv("Reference kind", s.Conversation.Reference.Kind), kv("Reference", s.Conversation.Reference.Value), kv("Identity evidence", s.Conversation.Status), kv("Provenance", s.Conversation.Provenance), note("Recovery query: development candidate; query success proves syntax only."))
+		if len(s.Conversation.History) > 0 {
+			lines = append(lines, kv("Prior transitions", fmt.Sprintf("%d recorded", len(s.Conversation.History))))
+			for i := len(s.Conversation.History) - 1; i >= 0; i-- {
+				tr := s.Conversation.History[i]
+				from, to := shortConversationID(tr.From.Value), shortConversationID(tr.To.Value)
+				lines = append(lines, note(fmt.Sprintf("%s  %s → %s (%s)", tr.At.Local().Format("Jan 2 15:04"), from, to, tr.Source)))
+			}
+		}
 		if _, err := savedReferenceForReview(s.session); err == nil {
 			lines = append(lines, note("v reviews the saved identity before recovery."))
 		}

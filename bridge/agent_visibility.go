@@ -298,7 +298,7 @@ func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, 
 		r := agentObservation(agent, at, false)
 		r.SnapshotAt = at
 		r.Instance = identity
-		views = append(views, sessionView{session: session{ID: fmt.Sprintf("external:%x", digest[:16]), Name: name, CLI: agent.Client, Mode: "unknown", WorkingDirectory: agent.Directory, HerdrPane: agent.Pane, HerdrTab: agent.Tab, HerdrSocket: socket, HerdrSocketIdentity: identity}, External: true, Running: true, Runtime: r, Status: runtimeLabel(r), Reason: "Unmanaged. Connection and conversation intent unknown. Enter focuses this Herdr agent; manage it in its terminal."})
+		views = append(views, sessionView{session: session{ID: fmt.Sprintf("external:%x", digest[:16]), Name: name, CLI: agent.Client, Mode: "unknown", WorkingDirectory: agent.Directory, HerdrPane: agent.Pane, HerdrTab: agent.Tab, HerdrSocket: socket, HerdrSocketIdentity: identity}, External: true, Running: true, Runtime: r, Status: runtimeLabel(r)})
 	}
 	return views, nil
 }

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -84,7 +85,7 @@ func TestCandidateMissingContextIsVisibleWithoutNotify(t *testing.T) {
 }
 
 func TestCandidateChangedIdentityAndLostSocketRequireReview(t *testing.T) {
-	for _, scenario := range []string{"changed", "lost", "reconnect", "replacement", "reconnect_empty"} {
+	for _, scenario := range []string{"lost", "reconnect", "replacement", "reconnect_empty"} {
 		t.Run(scenario, func(t *testing.T) {
 			b := newTestBridge(t)
 			if out, err := b.command("sessions"); err != nil {
@@ -93,7 +94,7 @@ func TestCandidateChangedIdentityAndLostSocketRequireReview(t *testing.T) {
 			h := filepath.Join(b.root, "bin", "herdr")
 			report := filepath.Join(b.root, "report")
 			os.WriteFile(h, []byte("#!/bin/sh\nif test \"$1 $2\" = \"integration status\"; then echo \"codex: current (v10)\"; exit 0; fi\nif test -f \"$HOME/report\"; then cat \"$HOME/report\"; else echo '{\"result\":{\"pane\":{}}}'; fi\n"), 0700)
-			writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply\n"), 0700)
+			writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply || true\n"), 0700)
 			socket := queryTestSocket(t, b)
 			b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+socket, "HERDR_BIN_PATH="+h)
 			cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "create", "--dir", b.project)
@@ -119,9 +120,7 @@ func TestCandidateChangedIdentityAndLostSocketRequireReview(t *testing.T) {
 			first := `{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"01912345-6789-7abc-8def-0123456789ab"}}}}`
 			os.WriteFile(report, []byte(first), 0600)
 			accepted := wait(func(s session) bool { return s.Conversation != nil && s.Conversation.Status == "observed" })
-			if scenario == "changed" {
-				os.WriteFile(report, []byte(strings.Replace(first, "6789ab", "6789ac", 1)), 0600)
-			} else if scenario == "lost" {
+			if scenario == "lost" {
 				os.Remove(socket)
 			} else {
 				if err := os.Rename(socket, socket+".original"); err != nil {
@@ -131,9 +130,6 @@ func TestCandidateChangedIdentityAndLostSocketRequireReview(t *testing.T) {
 			got := wait(func(s session) bool { return s.Recovery == "needs_review" })
 			if got.Conversation.Reference != accepted.Conversation.Reference {
 				t.Fatal("expected identity overwritten")
-			}
-			if scenario == "changed" && (got.Conversation.ObservedReference == nil || got.Conversation.ObservedReference.Value != "01912345-6789-7abc-8def-0123456789ac") {
-				t.Fatal("changed complete report lost")
 			}
 
 			if scenario == "reconnect" {
@@ -175,6 +171,139 @@ func TestCandidateChangedIdentityAndLostSocketRequireReview(t *testing.T) {
 	}
 }
 
+func TestCandidateVerifiedInWindowSwitchFollowsAndRecordsHistory(t *testing.T) {
+	b := newTestBridge(t)
+	if out, err := b.command("sessions"); err != nil {
+		t.Fatal(out, err)
+	}
+	h := filepath.Join(b.root, "bin", "herdr")
+	report := filepath.Join(b.root, "report")
+	os.WriteFile(h, []byte("#!/bin/sh\nif test \"$1 $2\" = \"integration status\"; then echo \"codex: current (v10)\"; exit 0; fi\nif test -f \"$HOME/report\"; then cat \"$HOME/report\"; else echo '{\"result\":{\"pane\":{}}}'; fi\n"), 0700)
+	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply || true\n"), 0700)
+	socket := queryTestSocket(t, b)
+	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+socket, "HERDR_BIN_PATH="+h)
+	cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "create", "--dir", b.project)
+	cmd.Env = b.env
+	in, _ := cmd.StdinPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { in.Close(); cmd.Wait() }()
+	wait := func(predicate func(session) bool) session {
+		t.Helper()
+		deadline := time.Now().Add(8 * time.Second)
+		for time.Now().Before(deadline) {
+			all := b.sessions()
+			if len(all) == 1 && predicate(all[0]) {
+				return all[0]
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+		t.Fatal("expected state not reached")
+		return session{}
+	}
+	wait(func(s session) bool { return s.ProcessGroup != 0 })
+	const (
+		idA = "01912345-6789-7abc-8def-0123456789aa"
+		idB = "01912345-6789-7abc-8def-0123456789bb"
+		idC = "01912345-6789-7abc-8def-0123456789cc"
+	)
+	writeReport := func(id string) {
+		os.WriteFile(report, []byte(`{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"`+id+`"}}}}`), 0600)
+	}
+	writeReport(idA)
+	wait(func(s session) bool { return s.CodexSessionID == idA && s.Recovery == "ready" })
+
+	writeReport(idB)
+	gotB := wait(func(s session) bool { return s.CodexSessionID == idB && s.Recovery == "ready" })
+	if gotB.Conversation == nil || gotB.Conversation.Status != "observed" || gotB.IdentityWarning != "" || gotB.ReportedCodexID != "" {
+		t.Fatalf("switch A->B did not stay clean ready: %+v", gotB)
+	}
+	if len(gotB.Conversation.History) != 1 || gotB.Conversation.History[0].From.Value != idA || gotB.Conversation.History[0].To.Value != idB {
+		t.Fatalf("switch A->B history missing: %+v", gotB.Conversation.History)
+	}
+
+	writeReport(idC)
+	gotC := wait(func(s session) bool { return s.CodexSessionID == idC && s.Recovery == "ready" })
+	if len(gotC.Conversation.History) != 2 || gotC.Conversation.History[1].From.Value != idB || gotC.Conversation.History[1].To.Value != idC {
+		t.Fatalf("switch B->C history missing: %+v", gotC.Conversation.History)
+	}
+
+	// Simulate Herdr clearing agent_session on client exit.
+	os.WriteFile(report, []byte(`{"result":{"pane":{}}}`), 0600)
+	in.Close()
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("client exit failed: %v", err)
+	}
+	final := b.sessions()[0]
+	if final.CodexSessionID != idC || final.Recovery != "ready" || final.Conversation == nil || final.Conversation.Status != "observed" || final.IdentityWarning != "" {
+		t.Fatalf("final exited state lost latest conversation C: %+v", final)
+	}
+}
+
+func TestCandidateDuplicateActiveConversationMarksConflict(t *testing.T) {
+	b := newTestBridge(t)
+	if out, err := b.command("sessions"); err != nil {
+		t.Fatal(out, err)
+	}
+	h := filepath.Join(b.root, "bin", "herdr")
+	report := filepath.Join(b.root, "report")
+	os.WriteFile(h, []byte("#!/bin/sh\nif test \"$1 $2\" = \"integration status\"; then echo \"codex: current (v10)\"; exit 0; fi\nif test -f \"$HOME/report\"; then cat \"$HOME/report\"; else echo '{\"result\":{\"pane\":{}}}'; fi\n"), 0700)
+	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply || true\n"), 0700)
+	socket := queryTestSocket(t, b)
+	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_SOCKET_PATH="+socket, "HERDR_BIN_PATH="+h)
+	cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "create", "--dir", b.project)
+	cmd.Env = b.env
+	in, _ := cmd.StdinPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { in.Close(); cmd.Wait() }()
+	const (
+		idA = "01912345-6789-7abc-8def-0123456789aa"
+		idB = "01912345-6789-7abc-8def-0123456789bb"
+	)
+	waitOne := func(predicate func(session) bool) session {
+		t.Helper()
+		deadline := time.Now().Add(8 * time.Second)
+		for time.Now().Before(deadline) {
+			for _, s := range b.sessions() {
+				if s.ID != "22222222222222222222222222222222" && predicate(s) {
+					return s
+				}
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+		t.Fatal("expected state not reached")
+		return session{}
+	}
+	waitOne(func(s session) bool { return s.ProcessGroup != 0 })
+	os.WriteFile(report, []byte(`{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"`+idA+`"}}}}`), 0600)
+	first := waitOne(func(s session) bool { return s.CodexSessionID == idA && s.Recovery == "ready" })
+
+	// Seed a second active session in the same Profile owning idB (using our own live PID).
+	other := first
+	other.ID = "22222222222222222222222222222222"
+	other.Name = "Other active"
+	other.ProcessGroup = syscall.Getpgrp()
+	other.CodexSessionID = idB
+	other.Conversation = &conversationEvidence{
+		Reference: herdrIdentity{Source: "herdr:codex", Agent: "codex", Kind: "id", Value: idB},
+		Status:    "observed",
+	}
+	data, _ := json.Marshal([]session{first, other})
+	if err := os.WriteFile(filepath.Join(b.root, "bridge", "sessions.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now session 1 reports idB while session 2 is actively running idB -> must conflict.
+	os.WriteFile(report, []byte(`{"result":{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"`+idB+`"}}}}`), 0600)
+	conflict := waitOne(func(s session) bool { return s.Recovery == "needs_review" })
+	if conflict.CodexSessionID != idA || conflict.Conversation.Status != "conflict" || conflict.ReportedCodexID != idB || !strings.Contains(conflict.IdentityWarning, "already active") {
+		t.Fatalf("duplicate active writer was not flagged as conflict: %+v", conflict)
+	}
+}
+
 func TestCandidateStopWaitsForFinalExitBookkeeping(t *testing.T) {
 	b := newTestBridge(t)
 	if out, err := b.command("sessions"); err != nil {
@@ -195,7 +324,7 @@ case "$*" in
  *) echo '{}';;
 esac
 `), 0700)
-	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply\n"), 0700)
+	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply || true\n"), 0700)
 	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_TAB_ID=opaque-tab", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h, "AGENT_HARBOR_HERDR_BIN="+h)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "create", "--dir", b.project)
 	cmd.Env = b.env
@@ -329,7 +458,7 @@ case "$*" in
  *) echo '{}';;
 esac
 `), 0700)
-	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply\n"), 0700)
+	writeNativeClientFixture(filepath.Join(b.root, "bin", "codex"), []byte("#!/bin/sh\nprintf running > \"$CAPTURE\"\nread reply || true\n"), 0700)
 	b.env = append(b.env, "AGENT_HARBOR_IDENTITY_CANDIDATE=1", "HERDR_PLUGIN_ID=agent-harbor.bridge", "HERDR_PLUGIN_ENTRYPOINT_ID=codex", "HERDR_PANE_ID=opaque-pane", "HERDR_TAB_ID=opaque-tab", "HERDR_SOCKET_PATH="+queryTestSocket(t, b), "HERDR_BIN_PATH="+h, "AGENT_HARBOR_HERDR_BIN="+h)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestBridgeProcess$", "--", "create", "--dir", b.project)
 	cmd.Env = b.env

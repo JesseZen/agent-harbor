@@ -10,6 +10,24 @@ import (
 	"time"
 )
 
+type conversationTransition struct {
+	From     herdrIdentity `json:"from"`
+	To       herdrIdentity `json:"to"`
+	At       time.Time     `json:"at"`
+	Source   string        `json:"source"`
+	RunToken string        `json:"run_token,omitempty"`
+}
+
+const maxConversationHistory = 32
+
+func appendConversationHistory(history []conversationTransition, entry conversationTransition) []conversationTransition {
+	history = append(append([]conversationTransition(nil), history...), entry)
+	if len(history) > maxConversationHistory {
+		history = history[len(history)-maxConversationHistory:]
+	}
+	return history
+}
+
 type conversationEvidence struct {
 	PrimarySelection  *primarySelectionEvidence `json:"primary_selection,omitempty"`
 	ObservedReference *herdrIdentity            `json:"observed_reference,omitempty"`
@@ -20,6 +38,7 @@ type conversationEvidence struct {
 	SocketIdentity    string                    `json:"socket_identity"`
 	RunToken          string                    `json:"run_token"`
 	Status            string                    `json:"status"`
+	History           []conversationTransition  `json:"history,omitempty"`
 }
 type resumeCommandPlan struct {
 	Version int      `json:"version"`

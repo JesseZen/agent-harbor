@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -94,11 +95,36 @@ func agentRPCContext(ctx context.Context, socket, method string, params map[stri
 		return errors.New(agentDiscoveryWarning)
 	}
 	var response struct {
+		ID     string          `json:"id"`
 		Result json.RawMessage `json:"result"`
 		Error  json.RawMessage `json:"error"`
 	}
-	var body json.RawMessage
-	if json.NewDecoder(io.LimitReader(c, 65537)).Decode(&body) != nil || len(body) > 65536 || json.Unmarshal(body, &response) != nil || len(response.Result) == 0 || string(response.Result) == "null" || len(response.Error) > 0 && string(response.Error) != "null" {
+	if method == "pane.read" {
+		body, readErr := bufio.NewReader(io.LimitReader(c, 65537)).ReadBytes('\n')
+		if len(body) > 65536 {
+			return errPreviewLarge
+		}
+		if readErr != nil && readErr != io.EOF || json.Unmarshal(body, &response) != nil || response.ID != "harbor-agents" {
+			return errPreviewRead
+		}
+		var failure struct {
+			Code string `json:"code"`
+		}
+		if json.Unmarshal(response.Error, &failure) == nil {
+			switch failure.Code {
+			case "method_not_found", "unknown_method", "unsupported_method", "invalid_request":
+				return errPreviewUnsupported
+			case "pane_not_found":
+				return errPreviewTarget
+			}
+		}
+	} else {
+		var body json.RawMessage
+		if json.NewDecoder(io.LimitReader(c, 65537)).Decode(&body) != nil || len(body) > 65536 || json.Unmarshal(body, &response) != nil {
+			return errors.New(agentDiscoveryWarning)
+		}
+	}
+	if len(response.Result) == 0 || string(response.Result) == "null" || len(response.Error) > 0 && string(response.Error) != "null" {
 		return errors.New(agentDiscoveryWarning)
 	}
 	if json.Unmarshal(response.Result, result) != nil {

@@ -19,6 +19,7 @@ def main():
     p.add_argument('--replacement',action='store_true')
     p.add_argument('--live-state-probe',action='store_true',help='exercise automatic popup refresh and reconnect')
     p.add_argument('--state-probe',action='store_true',help='stop after real runtime state comparison')
+    p.add_argument('--sessions-preview',type=pathlib.Path,help='exercise Native and Magpie turns with loopback fixtures and save sanitized ANSI previews')
     p.add_argument('--renamed-codex',action='store_true',help='exercise native Codex symlink with a nonstandard target basename')
     p.add_argument('--recovery-review',action='store_true',help='replay an unavailable final identity observation and test one-action recovery plus retry')
     p.add_argument('--dynamic-discovery',action='store_true',help='use an isolated dynamic Magpie discovery port')
@@ -37,7 +38,7 @@ def main():
     root.chmod(0o700)
     print('diagnostics',root,flush=True)
     env={'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','TERM':'xterm-256color','SHELL':'/bin/sh','LANG':'C.UTF-8','NO_COLOR':'1','MAGPIE_NO_ACCOUNTS':'1'}
-    if a.session_names or a.codex_options:
+    if a.session_names or a.codex_options or a.sessions_preview:
         env.pop('NO_COLOR');env['COLORTERM']='truecolor'
     for key,leaf in [('HOME','home'),('XDG_CONFIG_HOME','config'),('XDG_DATA_HOME','data'),('XDG_STATE_HOME','state'),('XDG_CACHE_HOME','cache'),('XDG_RUNTIME_DIR','runtime'),('TMPDIR','tmp'),('CODEX_HOME','codex'),('CODEX_SQLITE_HOME','sqlite')]:
         (root/leaf).mkdir(mode=0o700);env[key]=str(root/leaf)
@@ -78,10 +79,12 @@ def main():
         # Search placeholders disappear while a query is present. Detect the
         # Sessions heading so a retained popup is not mistaken for a closed one.
         wait(lambda: 'Harbor › Working' not in capture(), 'prior popup action settled')
-        if 'Harbor · Profile:' not in capture():key('C-b','a')
-        wait(lambda: 'Harbor · Profile:' in capture() or 'Harbor · Accounts' in capture(), 'management popup visible')
-        if 'Harbor · Profile:' not in capture():click('Sessions')
-        screen('Harbor · Profile:')
+        def on_sessions():
+            return any(label in capture() for label in ('Harbor · Profile:', 'Search sessions, projects or connections'))
+        if not on_sessions():key('C-b','a')
+        wait(lambda: on_sessions() or 'Harbor · Accounts' in capture(), 'management popup visible')
+        if not on_sessions():click('Sessions')
+        wait(on_sessions, 'Sessions')
     def click(label,whole=False):
         import unicodedata
         lines=capture().splitlines()
@@ -245,12 +248,12 @@ def main():
                 frame=capture()
                 return frame if any(label in frame for label in labels) else None
             startup=('Ask Codex','Hooks need review')
-            if a.codex_options:startup+=('Use existing model',)
+            if a.codex_options or a.sessions_preview:startup+=('Use existing model',)
             frame=wait(lambda:startup_screen(*startup,'Conversation recovery'), 'Codex prompt or identity setup')
             if 'Conversation recovery' in frame:
                 key('s' if a.session_names else 'y')
                 frame=wait(lambda:startup_screen(*startup), 'Codex prompt or hook review')
-            if a.codex_options:
+            if a.codex_options or a.sessions_preview:
                 options_prompt();time.sleep(1);options_prompt()
             else:
                 if 'Hooks need review' in frame:
@@ -305,13 +308,37 @@ def main():
                 elif not a.codex_options and 't trust all' in capture():
                     key('t');time.sleep(.5);key('Escape');time.sleep(.5);text(marker);key('Enter')
             wait(lambda:any(marker in marks for upstream in relays for _,marks in upstream.observed),'provider marker '+marker)
-            if not a.session_names:
+            if not (a.session_names or a.sessions_preview):
                 wait(lambda:any(r.get('codex_session_id') for r in records()),'conversation capture')
             screen('HELLO_FROM_ISOLATED_MOCK');time.sleep(1)
             assert any(e['kind']=='main' and marker in e['current'] for upstream in relays for e in upstream.journal), 'main request evidence absent'
             for other in servers:
                 if other not in relays:
                     assert not any(marker in e['current'] for e in other.journal), 'main marker reached wrong upstream'
+        if a.sessions_preview:
+            wrapper=root/'harbor/herdr/bin/herdr'
+            original=json.loads(run([wrapper,'pane','current']).stdout)['result']['pane']
+            a.sessions_preview.mkdir(parents=True,exist_ok=True)
+            for label,model,relay,marker in (('Native',None,native,'AH_LOCAL_C'),('Magpie','relay-a/test-model',relay_a,'AH_LOCAL_FIRST')):
+                name='Preview '+label
+                create(name,model)
+                turn(marker,relay)
+                run([wrapper,'tab','focus',original['tab_id']])
+                popup();key('/');text(name);key('Enter')
+                wait(lambda:'Ask Codex' in capture() or 'HELLO_FROM_ISOLATED_MOCK' in capture(), 'live Codex preview')
+                for _ in range(50):
+                    if 'HELLO_FROM_ISOLATED_MOCK' in capture():break
+                    tm('send-keys','-t','app:0.0','-l','\x1b[<64;125;16M')
+                assert 'HELLO_FROM_ISOLATED_MOCK' in capture(), 'could not scroll to the reply in the captured screen'
+                assert name in capture() and 'connection unknown' not in capture(), 'other client previewed'
+                assert original['pane_id']==json.loads(run([wrapper,'pane','current']).stdout)['result']['pane']['pane_id']
+                frame=tm('capture-pane','-e','-p','-t','app:0.0').replace(str(root),'fixture')
+                for private in (os.environ.get('USER',''),socket.gethostname().split('.')[0]):
+                    if private:frame=re.sub(re.escape(private),'fixture',frame,flags=re.IGNORECASE)
+                (a.sessions_preview/('client-'+label.lower()+'-160.ansi')).write_text(frame)
+                print('PASS real '+label+' Codex turn and unfocused Sessions preview',flush=True)
+                key('q')
+            return 0
         def choose_model(name,effort,temporary=False):
             def navigate(rows,target):
                 selected=next((i for i,line in enumerate(rows) if line.lstrip().startswith(('›','>'))),None)

@@ -69,9 +69,10 @@ func TestMouseFormAndBounds(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	m.width = 160
 	m.sessions = []sessionView{{session: session{ID: "a", Name: "one"}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}}}
-	n, _ := m.Update(tea.MouseMsg{X: 80, Y: 8, Button: tea.MouseButtonWheelDown})
-	if n.(harborModel).detailScroll != 1 || n.(harborModel).cursor != 0 {
-		t.Fatal("detail wheel scope")
+	m.preview.frame.lines = make([]string, 60)
+	n, _ := m.Update(tea.MouseMsg{X: 80, Y: 8, Button: tea.MouseButtonWheelUp})
+	if n.(harborModel).preview.offset != 1 || n.(harborModel).detailScroll != 0 || n.(harborModel).cursor != 0 {
+		t.Fatal("preview wheel scope")
 	}
 	m.screen = "delete-history"
 	m.reviewed = session{Name: "exact"}

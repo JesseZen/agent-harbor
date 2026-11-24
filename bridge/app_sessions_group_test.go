@@ -59,6 +59,8 @@ func TestStatusRoleAvoidsYellowForNormalLiveStates(t *testing.T) {
 }
 
 func TestSessionsGroupedLayoutNoiseReductionAndNavigation(t *testing.T) {
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("AGENT_HARBOR_ASCII", "0")
 	old := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	defer lipgloss.SetColorProfile(old)
@@ -136,9 +138,8 @@ func TestSessionsGroupedLayoutNoiseReductionAndNavigation(t *testing.T) {
 	if sessionAttention(m.sessions[2]) != "" {
 		t.Fatalf("external session should not generate attention warning: %q", sessionAttention(m.sessions[2]))
 	}
-	// Right preview shows prior transitions summary for selected active session.
-	if !strings.Contains(view, "1 prior conversation transitions") {
-		t.Fatalf("right preview missing transition summary:\n%s", view)
+	if !strings.Contains(view, "agent-harbor · codex · Native") || strings.Contains(view, "prior conversation transitions") {
+		t.Fatalf("right preview should show concise metadata, not history:\n%s", view)
 	}
 	// Details includes recorded history transition.
 	if details := cleanUI(m.details(m.sessions[0])); !strings.Contains(details, "Prior transitions") || !strings.Contains(details, "herdr-hook") {

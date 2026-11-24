@@ -1,5 +1,18 @@
 # Harbor 视觉一致性检查
 
+## Sessions 彩色只读终端预览（2026-11-23）
+
+宽屏在 `W >= 90` 且正文至少 12 行时使用 35%/65% 左右栏；右栏展示当前 pane 的保留
+ANSI 颜色、项目/CLI/Native 或 Magpie 元数据和短诊断。窄屏折叠右栏，列表保留名称、
+文字状态、项目、CLI 和连接方式。预览不发送输入、不聚焦源 pane、不滚动或调整源 pane。
+Working 的图标呼吸与文字扫光不依赖 RPC；`NO_COLOR`、`TERM=dumb`、ASCII 和 reduced-motion
+均退化为静态可辨状态。
+
+已通过真实 macOS Herdr/tmux 弹窗与 Unicode 15 重渲染：160/100/80/60 列和 160×20 矮窗，
+含 Native、Magpie、External、Stopped、断连、快速 A→B→A 和多帧 Working。未通过范围是
+Linux/远端实机、真实线上账号/provider 和原生像素截图；ANSI 证据均为脱敏终端重渲染，不冒充
+原生截图。
+
 ## 5-Tab 导航、omp 风格双栏 Settings 与 Extensions（Milestone B，2026-11-23）
 
 顶层导航保持 5 项（`Sessions` / `Extensions` / `Connections` / `Accounts` / `Settings`），`Profiles` 归入 `Settings` 后不再占顶栏，单 Profile 时 `Sessions` / `Accounts` / `Extensions` 同步弱化 Profile 字段。

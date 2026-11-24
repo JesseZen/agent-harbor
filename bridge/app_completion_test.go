@@ -150,7 +150,7 @@ func settleApp(m tea.Model, cmd tea.Cmd) tea.Model {
 		return m
 	}
 	name := runtime.FuncForPC(reflect.ValueOf(cmd).Pointer()).Name()
-	if strings.Contains(name, "bubbletea.Tick.") || strings.Contains(name, "bubbletea.Every.") {
+	if strings.Contains(name, "bubbletea.Tick.") || strings.Contains(name, "bubbletea.Every.") || strings.Contains(name, ".waitView.") {
 		return m
 	}
 	msg := cmd()

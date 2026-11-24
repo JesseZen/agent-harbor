@@ -1,5 +1,65 @@
 # Product acceptance gates
 
+## Sessions preview prerequisite
+
+Run `python3 -B bridge/tests/pane_read_probe.py --herdr BUNDLED_HERDR --codex NATIVE_CODEX`
+with tmux and Vim installed. The probe uses disposable homes, Unix sockets, a project,
+an unserved loopback provider address and synthetic text. It prints measurements and
+deletes its temporary files on exit. The final line is `PASS` for the current product
+meaning: `pane.read` returns the selected pane's current screen, even if another
+foreground briefly ran in that same pane. An assertion or timeout means the probe
+itself needs investigation.
+
+Tested on 2026-11-23 with Harbor base `a80e1d2`, macOS 27.0.1 arm64, the packaged
+Herdr 0.9.5, native Codex 0.169.0 and tmux 3.6b. Outer size was 160×45 and the
+source Codex PTY was 65×42. This run measured the Herdr panes directly. Harbor popup
+dimensions, responsive behavior, motion, and Linux/remote preview acceptance are covered
+by the popup fixture below; Linux and remote real-client evidence remain pending.
+
+| Check | Observed |
+| --- | --- |
+| Targeted read | `pane.read` with explicit `pane_id`, `source: visible`, `format: ansi`, `strip_ansi: false`. `result.read` contained `workspace_id`, `tab_id`, `pane_id`, `source`, `format`, `text`, `truncated` and `revision` (0). |
+| Correct pane | The focused shell returned red `SHELL-PRIMARY`. The background Codex returned `UNSENT-PREVIEW-DRAFT` and six distinct SGR sequences. Full-screen Vim returned its styled fixture line. |
+| Read side effects | The focused pane, selected target's terminal, PTY size, foreground process group and Codex PID matched before and after. The composer still contained its draft on returning. A public synthetic working→idle report on the background tab produced `done` in `agent.list` both before and after the read. |
+| Scrolled shell | At offset 50, tmux showed rows `ROW-090` through `ROW-131`. The RPC returned those same rows in order and the offset stayed at 50. |
+| Boundary cases | A cleared screen was empty. The dense color fixture returned 102,962 ANSI bytes with `truncated: false`, exceeding Harbor's 64 KiB envelope budget. Closing that pane produced `pane_not_found`. |
+
+The following three samples show the foreground change that blocks a strict run-specific
+preview. The probe keeps the **same pane selected**. A fixture actor suspends Codex,
+runs another job in its shell, then returns to Codex with `fg`. These are synthetic
+content markers from the source screens. The only snapshot under test is the middle one.
+
+| Sample | Foreground | Screen marker |
+| --- | --- | --- |
+| Before | Codex A | `UNSENT-PREVIEW-DRAFT` |
+| `pane.read` | Shell job B | `OTHER-FOREGROUND` |
+| After | Original Codex A | `UNSENT-PREVIEW-DRAFT` |
+
+In one run the interval took 269 ms. Both outer observations agreed on socket inode,
+workspace, tab, pane, terminal, client, Codex PID, foreground group, activity, focus,
+scroll, PTY size and pane revision. The conversation reference was absent throughout.
+The middle `result.read` carried only the pane coordinates and `revision: 0` for
+attribution. A selection generation can drop late UI results but stays the same
+through this foreground change. Herdr deliberately retains a suspended agent during
+an intervening shell command. [Herdr suspend/resume test](https://github.com/herdrdev/herdr/blob/ee5bfb5041bb3e4a49d591c72308aae3c81ecdde/src/pane.rs#L5722)
+
+The foreground switch is an accepted boundary case: the preview shows the selected pane
+at read time, not a guaranteed frame from one process. Harbor still verifies the pane,
+socket, terminal, run/profile binding and discovery before publishing a result; it does
+not add a content-revision gate or infer recovery identity from the captured text.
+
+## Sessions live preview
+
+`python3 -B bridge/tests/sessions_live_preview.py` runs an isolated Herdr 0.9.5/tmux
+popup with synthetic ANSI panes, an external real Codex composer, and a transparent RPC
+proxy. It checks rapid A→B→A selection, pane reuse/lifecycle errors, stopped and
+disconnected placeholders, Working animation versus RPC count, five outer sizes and
+zero preview RPCs in narrow layouts. `app_acceptance.py --sessions-preview` additionally
+checks a real Native and real Magpie Codex turn through loopback providers. Both fixtures
+save sanitized ANSI frames for `render_terminal.cjs`; the current macOS run produced
+Unicode 15 evidence and measured popup interiors as `160×45→104×33`, `100×30→56×21`,
+`80×24→40×16`, `60×24→45×15`, and a short `160×20→104×13`.
+
 ## Live popup upgrade
 
 Build the candidate in an isolated Go environment. Run the two package paths

@@ -30,6 +30,7 @@ type uiPage struct {
 	Hits          []uiRect
 	Actions       []uiAction
 	Hint, Focus   string
+	chromeReady   bool
 }
 
 func uiCycle(current string, ids []string, reverse bool) string {
@@ -120,7 +121,10 @@ func (p uiPage) view() string {
 		lines = lines[:p.Height]
 	}
 	for i, s := range lines {
-		s = " " + chromeText(s)
+		if !p.chromeReady {
+			s = chromeText(s)
+		}
+		s = " " + s
 		s += strings.Repeat(" ", max(0, p.Width-ansi.StringWidth(s)))
 		if !colorOff() {
 			// Nested controls reset SGR backgrounds. Restore the page surface after

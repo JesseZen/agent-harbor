@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -100,17 +99,42 @@ func (m harborModel) sessionsHeader() uiPage {
 	p.search(m.searchQuery(), "Search sessions, projects or connections", m.searchFocus == "sessions", m.input)
 	return p
 }
-func (m harborModel) sessionsBodyHeight() int {
-	return max(1, m.height-len(m.sessionsHeader().Lines)-m.sessionsFooterHeight())
-}
-func (m harborModel) sessionsFooterHeight() int {
-	p := newUIPage(m.width, m.height)
-	p.shortcuts(m.sessionActions(false), m.uiFocus)
-	p.Hint = m.sessionsHint()
+func (m harborModel) sessionsFooter(p *uiPage) {
 	if m.searchFocus == "sessions" {
 		p.Actions = nil
+	} else if _, ok := m.selected(); ok {
+		p.shortcuts(m.sessionActions(false)[:3], m.uiFocus)
 	}
-	return len(p.shortcutBar().Lines) + 1
+	p.Hint = m.sessionsHint()
+}
+
+type sessionGeometry struct {
+	body, top, left, right, row int
+	split                       bool
+}
+
+func sessionColumns(width, body int) sessionGeometry {
+	g := sessionGeometry{body: body, left: width, row: 2}
+	if width >= 90 && body >= 12 {
+		g.split = true
+		g.row = 1
+		g.left = max(32, (width-2)*35/100)
+		g.right = width - g.left - 2
+	}
+	return g
+}
+
+func (m harborModel) sessionGeometry() sessionGeometry {
+	return m.sessionsGeometryFor(m.sessionsHeader())
+}
+
+func (m harborModel) sessionsGeometryFor(header uiPage) sessionGeometry {
+	m.sessionsFooter(&header)
+	top := len(header.Lines)
+	body := m.height - top - len(header.shortcutBar().Lines) - 1
+	g := sessionColumns(max(1, m.width-2), max(1, body))
+	g.top = top
+	return g
 }
 
 type sessionListEntry struct {
@@ -122,7 +146,8 @@ type sessionListEntry struct {
 	firstInGroup bool
 }
 
-func (m harborModel) sessionListPlan(bodyH int) ([]sessionListEntry, int, int) {
+func (m harborModel) sessionListPlan(geometry sessionGeometry) ([]sessionListEntry, int, int) {
+	bodyH, rowH := geometry.body, geometry.row
 	groups := m.sessionGroups()
 	if len(groups) == 0 {
 		return nil, 0, 0
@@ -144,7 +169,7 @@ func (m harborModel) sessionListPlan(bodyH int) ([]sessionListEntry, int, int) {
 				top:          top,
 				firstInGroup: i == 0,
 			})
-			top += 2
+			top += rowH
 			flatIdx++
 		}
 	}
@@ -154,7 +179,7 @@ func (m harborModel) sessionListPlan(bodyH int) ([]sessionListEntry, int, int) {
 	for _, e := range entries {
 		if !e.isHeader && e.index == cursor {
 			itemTop = e.top
-			itemBottom = e.top + 2
+			itemBottom = e.top + rowH
 			preferredTop = itemTop
 			if e.firstInGroup && bodyH >= 3 {
 				preferredTop = itemTop - 1
@@ -174,6 +199,14 @@ func (m harborModel) sessionListPlan(bodyH int) ([]sessionListEntry, int, int) {
 		scrollTop = m.mouseListStart
 	}
 	scrollTop = max(0, min(scrollTop, max(0, totalLines-bodyH)))
+	if rowH == 2 && bodyH >= rowH {
+		for _, entry := range entries {
+			if !entry.isHeader && entry.top+1 == scrollTop && itemBottom <= entry.top+bodyH {
+				scrollTop = entry.top
+				break
+			}
+		}
+	}
 	return entries, totalLines, scrollTop
 }
 
@@ -191,51 +224,23 @@ func sessionProjectShort(dir string) string {
 
 const osPathSep = filepath.Separator
 
-func (m harborModel) renderSessionPrimaryLine(s sessionView, row uiRowStyle, width int) string {
-	statusWord := orUnknown(s.Status)
-	statusPlain := statusDot(statusWord)
-	var extraPlain, extraStyled string
-	if s.External {
-		extraPlain = "  External"
-		extraStyled = paint(row.style("muted"), extraPlain)
-	} else if badge, role := sessionStatusBadge(s); badge != "" {
-		extraPlain = " [" + badge + "]"
-		extraStyled = paint(row.style(role), extraPlain)
+func (m harborModel) renderSessionPrimaryLine(s sessionView, row uiRowStyle, width int, wide bool, suffix string) string {
+	icon, word := m.sessionIndicator(s, row, !wide)
+	badge, role := sessionStatusBadge(s)
+	if badge != "" && (wide && badge != "Pending ID" || !wide && badge != sessionWord(s)) {
+		word += paint(row.style(role), " ["+badge+"]")
 	}
-	maxStatusWidth := max(1, width-6)
-	rightPlainWidth := ansi.StringWidth(statusPlain) + ansi.StringWidth(extraPlain)
-	var statusStyled string
-	if rightPlainWidth > maxStatusWidth {
-		if ansi.StringWidth(statusPlain) > maxStatusWidth {
-			statusPlain = ansi.Truncate(statusPlain, maxStatusWidth, "…")
-			extraPlain, extraStyled = "", ""
-		} else {
-			rem := max(0, maxStatusWidth-ansi.StringWidth(statusPlain))
-			if rem < 4 {
-				extraPlain, extraStyled = "", ""
-			} else {
-				extraPlain = ansi.Truncate(extraPlain, rem, "…")
-				if s.External {
-					extraStyled = paint(row.style("muted"), extraPlain)
-				} else if _, role := sessionStatusBadge(s); role != "" {
-					extraStyled = paint(row.style(role), extraPlain)
-				}
-			}
-		}
-		rightPlainWidth = ansi.StringWidth(statusPlain) + ansi.StringWidth(extraPlain)
-	}
-	statusStyled = paint(row.style(statusRole(statusWord)), statusPlain) + extraStyled
-	nameWidth := max(1, width-rightPlainWidth-1)
-	name := row.line(row.marker()+cleanUI(s.Name), "text", nameWidth)
-	name = highlightSearch(name, m.filter)
-	return name + paint(row.style("value"), " ") + statusStyled
+	space := max(1, width-4-ansi.StringWidth(word))
+	suffix = ansi.Truncate(suffix, max(0, space-2), "…")
+	name := ansi.Truncate(cleanUI(s.Name), max(1, space-ansi.StringWidth(suffix)), "…") + suffix
+	return paint(row.style("text"), row.marker()) + icon + paint(row.style("text"), " ") + highlightSearch(row.line(name, "text", space), m.filter) + word
 }
 
 func (m harborModel) renderSessionSecondaryLine(s sessionView, row uiRowStyle, width int) string {
 	type segment struct{ text, role string }
 	parts := make([]segment, 0, 4)
 	if proj := sessionProjectShort(s.WorkingDirectory); proj != "" {
-		parts = append(parts, segment{proj, "key"})
+		parts = append(parts, segment{proj, "value"})
 	}
 	if cli := cleanUI(s.CLI); cli != "" {
 		parts = append(parts, segment{cli, clientRole(s.CLI)})
@@ -244,18 +249,18 @@ func (m harborModel) renderSessionSecondaryLine(s sessionView, row uiRowStyle, w
 		conn := "Native"
 		if s.Mode == "magpie" {
 			conn = "Magpie"
-			if model := cleanUI(s.MagpieModel); model != "" {
-				conn += " · " + model
-			}
 		}
 		parts = append(parts, segment{conn, "muted"})
 		if len(m.profiles) > 1 || s.Profile == nil {
-			parts = append(parts, segment{cleanUI(m.profileShortLabel(s.Profile)), "section"})
+			parts = append(parts, segment{cleanUI(m.profileShortLabel(s.Profile)), "muted"})
+		}
+		if s.Mode == "magpie" && s.MagpieModel != "" {
+			parts = append(parts, segment{cleanUI(s.MagpieModel), "muted"})
 		}
 	}
 	var b strings.Builder
-	used := 2
-	b.WriteString(paint(row.style("value"), "  "))
+	used := 4
+	b.WriteString(paint(row.style("value"), "    "))
 	for i, part := range parts {
 		if used >= width {
 			break
@@ -268,6 +273,16 @@ func (m harborModel) renderSessionSecondaryLine(s sessionView, row uiRowStyle, w
 			used += 2
 		}
 		avail := width - used
+		if i == 0 && sessionProjectShort(s.WorkingDirectory) != "" {
+			reserve := ansi.StringWidth(cleanUI(s.CLI)) + 2
+			if !s.External {
+				reserve += 8
+			}
+			if !s.External && s.Profile == nil {
+				reserve += min(12, ansi.StringWidth(m.profileShortLabel(nil))) + 2
+			}
+			avail = max(1, avail-reserve)
+		}
 		text := ansi.Truncate(part.text, avail, "…")
 		w := ansi.StringWidth(text)
 		if w == 0 {
@@ -297,30 +312,29 @@ func (m harborModel) sessionsLayout() uiPage {
 		return p.finish(0)
 	}
 	p = m.sessionsHeader()
-	top := len(p.Lines)
-	bodyH := m.sessionsBodyHeight()
-	leftW := p.Width
-	split := p.Width >= 90
-	if split {
-		leftW = max(30, p.Width*45/100)
-	}
-	left := newUIPage(leftW, bodyH)
-	entries, totalLines, scrollTop := m.sessionListPlan(bodyH)
+	g := m.sessionsGeometryFor(p)
+	top, bodyH, leftW, split := g.top, g.body, g.left, g.split
+	left := newUIPage(leftW+2, bodyH)
+	entries, totalLines, scrollTop := m.sessionListPlan(g)
+	suffixes := m.sessionSuffixes(entries)
 	if len(entries) == 0 {
 		left.emptyState("No matching sessions")
 	}
 	railReserve := 0
-	if !split && totalLines > bodyH {
+	if totalLines > bodyH {
 		railReserve = 1
 	}
-	bandPage := newUIPage(max(3, leftW-railReserve), 10)
+	bandPage := newUIPage(max(3, leftW+2-railReserve), 10)
 	for _, entry := range entries {
-		h := 2
+		h := g.row
 		if entry.isHeader {
 			h = 1
 		}
 		if entry.top+h <= scrollTop || entry.top >= scrollTop+bodyH {
 			continue
+		}
+		for len(left.Lines) < entry.top-scrollTop {
+			left.line("")
 		}
 		if entry.isHeader {
 			if entry.top >= scrollTop && len(left.Lines) < bodyH {
@@ -331,20 +345,20 @@ func (m harborModel) sessionsLayout() uiPage {
 			continue
 		}
 		// Never render a half-clipped session row when at least 2 rows fit.
-		if bodyH >= 2 && (entry.top < scrollTop || len(left.Lines)+2 > bodyH) {
+		if bodyH >= h && (entry.top < scrollTop || entry.top+h > scrollTop+bodyH) {
 			continue
 		}
 		s := entry.view
 		id := "session:" + s.ID
 		row := m.rowStyle(id, m.sessionCursorAt(entry.index), false)
 		y := len(left.Lines)
-		lineW := max(1, leftW-2-railReserve)
+		lineW := max(1, leftW-railReserve)
 		rendered := 0
 		if entry.top >= scrollTop && len(left.Lines) < bodyH {
-			left.line(m.renderSessionPrimaryLine(s, row, lineW))
+			left.line(m.renderSessionPrimaryLine(s, row, lineW, split, suffixes[s.ID]))
 			rendered++
 		}
-		if entry.top+1 >= scrollTop && len(left.Lines) < bodyH {
+		if !split && entry.top+1 >= scrollTop && len(left.Lines) < bodyH {
 			left.line(m.renderSessionSecondaryLine(s, row, lineW))
 			rendered++
 		}
@@ -352,75 +366,40 @@ func (m harborModel) sessionsLayout() uiPage {
 			left.hit(id, 1, y, lineW, rendered)
 		}
 	}
+	for len(left.Lines) < bodyH {
+		left.line("")
+	}
 	if split {
-		left.scrollRail(0, min(bodyH, len(left.Lines)), totalLines, scrollTop)
+		left.Width--
+		left.scrollRail(0, bodyH, totalLines, scrollTop)
 	}
 	for _, r := range left.Hits {
 		p.hit(r.ID, r.X, r.Y+top, r.W, r.H)
 	}
-	right := newUIPage(max(1, p.Width-leftW-2), 10000)
+	var right []string
 	if split {
 		if s, ok := m.selected(); ok {
-			right.line(paint(fg("text"), cleanUI(s.Name)))
-			right.field("", "📂", "Project", cleanUI(s.WorkingDirectory), false, false)
-			right.field("", "🤖", "Client", cleanUI(s.CLI), false, false)
-			connection := "Native settings and login"
-			if s.Mode == "magpie" {
-				connection = s.InstanceID + " / " + s.MagpieModel
-			}
-			if s.External {
-				connection = "Unknown · external session"
-			}
-			right.field("", "🔌", "Connection", cleanUI(connection), false, false)
-			if !s.External && (len(m.profiles) > 1 || s.Profile == nil) {
-				right.field("", "🗂", "Profile", cleanUI(m.profileShortLabel(s.Profile)), false, false)
-			}
-			conversation := s.CodexSessionID
-			if s.Conversation != nil {
-				conversation = s.Conversation.Reference.Value
-			}
-			right.field("", "💬", "Conversation", orUnknown(conversation), false, false)
-			if s.External {
-				right.line(paint(fg("muted"), "Unmanaged Herdr agent · Enter focuses this terminal."))
-			} else if warning := sessionAttention(s); warning != "" {
-				for _, r := range strings.Split(ansi.Wrap(cleanUI(warning), max(1, right.Width-2), ""), "\n") {
-					right.line(paint(fg("warn"), r))
-				}
-			}
-			if !s.External && s.Conversation != nil && len(s.Conversation.History) > 0 {
-				right.line(paint(fg("muted"), fmt.Sprintf("%d prior conversation transitions · press i for Details", len(s.Conversation.History))))
-			}
+			right = m.previewPane(s, g)
 		}
 	}
-	rightStart := min(m.detailScroll, max(0, len(right.Lines)-bodyH))
 	for i := 0; i < bodyH; i++ {
 		l := ""
 		if i < len(left.Lines) {
 			l = left.Lines[i]
 		}
 		if split {
+			l = chromeText(l)
 			l += strings.Repeat(" ", max(0, leftW-ansi.StringWidth(l)))
-			if i+rightStart < len(right.Lines) {
-				l += "  " + right.Lines[i+rightStart]
+			if i < len(right) {
+				l += "  " + right[i]
 			}
 		}
 		p.line(l)
 	}
 	if !split && totalLines > bodyH {
-		p.scrollRail(top, min(bodyH, len(left.Lines)), totalLines, scrollTop)
+		p.scrollRail(top, bodyH, totalLines, scrollTop)
 	}
-	actions := m.sessionActions(false)
-	// Short popups reserve two rows for actions rather than clipping Create/Back.
-	if _, ok := m.selected(); ok {
-		actions = actions[:3]
-	} else {
-		actions = nil
-	}
-	if m.searchFocus == "sessions" {
-		p.Actions = nil
-		actions = nil
-	}
-	p.shortcuts(actions, m.uiFocus)
+	m.sessionsFooter(&p)
 	notice, noticeRole := m.notice, "value"
 	if notice == "" {
 		notice = m.discoveryNotice
@@ -441,9 +420,16 @@ func (m harborModel) sessionsLayout() uiPage {
 		}
 	}
 	p.line(paint(fg(noticeRole), ansi.Truncate(cleanUI(notice), max(1, p.Width-2), "…")))
-	hint := m.sessionsHint()
-	p.Hint = hint
-	return p.finish(0)
+	page := p.finish(0)
+	if split {
+		for index := range page.Lines {
+			if index < top || index >= top+bodyH {
+				page.Lines[index] = chromeText(page.Lines[index])
+			}
+		}
+		page.chromeReady = true
+	}
+	return page
 }
 func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 	m.uiFocus = ""
@@ -472,13 +458,13 @@ func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 		m.screen = "sessions"
 		switch nav {
 		case "profiles":
-			return m.Update(uiKey("p"))
+			return m.updatePage(uiKey("p"))
 		case "settings":
-			return m.Update(uiKey(","))
+			return m.updatePage(uiKey(","))
 		case "magpie":
-			return m.Update(uiKey("m"))
+			return m.updatePage(uiKey("m"))
 		case "accounts":
-			return m.Update(uiKey("a"))
+			return m.updatePage(uiKey("a"))
 		}
 	}
 	if id == "more" {
@@ -500,7 +486,7 @@ func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(id, "action:") {
 		key := strings.TrimPrefix(id, "action:")
 		m.screen = "sessions"
-		return m.Update(uiKey(key))
+		return m.updatePage(uiKey(key))
 	}
 	return m, nil
 }
@@ -566,11 +552,20 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		if mouse.Button == tea.MouseButtonWheelUp {
 			delta = -1
 		}
-		if m.width >= 90 && mouse.X >= max(30, m.width*45/100)+2 {
-			m.detailScroll = max(0, m.detailScroll+delta)
+		g := m.sessionGeometry()
+		if mouse.Y < g.top || mouse.Y >= g.top+g.body || mouse.X < 1 || mouse.X > m.width-2 {
+			return m, nil, true
+		}
+		if g.split && mouse.X > g.left {
+			if mouse.X >= g.left+3 {
+				if s, ok := m.selected(); ok {
+					m.preview.offset = max(0, min(m.previewScrollLimit(s, g), m.preview.offset-delta))
+				}
+			}
 			return m, nil, true
 		}
 		m.cursor = max(0, min(len(m.visible())-1, m.cursor+delta))
+		m.mouseListScreen = ""
 		m.selectionMissing = false
 		return m, nil, true
 	}
@@ -585,7 +580,7 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 					next, cmd := m.activateSessions("action:enter")
 					return next, cmd, true
 				}
-				_, _, m.mouseListStart = m.sessionListPlan(m.sessionsBodyHeight())
+				_, _, m.mouseListStart = m.sessionListPlan(m.sessionGeometry())
 				m.mouseListScreen = "sessions"
 				m.cursor = i
 				m.selectionMissing = false
@@ -623,7 +618,7 @@ func (m harborModel) sessionsHelp() string {
 		}
 		lines = append(lines, kv(a.Key, label))
 	}
-	return strings.Join(append(lines, "", "Click a row to move the cursor. Click the current row to open it.", "External sessions remain client-managed; unknown connections stay unknown.", "Ctrl+Z suspends on supported terminals; resume refreshes runtime state."), "\n")
+	return strings.Join(append(lines, "", "◐ Working (~) · ◆ Blocked (!) · ● Done (+) · ○ Idle (.) · ? Unknown", "Scroll the preview to inspect this captured screen. Scroll down to follow.", "NO_COLOR and ASCII use static states. AGENT_HARBOR_REDUCED_MOTION=1 keeps colors static.", "Click a row to move the cursor. Click the current row to open it.", "External sessions remain client-managed; unknown connections stay unknown.", "Ctrl+Z suspends on supported terminals; resume refreshes runtime state."), "\n")
 }
 
 func (m harborModel) sessionsHint() string {

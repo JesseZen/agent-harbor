@@ -36,9 +36,28 @@ func (m harborModel) editingText() bool {
 
 // Normalize page boundaries even when a specialized input handler returns early.
 func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if tick, ok := msg.(motionTick); ok {
+		return m.motionFrame(tick)
+	}
+	var next tea.Model = m
+	var cmd tea.Cmd
+	switch msg.(type) {
+	case previewDue, previewDone:
+	default:
+		next, cmd = m.updatePage(msg)
+	}
+	model := next.(harborModel)
+	visible := model.screen == "sessions" && model.settings == nil && !model.servicePending && !model.suspended && model.refreshContext != nil && model.refreshContext.Err() == nil
+	preview := model.syncPreview(msg, visible)
+	motion := model.syncMotion(visible)
+	return model, tea.Batch(cmd, preview, motion)
+}
+
+func (m harborModel) updatePage(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "ctrl+z":
+			m.suspended = true
 			return m, tea.Suspend
 		case "tab", "shift+tab":
 			return m, nil
@@ -48,6 +67,7 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	if _, ok := msg.(tea.ResumeMsg); ok {
+		m.suspended = false
 		return m.requestRefresh()
 	}
 

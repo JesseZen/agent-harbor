@@ -61,6 +61,9 @@ type appRoute struct {
 
 // harborModel owns interaction only. All product effects cross the service seam.
 type harborModel struct {
+	preview              previewState
+	motion               sessionMotion
+	suspended            bool
 	servicePending       bool
 	serviceTaskID        uint64
 	profileReturn        string
@@ -283,7 +286,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if settings.nav != "" {
 				if settings.nav == "accounts" {
 					m.screen = "sessions"
-					return m.Update(uiKey("a"))
+					return m.updatePage(uiKey("a"))
 				}
 				if settings.nav == "extensions" {
 					m.screen = "extensions"
@@ -314,7 +317,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = m.previous
 			m.scroll = m.secondaryHelpScroll
 			m.uiFocus = m.secondaryHelpFocus
-			next, cmd := m.Update(msg)
+			next, cmd := m.updatePage(msg)
 			underlying := next.(harborModel)
 			underlying.previous = underlying.screen
 			underlying.secondaryHelpScroll = underlying.scroll

@@ -1,5 +1,22 @@
 # UI 实机走查 — 2026-11-17
 
+## Sessions 彩色只读终端预览（2026-11-23）
+
+已实现 Sessions 宽屏双栏预览、窄屏两行列表、统一列表/滚轮几何、ANSI 安全解析与
+宽度裁切、加载/空屏/停止/断连占位，以及按 pane/socket/run/Profile 核验的可取消读取。
+选择切换立即清屏，150ms 防抖，单一在途读取；窄屏、Help、离页和挂起时不读屏。Working
+图标呼吸和选中项文字扫光由独立 UI 时钟驱动，五秒实测 2 次预览 RPC，动画不增加 RPC。
+
+macOS arm64 隔离验收使用 Herdr 0.9.5、原生 Codex 0.169.0、Magpie 0.1.3528-harbor-dev、
+tmux 3.6b；真实 Native 与 Magpie 回合均在未聚焦的 Sessions 预览中显示。弹窗外层/实际
+内层为 `160×45/104×33`、`100×30/56×21`、`80×24/40×16`、`60×24/45×15` 和矮窗
+`160×20/104×13`。ANSI 帧经仓库 Unicode 15 渲染器通过，保留脱敏多帧 Working、Native、
+Magpie、Stopped、External 和 Offline 证据。
+
+仍缺：Linux/远端真实客户端运行证据、真实授权账号回合、像素级原生终端截图；Native/Magpie
+弹窗 fixture 的 provider 回合使用隔离 loopback 合成 provider。Herdr 同 pane 内短暂挂起/换
+前台进程的读取语义已按用户决定接受为“读取此刻 pane 画面”，不作为串屏缺陷处理。
+
 ## 5-Tab 重排、omp 风格双栏 Settings 与 Extensions 管理（Milestone B，2026-11-23）
 
 | 入口 | 交互与状态 |

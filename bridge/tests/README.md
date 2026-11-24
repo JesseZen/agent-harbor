@@ -59,6 +59,9 @@ checks a real Native and real Magpie Codex turn through loopback providers. Both
 save sanitized ANSI frames for `render_terminal.cjs`; the current macOS run produced
 Unicode 15 evidence and measured popup interiors as `160×45→104×33`, `100×30→56×21`,
 `80×24→40×16`, `60×24→45×15`, and a short `160×20→104×13`.
+The popup fixture also checks `o` against a disposable Git project: the collapsed
+summary keeps the project, branch, CLI and connection without a model label; the full
+path and route appear when expanded, and the same pane remains in the preview.
 
 ## Live popup upgrade
 

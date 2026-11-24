@@ -104,6 +104,9 @@ func (m harborModel) sessionsFooter(p *uiPage) {
 		p.Actions = nil
 	} else if _, ok := m.selected(); ok {
 		p.shortcuts(m.sessionActions(false)[:3], m.uiFocus)
+		if m.width-2 >= sessionsSplitWidth {
+			p.shortcut(uiAction{ID: "action:o", Label: "Context", Key: "o"}, m.uiFocus == "action:o")
+		}
 	}
 	p.Hint = m.sessionsHint()
 }
@@ -113,9 +116,11 @@ type sessionGeometry struct {
 	split                       bool
 }
 
+const sessionsSplitWidth = 90
+
 func sessionColumns(width, body int) sessionGeometry {
 	g := sessionGeometry{body: body, left: width, row: 2}
-	if width >= 90 && body >= 12 {
+	if width >= sessionsSplitWidth && body >= 12 {
 		g.split = true
 		g.row = 1
 		g.left = max(32, (width-2)*35/100)
@@ -532,6 +537,22 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			}
 			return m, nil, true
 		}
+		if k == "o" && m.searchFocus != "sessions" {
+			if view, ok := m.selected(); ok {
+				geometry := m.sessionGeometry()
+				if m.previewExpanded {
+					m.previewExpanded = false
+					return m, nil, true
+				}
+				if geometry.split && m.previewContextFits(view, geometry) {
+					m.previewExpanded = !m.previewExpanded
+					return m, nil, true
+				}
+				next, cmd := m.activateSessions("action:i")
+				return next, cmd, true
+			}
+			return m, nil, true
+		}
 		if k == "." && m.searchFocus != "sessions" {
 			next, cmd := m.activateSessions("more")
 			return next, cmd, true
@@ -618,7 +639,7 @@ func (m harborModel) sessionsHelp() string {
 		}
 		lines = append(lines, kv(a.Key, label))
 	}
-	return strings.Join(append(lines, "", "◐ Working (~) · ◆ Blocked (!) · ● Done (+) · ○ Idle (.) · ? Unknown", "Scroll the preview to inspect this captured screen. Scroll down to follow.", "NO_COLOR and ASCII use static states. AGENT_HARBOR_REDUCED_MOTION=1 keeps colors static.", "Click a row to move the cursor. Click the current row to open it.", "External sessions remain client-managed; unknown connections stay unknown.", "Ctrl+Z suspends on supported terminals; resume refreshes runtime state."), "\n")
+	return strings.Join(append(lines, "", "o toggles full project and connection context; opens Details if space is tight.", "Colored dots: orange Working, red Blocked, green Done, gray Idle. ? Unknown.", "Without color: ◐ Working (~) · ◆ Blocked (!) · ● Done (+) · ○ Idle (.)", "Scroll the preview to inspect this captured screen. Scroll down to follow.", "NO_COLOR and ASCII use static states. AGENT_HARBOR_REDUCED_MOTION=1 keeps colors static.", "Click a row to move the cursor. Click the current row to open it.", "External sessions remain client-managed; unknown connections stay unknown.", "Ctrl+Z suspends on supported terminals; resume refreshes runtime state."), "\n")
 }
 
 func (m harborModel) sessionsHint() string {

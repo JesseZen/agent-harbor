@@ -271,7 +271,7 @@ func TestPreviewResponsiveMetadataAndMouse(t *testing.T) {
 	if suffixes[alpha.ID] == "" || suffixes[alpha.ID] == suffixes[beta.ID] {
 		t.Fatal("duplicate names remained ambiguous", suffixes)
 	}
-	if line := model.previewHeader(alpha, geometry.right)[1]; !strings.Contains(line, "codex · Magpie") || ansi.StringWidth(line) > geometry.right {
+	if line := model.previewHeader(alpha, geometry.right)[2]; !strings.Contains(line, "codex · Magpie") || ansi.StringWidth(line) > geometry.right {
 		t.Fatal("long project obscured the connection", line)
 	}
 	frame := make([]string, 50)

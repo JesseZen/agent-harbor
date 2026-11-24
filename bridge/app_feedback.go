@@ -42,7 +42,7 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var next tea.Model = m
 	var cmd tea.Cmd
 	switch msg.(type) {
-	case previewDue, previewDone:
+	case previewDue, previewDone, sessionBranchResult:
 	default:
 		next, cmd = m.updatePage(msg)
 	}
@@ -50,7 +50,8 @@ func (m harborModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	visible := model.screen == "sessions" && model.settings == nil && !model.servicePending && !model.suspended && model.refreshContext != nil && model.refreshContext.Err() == nil
 	preview := model.syncPreview(msg, visible)
 	motion := model.syncMotion(visible)
-	return model, tea.Batch(cmd, preview, motion)
+	branch := model.syncSessionBranch(msg, visible)
+	return model, tea.Batch(cmd, preview, motion, branch)
 }
 
 func (m harborModel) updatePage(msg tea.Msg) (tea.Model, tea.Cmd) {

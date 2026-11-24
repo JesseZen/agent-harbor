@@ -19,7 +19,9 @@ from pane_read_probe import until
 
 
 def exercise(args, root):
-    env = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'SHELL': '/bin/sh', 'TERM': 'xterm-256color',
+    tmux_path = shutil.which('tmux') or '/usr/bin/tmux'
+    env = {'PATH': os.pathsep.join(dict.fromkeys([str(Path(tmux_path).parent), '/usr/bin', '/bin', '/usr/sbin', '/sbin'])),
+           'SHELL': '/bin/sh', 'TERM': 'xterm-256color',
            'COLORTERM': 'truecolor', 'LANG': 'en_US.UTF-8', 'PS1': 'fixture$ ',
            'GIT_ALLOW_PROTOCOL': 'file', 'GIT_TERMINAL_PROMPT': '0'}
     for key in ('HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME',
@@ -39,6 +41,7 @@ def exercise(args, root):
                HERDR_CONFIG_PATH=str(root / 'herdr.toml'))
     project = root / 'preview-fixture'
     project.mkdir()
+    subprocess.run(['git', 'init', '-q', '-b', 'fixture-context'], cwd=project, env=env, check=True)
     with socket.socket() as port:
         port.bind(('127.0.0.1', 0))
         (Path(env['CODEX_HOME']) / 'config.toml').write_text(
@@ -123,9 +126,10 @@ def run_fixture(args, root, env, harbor, source_socket, proxy_socket, project):
 
     def save(label, columns, frame=None):
         public = capture(True) if frame is None else frame
-        for private in (str(root), socket.gethostname().split('.')[0], os.environ.get('USER', '')):
+        public = public.replace(str(root), '/fixture/isolated'.ljust(len(str(root)), 'x'))
+        for private in (socket.gethostname().split('.')[0], os.environ.get('USER', '')):
             if private:
-                public = public.replace(private, 'fixture')
+                public = public.replace(private, 'x' * len(private))
         (args.output / f'{label}-{columns}.ansi').write_text(public)
 
     def size():
@@ -229,8 +233,8 @@ def run_fixture(args, root, env, harbor, source_socket, proxy_socket, project):
             display = capture(True)
             for line in display.splitlines():
                 plain = re.sub(r'\x1b\[[0-9;:]*m', '', line)
-                if '◐ Working' in plain:
-                    indicator = line.rsplit('◐', 1)
+                if '● Working' in plain:
+                    indicator = line.rsplit('●', 1)
                     color = tuple(re.findall(r'\x1b\[[0-9;:]*m', indicator[0]))
                     word = indicator[1].split('│', 1)[0].rstrip()
                     if (len(icons) < 4 and color not in icons) or (len(words) < 6 and word not in words):
@@ -248,6 +252,17 @@ def run_fixture(args, root, env, harbor, source_socket, proxy_socket, project):
         until(lambda: 'MAGPIE-FRAME' in capture(), 'managed Magpie preview')
         assert 'NATIVE-FRAME' not in capture()
         save('magpie', 160)
+        until(lambda: 'fixture-context' in capture() and 'codex · Magpie' in capture(), 'compact project, branch and connection')
+        assert 'Magpie · test-model' not in capture()
+        assert str(project) not in capture()
+        save('context-collapsed', 160)
+        key('o')
+        expanded = until(lambda: (frame if '/preview-fixture' in (frame := capture()) and
+                                   'Route: lab/relay/test-model' in frame else None), 'expanded project and model route')
+        assert 'MAGPIE-FRAME' in expanded and expanded.count('fixture-context') == 1
+        save('context-expanded', 160)
+        key('o')
+        until(lambda: 'Route: ' not in capture(), 'context collapsed again')
         key('Up', 'Down', 'Up')
         until(lambda: 'NATIVE-FRAME' in capture(), 'rapid A/B/A ends on Native')
         assert 'MAGPIE-FRAME' not in capture()

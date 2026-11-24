@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -90,16 +91,13 @@ func (m harborModel) sessionIndicator(s sessionView, row uiRowStyle, showWord bo
 	symbol, ascii, role := "?", "?", "idle"
 	switch word {
 	case "Working":
-		symbol, ascii, role = "◐", "~", "warn"
+		symbol, ascii, role = "●", "~", "warn"
 	case "Blocked":
-		symbol, ascii, role = "◆", "!", "bad"
+		symbol, ascii, role = "●", "!", "bad"
 	case "Done":
 		symbol, ascii, role = "●", "+", "ok"
 	case "Idle":
 		symbol, ascii = "●", "."
-		if colorOff() {
-			symbol = "○"
-		}
 	case "Starting":
 		symbol, ascii, role = "◌", "*", "title"
 	case "Stopped":
@@ -110,6 +108,16 @@ func (m harborModel) sessionIndicator(s sessionView, row uiRowStyle, showWord bo
 		symbol, ascii = "◇", "/"
 	case "Offline":
 		symbol, ascii, role = "×", "x", "bad"
+	}
+	if colorOff() {
+		switch word {
+		case "Working":
+			symbol = "◐"
+		case "Blocked":
+			symbol = "◆"
+		case "Idle":
+			symbol = "○"
+		}
 	}
 	if asciiUI() {
 		symbol = ascii
@@ -201,51 +209,160 @@ func (m harborModel) sessionSuffixes(entries []sessionListEntry) map[string]stri
 }
 
 func (m harborModel) previewHeader(view sessionView, width int) []string {
+	return m.previewHeaderContext(view, width, false)
+}
+
+func (m harborModel) previewHeaderContext(view sessionView, width int, expanded bool) []string {
 	icon, word := m.sessionIndicator(view, uiRowStyle{}, true)
 	status := icon + " " + word
 	name := ansi.Truncate(cleanUI(view.Name), max(1, width-ansi.StringWidth(status)-1), "…")
 	lines := []string{paint(fg("text").Bold(true), name) + strings.Repeat(" ", max(1, width-ansi.StringWidth(status)-ansi.StringWidth(name))) + status}
-	conn, model := "Native", ""
-	if view.External {
-		conn = "External · connection unknown"
-	} else if view.Mode == "magpie" {
-		conn = "Magpie"
-		model = cleanUI(strings.Trim(strings.Join([]string{view.InstanceID, view.MagpieModel}, "/"), "/"))
-	}
-	profile := ""
-	if !view.External && (len(m.profiles) > 1 || view.Profile == nil) {
-		profile = " · " + ansi.Truncate(cleanUI(m.profileShortLabel(view.Profile)), 18, "…")
-	}
-	fields := conn + profile
-	if view.CLI != "" {
-		fields = cleanUI(view.CLI) + " · " + fields
-	}
-	if proj := sessionProjectShort(view.WorkingDirectory); proj != "" {
-		projectWidth := max(1, width-ansi.StringWidth(fields)-3)
-		if model != "" {
-			projectWidth = max(1, projectWidth-min(21, ansi.StringWidth(model)+3))
+	lines = append(lines, m.previewProjectLine(view, width, expanded))
+	metadataLines := []string{m.previewConnectionLine(view, width)}
+	if expanded && view.Mode == "magpie" && !view.External {
+		route := strings.Trim(strings.Join([]string{view.InstanceID, view.MagpieModel}, "/"), "/")
+		if route != "" {
+			prefix := m.previewConnectionBase(view) + " · "
+			routeWidth := max(1, 2*width-ansi.StringWidth(prefix)-ansi.StringWidth("Route: "))
+			metadata := prefix + paint(fg("value"), "Route: "+middleTruncate(cleanUI(route), routeWidth))
+			wrapped := strings.Split(ansi.Hardwrap(metadata, width, true), "\n")
+			metadataLines = wrapped[:min(2, len(wrapped))]
 		}
-		fields = ansi.Truncate(proj, projectWidth, "…") + " · " + fields
 	}
-	modelWidth := width - ansi.StringWidth(fields) - 3
-	if model != "" && modelWidth >= 2 {
-		fields = strings.TrimSuffix(fields, profile) + " · " + ansi.Truncate(model, modelWidth, "…") + profile
+	lines = append(lines, metadataLines...)
+	if expanded && len(lines) < 4 && !view.External && (len(m.profiles) > 1 || view.Profile == nil) {
+		lines = append(lines, paint(fg("value"), "Profile: "+cleanUI(m.profileShortLabel(view.Profile))))
 	}
-	lines = append(lines, paint(fg("value"), ansi.Truncate(fields, width, "…")))
 	if badge, role := sessionStatusBadge(view); badge != "" && badge != "Offline" {
 		diagnosis := sessionAttention(view)
 		if diagnosis == "" {
 			diagnosis = badge
 		}
-		lines = append(lines, paint(fg(role), ansi.Truncate(cleanUI(diagnosis), width, "…")))
+		line := paint(fg(role), ansi.Truncate(cleanUI(diagnosis), width, "…"))
+		if len(lines) < 4 {
+			lines = append(lines, line)
+		} else if len(metadataLines) == 1 {
+			lines[3] = line
+		}
 	} else if view.Runtime.LaunchPending && !view.Runtime.InteractiveReady {
-		lines = append(lines, paint(fg("muted"), "Waiting for interactive readiness"))
+		line := paint(fg("muted"), "Waiting for interactive readiness")
+		if len(lines) < 4 {
+			lines = append(lines, line)
+		} else if len(metadataLines) == 1 {
+			lines[3] = line
+		}
 	}
 	return lines
 }
 
+func previewConnection(view sessionView) string {
+	if view.External {
+		return "External · connection unknown"
+	}
+	if view.Mode == "magpie" {
+		return "Magpie"
+	}
+	return "Native"
+}
+
+func (m harborModel) previewBranch(view sessionView) string {
+	if m.projectBranch.session == view.ID && m.projectBranch.directory == view.WorkingDirectory {
+		return m.projectBranch.branch
+	}
+	return ""
+}
+
+func (m harborModel) previewProjectLine(view sessionView, width int, expanded bool) string {
+	project := sessionProjectShort(view.WorkingDirectory)
+	if expanded {
+		project = previewPathDisplay(view.WorkingDirectory)
+	}
+	branch := m.previewBranch(view)
+	if branch == "" {
+		return paint(fg("title"), middleTruncate(project, width))
+	}
+	branchWidth := min(ansi.StringWidth(branch), max(8, width/3))
+	branch = ansi.Truncate(branch, branchWidth, "…")
+	project = middleTruncate(project, max(1, width-branchWidth-1))
+	left := paint(fg("title"), project)
+	if branch != "" {
+		left += " " + paint(fg("section"), branch)
+	}
+	return ansi.Truncate(left, width, "")
+}
+
+func (m harborModel) previewConnectionLine(view sessionView, width int) string {
+	base := m.previewConnectionBase(view)
+	return ansi.Truncate(base, width, "…")
+}
+
+func (m harborModel) previewConnectionBase(view sessionView) string {
+	connection := previewConnection(view)
+	parts := []string{}
+	if cli := cleanUI(view.CLI); cli != "" {
+		parts = append(parts, paint(fg("value"), cli))
+	}
+	parts = append(parts, paint(fg("key"), connection))
+	return strings.Join(parts, " · ")
+}
+
+func (m harborModel) expandedPreviewContext(view sessionView, width int) []string {
+	return m.previewHeaderContext(view, width, true)
+}
+
+func (m harborModel) previewPaneHeader(view sessionView, geometry sessionGeometry) []string {
+	if m.previewExpanded {
+		expanded := m.previewHeaderContext(view, geometry.right, true)
+		if previewContextHasRoom(geometry.body, len(expanded)) {
+			return expanded
+		}
+	}
+	return m.previewHeader(view, geometry.right)
+}
+
+func previewPathDisplay(value string) string {
+	value = cleanUI(value)
+	if value == "" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		if relative, relErr := filepath.Rel(home, value); relErr == nil && (relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))) {
+			if relative == "." {
+				return "~"
+			}
+			return filepath.Join("~", relative)
+		}
+	}
+	return value
+}
+
+func middleTruncate(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(value) <= width {
+		return value
+	}
+	if width <= 1 {
+		return "…"
+	}
+	remaining := width - 1
+	left := (remaining + 1) / 2
+	right := remaining - left
+	return ansi.Cut(value, 0, left) + "…" + ansi.Cut(value, ansi.StringWidth(value)-right, ansi.StringWidth(value))
+}
+
+func (m harborModel) previewContextFits(view sessionView, geometry sessionGeometry) bool {
+	return previewContextHasRoom(geometry.body, len(m.expandedPreviewContext(view, geometry.right)))
+}
+
+func previewContextHasRoom(body, lines int) bool {
+	return lines > 0 && lines <= 4 && body-lines-1 >= 8
+}
+
 func (m harborModel) previewPane(view sessionView, g sessionGeometry) []string {
-	lines := m.previewHeader(view, g.right)
+	lines := m.previewPaneHeader(view, g)
 	height := g.body - len(lines) - 1
 	target, reason := targetForPreview(view)
 	screen := m.preview.frame
@@ -265,13 +382,19 @@ func (m harborModel) previewPane(view sessionView, g sessionGeometry) []string {
 	label := ""
 	if reason == "" {
 		if start > 0 {
-			label = fmt.Sprintf("↑ %d ", start)
+			label = fmt.Sprintf("↑ %d above", start)
 		}
 		if screen.truncated {
-			label += "truncated "
+			if label != "" {
+				label += " · "
+			}
+			label += "truncated"
 		}
 	}
-	lines = append(lines, paint(fg("border"), label+strings.Repeat("─", max(0, g.right-ansi.StringWidth(label)))))
+	if label != "" {
+		label = "  " + label
+	}
+	lines = append(lines, paint(fg("border"), strings.Repeat("─", max(0, g.right-ansi.StringWidth(label))))+paint(fg("value"), label))
 	for index := range lines {
 		lines[index] = chromeText(lines[index])
 	}
@@ -285,6 +408,6 @@ func (m harborModel) previewPane(view sessionView, g sessionGeometry) []string {
 }
 
 func (m harborModel) previewScrollLimit(view sessionView, geometry sessionGeometry) int {
-	capacity := geometry.body - len(m.previewHeader(view, geometry.right)) - 1
+	capacity := geometry.body - len(m.previewPaneHeader(view, geometry)) - 1
 	return max(0, len(m.preview.frame.lines)-capacity)
 }

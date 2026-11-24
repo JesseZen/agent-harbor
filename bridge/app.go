@@ -62,6 +62,8 @@ type appRoute struct {
 // harborModel owns interaction only. All product effects cross the service seam.
 type harborModel struct {
 	preview              previewState
+	previewExpanded      bool
+	projectBranch        sessionBranchState
 	motion               sessionMotion
 	suspended            bool
 	servicePending       bool

@@ -138,7 +138,7 @@ func TestSessionsGroupedLayoutNoiseReductionAndNavigation(t *testing.T) {
 	if sessionAttention(m.sessions[2]) != "" {
 		t.Fatalf("external session should not generate attention warning: %q", sessionAttention(m.sessions[2]))
 	}
-	if !strings.Contains(view, "agent-harbor · codex · Native") || strings.Contains(view, "prior conversation transitions") {
+	if !strings.Contains(view, "agent-harbor") || !strings.Contains(view, "codex · Native") || strings.Contains(view, "prior conversation transitions") {
 		t.Fatalf("right preview should show concise metadata, not history:\n%s", view)
 	}
 	// Details includes recorded history transition.

@@ -6,12 +6,13 @@
 |---|---|
 | 顶层导航与 Profiles | 顶栏更新为 5 个高频 Tab：`🚢 Sessions` · `🧩 Extensions` · `🐦 Connections` · `👤 Accounts` · `⚙ Settings`。`Profiles` 收进 `Settings → Environment & Profiles`（Esc/选定返回 Settings），全局保留 `p` 快捷键直达。单 Profile 时 `Sessions` / `Accounts` / `Extensions` 弱化 Profile 字段露出，多 Profile 时自动显示当前短名。 |
 | Settings（omp 风格双栏） | 宽屏（`width >= 76`）左侧为可鼠标点击的分区导航列（当前分区用光标 `brand` 粗体高亮，非当前分区暗灰），右侧分列各区与下划线标题（当前光标所在分区条目亮白，其余分区暗灰）。已改但未保存项整行用黄色（`warn`）标示；底部灰字说明当前聚焦项；存在未保存修改时尝试 `Esc`/切页在灰字上方弹出醒目红色（`bad`）`⚠ Unsaved changes` 提示（再次 `Esc` 放弃）。窄屏（`width < 76`）隐藏左侧分栏，退化为单列。 |
-| `🧩 Extensions` | 复用 `groupBand` 分为 `Skills · shared (~/.agents/skills)` 与 `Plugins · this Profile` 两组。列表读取与按 Profile 开关（`Space`）优先走 Codex `skills/list` / `skills/config/write` RPC 并具备纯 Go 扫描与 `[[skills.config]]` 回退（零 Node 依赖）；`a` 添加、`u` 更新、`x` 卸载通过 `tea.ExecProcess` 交接给 `skills` CLI（按 `AGENT_HARBOR_SKILLS_BIN` → companion → `PATH` → `npx` 探测）或 `codex plugin`；多 Profile 时 `y` 提供声明式跨 Profile 插件清单同步（不软链 `plugins/`、不复制登录态与历史）。 |
+| `🧩 Extensions` | 首页先显示本地 Skills，再异步合并 Codex `skills/list`；同一弹窗内按 Profile 短期缓存，`r` 强制刷新。`d` 打开 Discover，输入框接收 `hjkl`，结果留在 Harbor 内，`a` 安装选中项。首页 `a` 的关键词进入 Discover，仓库来源交给 Skills CLI。`u` 更新，`x` 确认后卸载。`b` 打开 Plugins 占位页，`m` 进入 Marketplaces 占位页，`Esc` 逐级返回。两个占位页只有导航。 |
 
-macOS arm64 隔离验证：
+Milestone B 历史验证（含当时的 Plugins 实现）：
 - Go `go vet ./...` 与 Milestone B + Settings + UI 全组 `-race` 回归（含 `TestScanLocalSkillsDeduplicatesSymlinkAndReadsProfileToggle`、`TestResolveSkillsCLIPriority`、`TestBuildPluginSyncPlanDiffsManifestOnly`、`TestExtensionsUIToggleSyncAndNavigation`、`TestSettingsTwoColumnOmpStyleUnsavedAndNarrowMode`、`TestSettings*`、`TestAccounts*`、`TestProfile*`、`TestSessions*`、`TestMouse*`）全部通过（19.2s）。
 - 隔离真实 Herdr `0.9.5` + 原生 Codex `0.169.0` 实机验证 8 步全绿：5-Tab 导航、发现共享 `~/.agents/skills/demo-review` 与 Codex 内置 skills、在 Default Profile 用 `Space` 切换为 `Disabled`、`Extensions` 外层 `160×45`/`100×30`/`80×24`/`60×24` 四尺寸排版与滚动条不裁字、宽屏双栏 Settings 与底部灰字说明、Settings → Profiles 新建 `Work` 后 `Esc` 直返 Settings、改键黄字高亮 + 首次 `Esc` 红字 `Unsaved changes` + 窄屏 `60×24` 隐藏左栏 + 二次 `Esc` 放弃、切到 `Work` Profile 验证 `demo-review` 保持 `Enabled` 且出现 `y Sync plugins`。
-- 仍待验证：Linux / 远端工作区实测、真实线上 `skills` CLI 联网安装与 `codex plugin` 真实 marketplace 安装、Unicode 15 PNG 截图基线。
+
+B.1 当前状态和待验证项见[Extensions 交接记录](extensions-handoff.md)。
 
 ## 会话槽位自动跟随与 Sessions 分组降噪（Milestone A，2026-11-23）
 

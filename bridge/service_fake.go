@@ -23,6 +23,7 @@ type fakeApplicationService struct {
 	SelectionErr     error
 	LastApproval     *sessionApproval
 	Extensions       map[profileBinding]extensionSnapshot
+	SkillSearch      map[profileBinding][]skillCatalogItem
 	ExecCommands     []string
 	Calls            []string
 	Err              error
@@ -373,14 +374,25 @@ func (f *fakeApplicationService) ProfileCatalog(b profileBinding, id string) ([]
 	return f.Catalog(id)
 }
 
-func (f *fakeApplicationService) InspectExtensions(_ context.Context, b profileBinding) (extensionSnapshot, error) {
-	if err := f.call("extensions-inspect"); err != nil {
+func (f *fakeApplicationService) InspectExtensionsLocal(_ context.Context, binding profileBinding) (extensionSnapshot, error) {
+	if err := f.call("extensions-local-inspect"); err != nil {
 		return extensionSnapshot{}, err
 	}
-	if snap, ok := f.Extensions[b]; ok {
+	if snap, ok := f.Extensions[binding]; ok {
 		return snap, nil
 	}
-	return extensionSnapshot{Profile: b, ProfileName: "Default", SkillsCLI: "path"}, nil
+	return extensionSnapshot{ProfileName: "Default", SkillsCLI: "path"}, nil
+}
+
+func (f *fakeApplicationService) InspectCodexSkills(_ context.Context, _ profileBinding) ([]extensionItem, error) {
+	return nil, f.call("extensions-codex-skills")
+}
+
+func (f *fakeApplicationService) SearchSkills(_ context.Context, binding profileBinding, _ string) ([]skillCatalogItem, error) {
+	if err := f.call("skills-search"); err != nil {
+		return nil, err
+	}
+	return append([]skillCatalogItem(nil), f.SkillSearch[binding]...), nil
 }
 
 func (f *fakeApplicationService) ToggleExtension(_ context.Context, b profileBinding, item extensionItem, enabled bool) error {
@@ -389,6 +401,7 @@ func (f *fakeApplicationService) ToggleExtension(_ context.Context, b profileBin
 	}
 	if f.Extensions != nil {
 		if snap, ok := f.Extensions[b]; ok {
+			snap.Skills = append([]extensionItem(nil), snap.Skills...)
 			for i := range snap.Skills {
 				if snap.Skills[i].ID == item.ID {
 					snap.Skills[i].Enabled = enabled
@@ -400,29 +413,8 @@ func (f *fakeApplicationService) ToggleExtension(_ context.Context, b profileBin
 	return nil
 }
 
-func (f *fakeApplicationService) PlanPluginSync(_ context.Context, src, dst profileBinding) (pluginSyncPlan, error) {
-	if err := f.call("extensions-sync-plan"); err != nil {
-		return pluginSyncPlan{}, err
-	}
-	return buildPluginSyncPlan(f.Extensions[src], f.Extensions[dst]), nil
-}
-
-func (f *fakeApplicationService) ExecutePluginSync(_ context.Context, plan pluginSyncPlan) (pluginSyncResult, error) {
-	if err := f.call("extensions-sync-exec"); err != nil {
-		return pluginSyncResult{}, err
-	}
-	res := pluginSyncResult{Plan: plan}
-	for _, p := range plan.PluginsToAdd {
-		res.Outcomes = append(res.Outcomes, pluginSyncOutcome{Kind: "plugin", Name: p.Name, State: "installed"})
-	}
-	for _, name := range plan.AlreadyInstalled {
-		res.Outcomes = append(res.Outcomes, pluginSyncOutcome{Kind: "plugin", Name: name, State: "skipped", Detail: "already installed"})
-	}
-	return res, nil
-}
-
-func (f *fakeApplicationService) ExtensionExecCommand(_ context.Context, _ profileBinding, action string, kind extensionKind, target string) (*exec.Cmd, error) {
-	f.ExecCommands = append(f.ExecCommands, string(kind)+":"+action+":"+target)
+func (f *fakeApplicationService) ExtensionExecCommand(_ context.Context, _ profileBinding, action, target string) (*exec.Cmd, error) {
+	f.ExecCommands = append(f.ExecCommands, action+":"+target)
 	if f.Err != nil {
 		return nil, f.Err
 	}

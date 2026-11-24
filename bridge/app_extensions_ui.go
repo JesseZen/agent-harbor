@@ -4,62 +4,72 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
-type appExtensionsLoaded struct {
+type appExtensionsLocalLoaded struct {
 	generation uint64
 	profile    profileBinding
 	snapshot   extensionSnapshot
 	err        error
 }
 
-type appExtensionToggled struct {
+type appCodexSkillsLoaded struct {
 	generation uint64
 	profile    profileBinding
-	item       extensionItem
-	enabled    bool
+	skills     []extensionItem
 	err        error
+}
+
+type appSkillsSearchLoaded struct {
+	generation uint64
+	profile    profileBinding
+	results    []skillCatalogItem
+	err        error
+}
+
+type appExtensionToggled struct {
+	profile profileBinding
+	item    extensionItem
+	enabled bool
+	err     error
 }
 
 type appExtensionExecDone struct {
-	action string
-	err    error
+	action       string
+	catalogIndex int
+	err          error
 }
 
-type appPluginSyncPlanned struct {
-	generation uint64
-	plan       pluginSyncPlan
-	err        error
-}
-
-type appPluginSyncDone struct {
-	generation uint64
-	result     pluginSyncResult
-	err        error
+type extensionCacheEntry struct {
+	snapshot extensionSnapshot
+	updated  time.Time
 }
 
 type extensionState struct {
-	profile      *profileBinding
-	generation   uint64
-	loading      bool
-	snapshot     *extensionSnapshot
-	err          string
-	filter       string
-	searching    bool
-	cursor       int
-	listScroll   int
-	detailScroll int
-	addKind      extensionKind
-	removeTarget *extensionItem
-	syncCursor   int
-	syncSources  []profile
-	syncPlan     *pluginSyncPlan
-	syncResult   *pluginSyncResult
-	syncBusy     bool
-	notice       string
+	profile            *profileBinding
+	generation         uint64
+	loading            bool
+	snapshot           *extensionSnapshot
+	err                string
+	filter             string
+	searching          bool
+	cursor             int
+	detailScroll       int
+	removeTarget       *extensionItem
+	notice             string
+	cache              map[profileBinding]extensionCacheEntry
+	discoverQuery      string
+	discoverSearching  bool
+	discoverLoading    bool
+	discoverGeneration uint64
+	discoverResults    []skillCatalogItem
+	discoverCursor     int
+	discoverErr        string
+	discoverSubmitted  bool
 }
 
 func (m harborModel) extensionService() profileExtensionService {
@@ -69,62 +79,114 @@ func (m harborModel) extensionService() profileExtensionService {
 	return nil
 }
 
+func (m *harborModel) invalidateExtensionsCache() {
+	if m.ext.cache != nil && m.ext.profile != nil {
+		delete(m.ext.cache, *m.ext.profile)
+	}
+	m.ext.loading = false
+}
+
 func (m *harborModel) beginExtensionsInspect() tea.Cmd {
 	if m.ext.profile == nil && m.activeProfile != nil {
 		b := *m.activeProfile
 		m.ext.profile = &b
 	}
-	if m.ext.profile == nil {
+	if m.ext.profile == nil || m.ext.loading {
 		return nil
+	}
+	binding := *m.ext.profile
+	if cached, ok := m.ext.cache[binding]; ok {
+		snap := cached.snapshot
+		m.ext.snapshot = &snap
+		m.ext.err = ""
+		flat := m.extensionRows()
+		m.ext.cursor = max(0, min(m.ext.cursor, max(0, len(flat)-1)))
+		if time.Since(cached.updated) < 30*time.Second {
+			m.ext.loading = false
+			return nil
+		}
 	}
 	svc := m.extensionService()
 	if svc == nil {
 		m.ext.err = "Extensions service is unavailable."
 		return nil
 	}
-	m.ext.generation++
 	m.ext.loading = true
 	m.ext.err = ""
+	m.ext.generation++
 	gen := m.ext.generation
+	return func() tea.Msg {
+		snap, err := svc.InspectExtensionsLocal(context.Background(), binding)
+		return appExtensionsLocalLoaded{generation: gen, profile: binding, snapshot: snap, err: err}
+	}
+}
+
+func (m *harborModel) applyExtensionSnapshot(binding profileBinding, snapshot extensionSnapshot) {
+	selected, hasSelection := m.selectedExtension()
+	m.ext.snapshot = &snapshot
+	if m.ext.cache == nil {
+		m.ext.cache = map[profileBinding]extensionCacheEntry{}
+	}
+	m.ext.cache[binding] = extensionCacheEntry{snapshot: snapshot, updated: time.Now()}
+	rows := m.extensionRows()
+	m.ext.cursor = min(m.ext.cursor, max(0, len(rows)-1))
+	if hasSelection {
+		for index, row := range rows {
+			if selected.ID == row.ID {
+				m.ext.cursor = index
+				break
+			}
+		}
+	}
+}
+
+func (m *harborModel) beginSkillsSearch() tea.Cmd {
+	if m.ext.profile == nil {
+		m.ext.discoverErr = "No active Profile."
+		return nil
+	}
+	svc := m.extensionService()
+	if svc == nil {
+		m.ext.discoverErr = "Skills search is unavailable."
+		return nil
+	}
+	query := strings.TrimSpace(m.ext.discoverQuery)
+	m.ext.discoverLoading = true
+	m.ext.discoverSubmitted = true
+	m.ext.discoverResults = nil
+	m.ext.discoverCursor = 0
+	m.ext.discoverErr = ""
+	m.ext.discoverGeneration++
+	gen := m.ext.discoverGeneration
 	binding := *m.ext.profile
 	return func() tea.Msg {
-		snap, err := svc.InspectExtensions(context.Background(), binding)
-		return appExtensionsLoaded{generation: gen, profile: binding, snapshot: snap, err: err}
+		results, err := svc.SearchSkills(context.Background(), binding, query)
+		return appSkillsSearchLoaded{generation: gen, profile: binding, results: results, err: err}
 	}
 }
 
-func (m harborModel) extensionRows() (skills, plugins []extensionItem) {
+func (m harborModel) extensionRows() []extensionItem {
 	if m.ext.snapshot == nil {
-		return nil, nil
+		return nil
 	}
-	match := func(items []extensionItem) []extensionItem {
-		if strings.TrimSpace(m.ext.filter) == "" {
-			return append([]extensionItem(nil), items...)
-		}
-		texts := make([]string, len(items))
-		for i, it := range items {
-			texts[i] = it.Name + " " + it.Description + " " + it.Source + " " + it.Marketplace
-		}
-		hits := searchMatches(m.ext.filter, texts)
-		out := make([]extensionItem, 0, len(hits))
-		for _, h := range hits {
-			out = append(out, items[h.Index])
-		}
-		return out
+	items := m.ext.snapshot.Skills
+	if strings.TrimSpace(m.ext.filter) == "" {
+		return items
 	}
-	return match(m.ext.snapshot.Skills), match(m.ext.snapshot.Plugins)
-}
-
-func (m harborModel) extensionFlat() []extensionItem {
-	skills, plugins := m.extensionRows()
-	out := make([]extensionItem, 0, len(skills)+len(plugins))
-	out = append(out, skills...)
-	out = append(out, plugins...)
+	texts := make([]string, len(items))
+	for index, item := range items {
+		texts[index] = item.Name + " " + item.Description + " " + item.Source
+	}
+	hits := searchMatches(m.ext.filter, texts)
+	out := make([]extensionItem, 0, len(hits))
+	for _, hit := range hits {
+		out = append(out, items[hit.Index])
+	}
 	return out
 }
 
 func (m harborModel) selectedExtension() (extensionItem, bool) {
-	flat := m.extensionFlat()
+	flat := m.extensionRows()
 	if len(flat) == 0 {
 		return extensionItem{}, false
 	}
@@ -141,6 +203,25 @@ func (m harborModel) extensionsTitle() string {
 
 func (m harborModel) extensionsActions() []uiAction {
 	switch m.screen {
+	case "extensions-discover":
+		if m.ext.discoverSearching {
+			return []uiAction{
+				{ID: "ext:discover-search", Key: "enter", Label: "Search", Primary: true},
+				{ID: "ext:back", Key: "esc", Label: "Leave search"},
+			}
+		}
+		actions := []uiAction{{ID: "ext:discover-focus", Key: "/", Label: "Search"}}
+		if m.ext.discoverCursor < len(m.ext.discoverResults) && !m.ext.discoverResults[m.ext.discoverCursor].Installed {
+			actions = append(actions, uiAction{ID: "ext:discover-install", Key: "a", Label: "Install", Primary: true})
+		}
+		return append(actions, uiAction{ID: "ext:back", Key: "esc", Label: "Back"})
+	case "extensions-plugins":
+		return []uiAction{
+			{ID: "ext:marketplaces", Key: "m", Label: "Marketplaces"},
+			{ID: "ext:back", Key: "esc", Label: "Back"},
+		}
+	case "extensions-marketplaces":
+		return []uiAction{{ID: "ext:back", Key: "esc", Label: "Back"}}
 	case "extensions-detail":
 		out := []uiAction{}
 		if it, ok := m.selectedExtension(); ok && it.Toggleable {
@@ -153,8 +234,7 @@ func (m harborModel) extensionsActions() []uiAction {
 		return append(out, uiAction{ID: "ext:back", Key: "esc", Label: "Back"})
 	case "extensions-add":
 		return []uiAction{
-			{ID: "ext:add-confirm", Key: "enter", Label: "Run CLI", Primary: true},
-			{ID: "ext:add-kind", Key: "ctrl+t", Label: "Switch Skill/Plugin"},
+			{ID: "ext:add-confirm", Key: "enter", Label: "Continue", Primary: true},
 			{ID: "ext:back", Key: "esc", Label: "Cancel"},
 		}
 	case "extensions-remove-confirm":
@@ -162,21 +242,11 @@ func (m harborModel) extensionsActions() []uiAction {
 			{ID: "ext:remove-confirm", Key: "y", Label: "Confirm remove"},
 			{ID: "ext:back", Key: "esc", Label: "Cancel"},
 		}
-	case "extensions-sync-pick":
-		return []uiAction{
-			{ID: "ext:sync-choose", Key: "enter", Label: "Inspect diff", Primary: true},
-			{ID: "ext:back", Key: "esc", Label: "Cancel"},
-		}
-	case "extensions-sync-confirm":
-		actions := []uiAction{}
-		if m.ext.syncPlan != nil && (len(m.ext.syncPlan.MarketplacesToAdd) > 0 || len(m.ext.syncPlan.PluginsToAdd) > 0) {
-			actions = append(actions, uiAction{ID: "ext:sync-run", Key: "enter", Label: "Sync plugins", Primary: true})
-		}
-		return append(actions, uiAction{ID: "ext:back", Key: "esc", Label: "Cancel"})
-	case "extensions-sync-result":
-		return []uiAction{{ID: "ext:back", Key: "esc", Label: "Back to Extensions"}}
 	}
-	actions := []uiAction{}
+	actions := []uiAction{
+		{ID: "ext:discover", Key: "d", Label: "Discover Skills"},
+		{ID: "ext:plugins", Key: "b", Label: "Plugins"},
+	}
 	if it, ok := m.selectedExtension(); ok {
 		actions = append(actions, uiAction{ID: "ext:detail", Key: "enter", Label: "Details", Primary: true})
 		if it.Toggleable {
@@ -190,9 +260,6 @@ func (m harborModel) extensionsActions() []uiAction {
 	if _, ok := m.selectedExtension(); ok {
 		actions = append(actions, uiAction{ID: "ext:remove", Key: "x", Label: "Remove"})
 	}
-	if len(m.profiles) > 1 {
-		actions = append(actions, uiAction{ID: "ext:sync", Key: "y", Label: "Sync plugins"})
-	}
 	actions = append(actions, uiAction{ID: "ext:refresh", Key: "r", Label: "Refresh"})
 	return actions
 }
@@ -202,24 +269,31 @@ func (m harborModel) extensionsPage() (uiPage, bool) {
 		return uiPage{}, false
 	}
 	switch m.screen {
+	case "extensions-discover":
+		return m.extensionsDiscoverPage(), true
+	case "extensions-plugins", "extensions-marketplaces":
+		p := newUIPage(m.width, m.height)
+		if m.screen == "extensions-plugins" {
+			p.title("Extensions / Plugins")
+			p.emptyState("Plugin support pending.")
+		} else {
+			p.title("Extensions / Marketplaces")
+			p.emptyState("Marketplace support pending.")
+		}
+		p.shortcuts(m.extensionsActions(), "")
+		return p.finish(0), true
 	case "extensions-detail":
 		return m.extensionsDetailPage(), true
 	case "extensions-add":
 		return m.extensionsAddPage(), true
 	case "extensions-remove-confirm":
 		return m.extensionsRemoveConfirmPage(), true
-	case "extensions-sync-pick":
-		return m.extensionsSyncPickPage(), true
-	case "extensions-sync-confirm":
-		return m.extensionsSyncConfirmPage(), true
-	case "extensions-sync-result":
-		return m.extensionsSyncResultPage(), true
 	}
 
 	p := newUIPage(m.width, m.height)
 	p.line(paint(fg("brand"), m.extensionsTitle()))
 	p.tabs("extensions", m.uiHover, m.uiFocus)
-	p.search(m.ext.filter, "Filter skills and plugins", m.ext.searching, m.input)
+	p.search(m.ext.filter, "Filter installed Skills", m.ext.searching, m.input)
 
 	footer := newUIPage(m.width, m.height)
 	if !m.ext.searching {
@@ -249,30 +323,23 @@ func (m harborModel) extensionsPage() (uiPage, bool) {
 		top         int
 		first       bool
 	}
-	skills, plugins := m.extensionRows()
+	skills := m.extensionRows()
 	entries := []extEntry{}
 	vTop, flatIdx := 0, 0
 	skillsMeta := fmt.Sprintf("%d", len(skills))
 	if m.ext.snapshot != nil && m.ext.snapshot.SkillsCLI == "unavailable" {
 		skillsMeta = fmt.Sprintf("%d · CLI not found", len(skills))
 	}
-	entries = append(entries, extEntry{isHeader: true, title: "Skills · shared (~/.agents/skills)", meta: skillsMeta, top: vTop})
+	entries = append(entries, extEntry{isHeader: true, title: "Installed Skills", meta: skillsMeta, top: vTop})
 	vTop++
 	for i, s := range skills {
 		entries = append(entries, extEntry{index: flatIdx, item: s, top: vTop, first: i == 0})
 		vTop += 2
 		flatIdx++
 	}
-	entries = append(entries, extEntry{isHeader: true, title: "Plugins · this Profile", meta: fmt.Sprintf("%d", len(plugins)), top: vTop})
-	vTop++
-	for i, pl := range plugins {
-		entries = append(entries, extEntry{index: flatIdx, item: pl, top: vTop, first: i == 0})
-		vTop += 2
-		flatIdx++
-	}
 
 	if m.ext.loading && m.ext.snapshot == nil {
-		left.emptyState("Loading skills and plugins…")
+		left.emptyState("Loading local Skills…")
 	} else if m.ext.err != "" && m.ext.snapshot == nil {
 		left.line(paint(fg("warn"), cleanUI(m.ext.err)))
 	} else {
@@ -332,9 +399,6 @@ func (m harborModel) extensionsPage() (uiPage, bool) {
 			row := m.rowStyle(id, e.index == cursor && !m.ext.searching, false)
 			y := len(left.Lines)
 			statusLabel, statusColor := "Enabled", "ok"
-			if it.Kind == extPlugin {
-				statusLabel = "Installed"
-			}
 			if !it.Enabled {
 				statusLabel, statusColor = "Disabled", "muted"
 			}
@@ -362,7 +426,7 @@ func (m harborModel) extensionsPage() (uiPage, bool) {
 			}
 		}
 		if flatIdx == 0 && len(left.Lines) < bodyH {
-			left.emptyState("No skills or plugins found. Press a to add.")
+			left.emptyState("No matching Skills.")
 		}
 		if split {
 			left.scrollRail(0, min(bodyH, len(left.Lines)), vTop, scrollTop)
@@ -377,11 +441,7 @@ func (m harborModel) extensionsPage() (uiPage, bool) {
 	if split {
 		if it, ok := m.selectedExtension(); ok {
 			right.line(paint(fg("text").Bold(true), cleanUI(it.Name)))
-			right.field("", "", "Type", strings.ToUpper(string(it.Kind[:1]))+string(it.Kind[1:]), false, false)
 			state := "Enabled"
-			if it.Kind == extPlugin {
-				state = "Installed"
-			}
 			if !it.Enabled {
 				state = "Disabled in this Profile"
 			}
@@ -399,7 +459,7 @@ func (m harborModel) extensionsPage() (uiPage, bool) {
 				}
 			}
 		} else if m.ext.snapshot != nil {
-			right.line(paint(fg("muted"), "Select a skill or plugin to inspect its path and status."))
+			right.line(paint(fg("muted"), "Select a Skill to inspect its path and status."))
 		}
 	}
 	rightStart := min(m.ext.detailScroll, max(0, len(right.Lines)-bodyH))
@@ -453,14 +513,10 @@ func (m harborModel) extensionsDetailPage() uiPage {
 	lines := []string{
 		cleanUI(it.Name),
 		"",
-		kv("Type", string(it.Kind)),
 		kv("Status", map[bool]string{true: "Enabled", false: "Disabled"}[it.Enabled]),
 		kv("Source", orUnknown(it.Source)),
 		kv("Scope", orUnknown(it.Scope)),
 		kv("Path", orUnknown(it.Path)),
-	}
-	if it.Marketplace != "" {
-		lines = append(lines, kv("Marketplace", it.Marketplace))
 	}
 	if len(it.Clients) > 0 {
 		lines = append(lines, kv("Clients", strings.Join(it.Clients, ", ")))
@@ -474,151 +530,131 @@ func (m harborModel) extensionsDetailPage() uiPage {
 	return secondaryDocument(m.width, m.height, "Extension details", strings.Join(lines, "\n"), m.extensionsActions(), "", m.scroll)
 }
 
-func (m harborModel) extensionsAddPage() uiPage {
-	kindLabel := "Skill (via skills CLI → ~/.agents/skills)"
-	placeholder := "owner/repo or leave empty to run `skills find`"
-	if m.ext.addKind == extPlugin {
-		kindLabel = "Codex Plugin (via `codex plugin add` → this Profile)"
-		placeholder = "plugin-name or plugin@marketplace"
+func (m harborModel) extensionsDiscoverPage() uiPage {
+	p := newUIPage(m.width, m.height)
+	p.title("Extensions / Discover Skills")
+	p.search(m.ext.discoverQuery, "Search skills.sh", m.ext.discoverSearching, m.input)
+	p.shortcuts(m.extensionsActions(), "")
+	if !m.ext.discoverSearching && len(m.ext.discoverResults) > 0 {
+		p.Hint = "↑↓/jk select"
 	}
-	body := "Target: " + kindLabel + "\n\n" + textEntry(m.input, m.width, placeholder) + "\n\nHarbor hands off the terminal to the CLI, then reloads the list on exit."
+	start := len(p.Lines)
+	if m.ext.discoverLoading {
+		p.emptyState("Searching Skills catalog…")
+	} else if m.ext.discoverErr != "" {
+		p.line(paint(fg("warn"), cleanUI(m.ext.discoverErr)))
+	} else if len(m.ext.discoverResults) == 0 {
+		if m.ext.discoverSubmitted {
+			p.emptyState("No matching Skills.")
+		} else {
+			p.emptyState("Enter at least two characters to search.")
+		}
+	}
+	if m.ext.notice != "" {
+		p.line(paint(fg("value"), cleanUI(m.ext.notice)))
+		start++
+	}
+	for index, item := range m.ext.discoverResults {
+		id := fmt.Sprintf("ext-discover:%d", index)
+		row := m.rowStyle(id, index == m.ext.discoverCursor && !m.ext.discoverSearching, false)
+		meta := cleanUI(item.Source)
+		if item.Installed {
+			meta = "Installed · " + meta
+		} else if item.Installs > 0 {
+			meta += fmt.Sprintf(" · %d installs", item.Installs)
+		}
+		p.listRow(id, "", cleanUI(item.Name), meta, row)
+	}
+	scroll := 0
+	if !m.ext.discoverSearching && len(m.ext.discoverResults) > 0 {
+		bodyHeight := max(1, m.height-len(p.shortcutBar().Lines))
+		scroll = max(0, start+m.ext.discoverCursor-bodyHeight+1)
+	}
+	return p.finish(scroll)
+}
+
+func (m harborModel) extensionsAddPage() uiPage {
+	body := textEntry(m.input, m.width, "Search term, owner/repo, Git URL or path")
 	if m.ext.notice != "" {
 		body += "\n\n" + m.ext.notice
 	}
-	return secondaryDocument(m.width, m.height, "Add extension", body, m.extensionsActions(), "", 0)
+	return secondaryDocument(m.width, m.height, "Add Skill", body, m.extensionsActions(), "", 0)
 }
 
 func (m harborModel) extensionsRemoveConfirmPage() uiPage {
 	name, scopeNote := "unknown", ""
 	if t := m.ext.removeTarget; t != nil {
 		name = t.Name
-		if t.Kind == extSkill {
-			scopeNote = "Removing a global skill affects shared ~/.agents/skills across clients. Press Space on the list instead if you only want to disable it in this Profile."
-		} else {
-			scopeNote = "Removes this Codex plugin and its local cache from the current Profile only."
-		}
+		scopeNote = "Removing a global skill affects shared ~/.agents/skills across clients. Press Space on the list instead if you only want to disable it in this Profile."
 	}
 	body := fmt.Sprintf("Remove %s?\n\n%s", cleanUI(name), scopeNote)
-	return secondaryDocument(m.width, m.height, "Remove extension", body, m.extensionsActions(), "", 0)
+	return secondaryDocument(m.width, m.height, "Remove Skill", body, m.extensionsActions(), "", 0)
 }
 
-func (m harborModel) extensionsSyncPickPage() uiPage {
-	p := newUIPage(m.width, m.height)
-	p.title("Sync plugins from Profile")
-	p.line(paint(fg("muted"), "Choose a source Profile to copy its Codex plugin manifest into "+cleanUI(m.profileShortLabel(m.ext.profile))+"."))
-	p.line(paint(fg("muted"), "Only plugin definitions and marketplaces are synced; logins, history, and MCP OAuth tokens are never copied."))
-	p.line("")
-	for i, src := range m.ext.syncSources {
-		id := fmt.Sprintf("ext-sync-src:%d", i)
-		row := m.rowStyle(id, i == m.ext.syncCursor, false)
-		p.listRow(id, "", cleanUI(src.Name), string(src.Kind), row)
-	}
-	if len(m.ext.syncSources) == 0 {
-		p.emptyState("No other Profiles available to sync from.")
-	}
-	p.shortcuts(m.extensionsActions(), "")
-	p.Hint = "↑↓/jk choose"
-	return p.finish(0)
-}
-
-func (m harborModel) extensionsSyncConfirmPage() uiPage {
-	plan := m.ext.syncPlan
-	if plan == nil {
-		return secondaryDocument(m.width, m.height, "Sync plugins", "Inspecting Profile plugins…", m.extensionsActions(), "", 0)
-	}
-	lines := []string{
-		kv("Source Profile", cleanUI(plan.SourceName)),
-		kv("Target Profile", cleanUI(plan.TargetName)),
-		"",
-		"Only plugin definitions and marketplace sources will be installed in the target Profile.",
-		"Account logins, conversation histories, and MCP OAuth credentials are NOT copied.",
-		"",
-	}
-	if len(plan.MarketplacesToAdd) > 0 {
-		lines = append(lines, fmt.Sprintf("Marketplaces to add (%d):", len(plan.MarketplacesToAdd)))
-		for _, mk := range plan.MarketplacesToAdd {
-			lines = append(lines, note(mk.Name+" · "+mk.Source))
-		}
-		lines = append(lines, "")
-	}
-	if len(plan.PluginsToAdd) > 0 {
-		lines = append(lines, fmt.Sprintf("Plugins to install (%d):", len(plan.PluginsToAdd)))
-		for _, pl := range plan.PluginsToAdd {
-			lines = append(lines, note(pl.Name))
-		}
-		lines = append(lines, "")
-	}
-	if len(plan.AlreadyInstalled) > 0 {
-		lines = append(lines, fmt.Sprintf("Already installed in target (%d skipped): %s", len(plan.AlreadyInstalled), strings.Join(plan.AlreadyInstalled, ", ")))
-	}
-	if len(plan.MarketplacesToAdd) == 0 && len(plan.PluginsToAdd) == 0 {
-		lines = append(lines, "Target Profile already has every plugin from the source Profile.")
-	}
-	return secondaryDocument(m.width, m.height, "Confirm plugin sync", strings.Join(lines, "\n"), m.extensionsActions(), "", m.scroll)
-}
-
-func (m harborModel) extensionsSyncResultPage() uiPage {
-	res := m.ext.syncResult
-	if res == nil {
-		return secondaryDocument(m.width, m.height, "Plugin sync result", "No sync results.", m.extensionsActions(), "", 0)
-	}
-	lines := []string{
-		kv("Source Profile", cleanUI(res.Plan.SourceName)),
-		kv("Target Profile", cleanUI(res.Plan.TargetName)),
-		"",
-	}
-	for _, out := range res.Outcomes {
-		line := fmt.Sprintf("[%s] %s (%s)", out.State, out.Name, out.Kind)
-		if out.Detail != "" {
-			line += " — " + out.Detail
-		}
-		lines = append(lines, line)
-	}
-	if len(res.Outcomes) == 0 {
-		lines = append(lines, "No changes needed.")
-	}
-	return secondaryDocument(m.width, m.height, "Plugin sync result", strings.Join(lines, "\n"), m.extensionsActions(), "", m.scroll)
-}
-
-func (m harborModel) runExtensionExec(action string, kind extensionKind, target string) (tea.Model, tea.Cmd) {
+func (m harborModel) runExtensionExec(action, target string) (tea.Model, tea.Cmd) {
 	svc := m.extensionService()
 	if svc == nil || m.ext.profile == nil {
 		m.ext.notice = "Extensions service or Profile is unavailable."
-		m.screen = "extensions"
 		return m, nil
 	}
-	cmd, err := svc.ExtensionExecCommand(context.Background(), *m.ext.profile, action, kind, target)
+	cmd, err := svc.ExtensionExecCommand(context.Background(), *m.ext.profile, action, target)
 	if err != nil {
 		m.ext.notice = err.Error()
-		m.screen = "extensions"
 		return m, nil
 	}
-	m.screen = "extensions"
+	index := m.ext.discoverCursor
+	if action != "install-skill" {
+		m.screen = "extensions"
+	}
+	m.input.Blur()
 	m.ext.notice = ""
 	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
-		return appExtensionExecDone{action: action, err: err}
+		return appExtensionExecDone{action: action, catalogIndex: index, err: err}
 	})
 }
 
 func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
-	case appExtensionsLoaded:
-		if msg.generation != m.ext.generation || (m.ext.profile != nil && msg.profile != *m.ext.profile) {
+	case appExtensionsLocalLoaded:
+		if msg.generation != m.ext.generation || m.ext.profile == nil || msg.profile != *m.ext.profile {
 			return m, nil, true
 		}
 		m.ext.loading = false
 		if msg.err != nil {
 			m.ext.err = msg.err.Error()
+			return m, nil, true
+		}
+		m.applyExtensionSnapshot(msg.profile, msg.snapshot)
+		svc := m.extensionService()
+		return m, func() tea.Msg {
+			skills, err := svc.InspectCodexSkills(context.Background(), msg.profile)
+			return appCodexSkillsLoaded{generation: msg.generation, profile: msg.profile, skills: skills, err: err}
+		}, true
+	case appCodexSkillsLoaded:
+		if msg.generation != m.ext.generation || m.ext.profile == nil || msg.profile != *m.ext.profile || m.ext.snapshot == nil {
+			return m, nil, true
+		}
+		snap := *m.ext.snapshot
+		if msg.err == nil {
+			snap.Skills = mergeSkillItems(snap.Skills, msg.skills)
 		} else {
-			snap := msg.snapshot
-			m.ext.snapshot = &snap
-			m.ext.err = ""
-			flat := m.extensionFlat()
-			m.ext.cursor = max(0, min(m.ext.cursor, max(0, len(flat)-1)))
+			snap.Warnings = append(append([]string(nil), snap.Warnings...), "Codex skills could not be loaded. Showing local Skills.")
+		}
+		m.applyExtensionSnapshot(msg.profile, snap)
+		return m, nil, true
+	case appSkillsSearchLoaded:
+		if msg.generation != m.ext.discoverGeneration || m.ext.profile == nil || msg.profile != *m.ext.profile {
+			return m, nil, true
+		}
+		m.ext.discoverLoading = false
+		if msg.err != nil {
+			m.ext.discoverErr = msg.err.Error()
+		} else {
+			m.ext.discoverResults = msg.results
 		}
 		return m, nil, true
 	case appExtensionToggled:
-		if msg.generation != m.ext.generation {
+		if m.ext.profile == nil || msg.profile != *m.ext.profile {
 			return m, nil, true
 		}
 		if msg.err != nil {
@@ -630,6 +666,7 @@ func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			state = "enabled"
 		}
 		m.ext.notice = fmt.Sprintf("%s %s for this Profile.", msg.item.Name, state)
+		m.invalidateExtensionsCache()
 		return m, m.beginExtensionsInspect(), true
 	case appExtensionExecDone:
 		if msg.err != nil {
@@ -637,37 +674,12 @@ func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		} else {
 			m.ext.notice = fmt.Sprintf("Extension %s completed.", msg.action)
 		}
+		m.invalidateExtensionsCache()
+		if msg.action == "install-skill" && msg.err == nil && msg.catalogIndex < len(m.ext.discoverResults) {
+			m.ext.discoverResults = append([]skillCatalogItem(nil), m.ext.discoverResults...)
+			m.ext.discoverResults[msg.catalogIndex].Installed = true
+		}
 		return m, tea.Batch(tea.EnableMouseAllMotion, m.beginExtensionsInspect()), true
-	case appPluginSyncPlanned:
-		if msg.generation != m.ext.generation {
-			return m, nil, true
-		}
-		m.ext.syncBusy = false
-		if msg.err != nil {
-			m.ext.notice = msg.err.Error()
-			m.screen = "extensions"
-			return m, nil, true
-		}
-		plan := msg.plan
-		m.ext.syncPlan = &plan
-		m.screen = "extensions-sync-confirm"
-		m.scroll = 0
-		return m, nil, true
-	case appPluginSyncDone:
-		if msg.generation != m.ext.generation {
-			return m, nil, true
-		}
-		m.ext.syncBusy = false
-		if msg.err != nil {
-			m.ext.notice = msg.err.Error()
-			m.screen = "extensions"
-			return m, nil, true
-		}
-		res := msg.result
-		m.ext.syncResult = &res
-		m.screen = "extensions-sync-result"
-		m.scroll = 0
-		return m, m.beginExtensionsInspect(), true
 	}
 
 	if m.screen != "extensions" && !strings.HasPrefix(m.screen, "extensions-") {
@@ -684,9 +696,13 @@ func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 				delta = -1
 			}
 			if m.screen == "extensions" {
-				flat := m.extensionFlat()
+				flat := m.extensionRows()
 				if len(flat) > 0 {
 					m.ext.cursor = max(0, min(len(flat)-1, m.ext.cursor+delta))
+				}
+			} else if m.screen == "extensions-discover" {
+				if len(m.ext.discoverResults) > 0 {
+					m.ext.discoverCursor = max(0, min(len(m.ext.discoverResults)-1, m.ext.discoverCursor+delta))
 				}
 			} else {
 				m.scroll = max(0, m.scroll+delta)
@@ -703,6 +719,7 @@ func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			return m, nil, true
 		}
 		if strings.HasPrefix(target, "nav:") {
+			m.ext.searching = false
 			next, cmd := m.activateSessions(target)
 			return next, cmd, true
 		}
@@ -711,6 +728,9 @@ func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			m.input.SetValue(m.ext.filter)
 			m.input.CursorEnd()
 			return m, m.input.Focus(), true
+		}
+		if target == "search" && m.screen == "extensions-discover" {
+			return m.extensionsActivate("ext:discover-focus")
 		}
 		if idxStr, ok := strings.CutPrefix(target, "ext-row:"); ok {
 			var idx int
@@ -725,13 +745,12 @@ func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			}
 			return m, nil, true
 		}
-		if idxStr, ok := strings.CutPrefix(target, "ext-sync-src:"); ok {
+		if idxStr, ok := strings.CutPrefix(target, "ext-discover:"); ok {
 			var idx int
-			if _, err := fmt.Sscanf(idxStr, "%d", &idx); err == nil {
-				if m.ext.syncCursor == idx {
-					return m.extensionsActivate("ext:sync-choose")
-				}
-				m.ext.syncCursor = idx
+			if _, err := fmt.Sscanf(idxStr, "%d", &idx); err == nil && idx >= 0 && idx < len(m.ext.discoverResults) {
+				m.ext.discoverCursor = idx
+				m.ext.discoverSearching = false
+				m.input.Blur()
 			}
 			return m, nil, true
 		}
@@ -753,23 +772,44 @@ func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 			m.screen = "extensions"
 			m.input.Blur()
 			return m, nil, true
-		case "ctrl+t":
-			if m.ext.addKind == extSkill {
-				m.ext.addKind = extPlugin
-			} else {
-				m.ext.addKind = extSkill
-			}
-			return m, nil, true
 		case "enter":
-			val := strings.TrimSpace(m.input.Value())
-			m.input.Blur()
-			next, cmd := m.runExtensionExec("add", m.ext.addKind, val)
-			return next, cmd, true
+			return m.extensionsActivate("ext:add-confirm")
 		default:
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
 			return m, cmd, true
 		}
+	}
+
+	if m.screen == "extensions-discover" {
+		if m.ext.discoverSearching {
+			switch k {
+			case "esc":
+				m.ext.discoverSearching = false
+				m.input.Blur()
+			case "enter":
+				return m.extensionsActivate("ext:discover-search")
+			default:
+				var cmd tea.Cmd
+				m.input, cmd = m.input.Update(msg)
+				m.ext.discoverQuery = m.input.Value()
+				return m, cmd, true
+			}
+			return m, nil, true
+		}
+		switch k {
+		case "esc", "q":
+			m.screen = "extensions"
+		case "/":
+			return m.extensionsActivate("ext:discover-focus")
+		case "down", "j":
+			m.ext.discoverCursor = min(max(0, len(m.ext.discoverResults)-1), m.ext.discoverCursor+1)
+		case "up", "k":
+			m.ext.discoverCursor = max(0, m.ext.discoverCursor-1)
+		case "a":
+			return m.extensionsActivate("ext:discover-install")
+		}
+		return m, nil, true
 	}
 
 	if m.screen == "extensions" && m.ext.searching {
@@ -798,15 +838,23 @@ func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 	}
 
 	switch m.screen {
-	case "extensions-detail", "extensions-sync-result":
+	case "extensions-plugins", "extensions-marketplaces":
+		switch k {
+		case "esc", "q":
+			return m.extensionsActivate("ext:back")
+		case "m":
+			if m.screen == "extensions-plugins" {
+				return m.extensionsActivate("ext:marketplaces")
+			}
+		}
+		return m, nil, true
+	case "extensions-detail":
 		switch k {
 		case "esc", "q":
 			m.screen = "extensions"
 			m.scroll = 0
 		case " ", "space":
-			if m.screen == "extensions-detail" {
-				return m.extensionsActivate("ext:toggle")
-			}
+			return m.extensionsActivate("ext:toggle")
 		case "down", "j":
 			m.scroll++
 		case "up", "k":
@@ -820,33 +868,6 @@ func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		case "esc", "enter", "q":
 			m.ext.removeTarget = nil
 			m.screen = "extensions"
-		}
-		return m, nil, true
-	case "extensions-sync-pick":
-		switch k {
-		case "esc", "q":
-			m.screen = "extensions"
-		case "down", "j":
-			if len(m.ext.syncSources) > 0 {
-				m.ext.syncCursor = min(len(m.ext.syncSources)-1, m.ext.syncCursor+1)
-			}
-		case "up", "k":
-			m.ext.syncCursor = max(0, m.ext.syncCursor-1)
-		case "enter":
-			return m.extensionsActivate("ext:sync-choose")
-		}
-		return m, nil, true
-	case "extensions-sync-confirm":
-		switch k {
-		case "esc", "q":
-			m.ext.syncPlan = nil
-			m.screen = "extensions"
-		case "enter":
-			return m.extensionsActivate("ext:sync-run")
-		case "down", "j":
-			m.scroll++
-		case "up", "k":
-			m.scroll = max(0, m.scroll-1)
 		}
 		return m, nil, true
 	}
@@ -869,7 +890,7 @@ func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		m.input.CursorEnd()
 		return m, m.input.Focus(), true
 	case "down", "j":
-		if flat := m.extensionFlat(); len(flat) > 0 {
+		if flat := m.extensionRows(); len(flat) > 0 {
 			m.ext.cursor = min(len(flat)-1, m.ext.cursor+1)
 			m.ext.detailScroll = 0
 		}
@@ -886,8 +907,10 @@ func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		return m.extensionsActivate("ext:update")
 	case "x":
 		return m.extensionsActivate("ext:remove")
-	case "y":
-		return m.extensionsActivate("ext:sync")
+	case "d":
+		return m.extensionsActivate("ext:discover")
+	case "b":
+		return m.extensionsActivate("ext:plugins")
 	case "r":
 		return m.extensionsActivate("ext:refresh")
 	case "p":
@@ -901,11 +924,42 @@ func (m harborModel) extensionsPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 
 func (m harborModel) extensionsActivate(id string) (tea.Model, tea.Cmd, bool) {
 	switch id {
+	case "ext:discover":
+		m.screen = "extensions-discover"
+		m.ext.notice = ""
+		return m.extensionsActivate("ext:discover-focus")
+	case "ext:discover-focus":
+		m.ext.discoverSearching = true
+		m.input.SetValue(m.ext.discoverQuery)
+		m.input.CursorEnd()
+		return m, m.input.Focus(), true
+	case "ext:discover-search":
+		m.ext.discoverSearching = false
+		m.ext.notice = ""
+		m.input.Blur()
+		return m, m.beginSkillsSearch(), true
+	case "ext:discover-install":
+		if m.ext.discoverSearching || m.ext.discoverCursor >= len(m.ext.discoverResults) {
+			return m, nil, true
+		}
+		item := m.ext.discoverResults[m.ext.discoverCursor]
+		if item.Installed {
+			return m, nil, true
+		}
+		next, cmd := m.runExtensionExec("install-skill", item.Source+"\x00"+item.Skill)
+		return next, cmd, true
 	case "ext:back":
 		m.ext.removeTarget = nil
-		m.ext.syncPlan = nil
-		m.screen = "extensions"
+		m.input.Blur()
 		m.scroll = 0
+		switch {
+		case m.screen == "extensions-discover" && m.ext.discoverSearching:
+			m.ext.discoverSearching = false
+		case m.screen == "extensions-marketplaces":
+			m.screen = "extensions-plugins"
+		default:
+			m.screen = "extensions"
+		}
 		return m, nil, true
 	case "ext:detail":
 		if _, ok := m.selectedExtension(); ok {
@@ -915,7 +969,14 @@ func (m harborModel) extensionsActivate(id string) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case "ext:refresh":
 		m.ext.notice = ""
+		m.invalidateExtensionsCache()
 		return m, m.beginExtensionsInspect(), true
+	case "ext:plugins":
+		m.screen = "extensions-plugins"
+		return m, nil, true
+	case "ext:marketplaces":
+		m.screen = "extensions-marketplaces"
+		return m, nil, true
 	case "ext:toggle":
 		it, ok := m.selectedExtension()
 		if !ok || m.ext.profile == nil {
@@ -931,38 +992,33 @@ func (m harborModel) extensionsActivate(id string) (tea.Model, tea.Cmd, bool) {
 		}
 		nextEnabled := !it.Enabled
 		binding := *m.ext.profile
-		gen := m.ext.generation
 		return m, func() tea.Msg {
 			err := svc.ToggleExtension(context.Background(), binding, it, nextEnabled)
-			return appExtensionToggled{generation: gen, profile: binding, item: it, enabled: nextEnabled, err: err}
+			return appExtensionToggled{profile: binding, item: it, enabled: nextEnabled, err: err}
 		}, true
 	case "ext:add":
-		m.ext.addKind = extSkill
-		if it, ok := m.selectedExtension(); ok && it.Kind == extPlugin {
-			m.ext.addKind = extPlugin
-		}
 		m.ext.notice = ""
 		m.input.SetValue("")
 		m.screen = "extensions-add"
 		return m, m.input.Focus(), true
-	case "ext:add-kind":
-		if m.ext.addKind == extSkill {
-			m.ext.addKind = extPlugin
-		} else {
-			m.ext.addKind = extSkill
-		}
-		return m, nil, true
 	case "ext:add-confirm":
-		val := strings.TrimSpace(m.input.Value())
-		m.input.Blur()
-		next, cmd := m.runExtensionExec("add", m.ext.addKind, val)
+		value := strings.TrimSpace(m.input.Value())
+		if !skillInputIsSource(value) {
+			m.ext.discoverQuery = value
+			if value == "" {
+				return m.extensionsActivate("ext:discover")
+			}
+			m.screen = "extensions-discover"
+			return m.extensionsActivate("ext:discover-search")
+		}
+		next, cmd := m.runExtensionExec("add", value)
 		return next, cmd, true
 	case "ext:update":
 		target := ""
-		if it, ok := m.selectedExtension(); ok && it.Kind == extSkill {
-			target = it.Name
+		if item, ok := m.selectedExtension(); ok {
+			target = item.Name
 		}
-		next, cmd := m.runExtensionExec("update", extSkill, target)
+		next, cmd := m.runExtensionExec("update", target)
 		return next, cmd, true
 	case "ext:remove":
 		if it, ok := m.selectedExtension(); ok {
@@ -976,86 +1032,11 @@ func (m harborModel) extensionsActivate(id string) (tea.Model, tea.Cmd, bool) {
 			m.screen = "extensions"
 			return m, nil, true
 		}
-		t := *m.ext.removeTarget
+		name := m.ext.removeTarget.Name
 		m.ext.removeTarget = nil
-		target := t.Name
-		if t.Kind == extPlugin && t.ID != "" {
-			target = t.ID
-		}
-		next, cmd := m.runExtensionExec("remove", t.Kind, target)
+		m.screen = "extensions"
+		next, cmd := m.runExtensionExec("remove", name)
 		return next, cmd, true
-	case "ext:sync":
-		if len(m.profiles) < 2 || m.ext.profile == nil {
-			m.ext.notice = "Plugin sync requires at least two Profiles."
-			return m, nil, true
-		}
-		sources := []profile{}
-		for _, p := range m.profiles {
-			if p.ID != m.ext.profile.ProfileID {
-				sources = append(sources, p)
-			}
-		}
-		m.ext.syncSources = sources
-		m.ext.syncCursor = 0
-		m.screen = "extensions-sync-pick"
-		return m, nil, true
-	case "ext:sync-choose":
-		if m.ext.syncCursor < 0 || m.ext.syncCursor >= len(m.ext.syncSources) || m.ext.profile == nil {
-			return m, nil, true
-		}
-		srcProfile := m.ext.syncSources[m.ext.syncCursor]
-		srcBinding, err := bindingOf(srcProfile, "codex")
-		if err != nil {
-			m.ext.notice = err.Error()
-			m.screen = "extensions"
-			return m, nil, true
-		}
-		svc := m.extensionService()
-		if svc == nil {
-			return m, nil, true
-		}
-		dstBinding := *m.ext.profile
-		m.ext.syncBusy = true
-		gen := m.ext.generation
-		return m, func() tea.Msg {
-			plan, err := svc.PlanPluginSync(context.Background(), srcBinding, dstBinding)
-			return appPluginSyncPlanned{generation: gen, plan: plan, err: err}
-		}, true
-	case "ext:sync-run":
-		if m.ext.syncPlan == nil {
-			return m, nil, true
-		}
-		svc := m.extensionService()
-		if svc == nil {
-			return m, nil, true
-		}
-		plan := *m.ext.syncPlan
-		m.ext.syncBusy = true
-		gen := m.ext.generation
-		return m, func() tea.Msg {
-			res, err := svc.ExecutePluginSync(context.Background(), plan)
-			return appPluginSyncDone{generation: gen, result: res, err: err}
-		}, true
 	}
 	return m, nil, true
-}
-
-func (m harborModel) extensionsHelp() string {
-	return strings.Join([]string{
-		"🧩 Extensions",
-		"",
-		"Skills are shared from ~/.agents/skills and toggled per Profile in $CODEX_HOME/config.toml.",
-		"Plugins belong to each Profile's $CODEX_HOME/plugins; use Sync to install definitions across Profiles without copying credentials or history.",
-		"",
-		kv("↑↓/jk", "Select skill or plugin"),
-		kv("Enter / i", "Inspect full path and details"),
-		kv("Space / t", "Enable or disable selected skill for this Profile"),
-		kv("a", "Add skill (via skills CLI) or plugin (via codex plugin add)"),
-		kv("u", "Update skills via skills CLI"),
-		kv("x", "Remove selected skill or plugin"),
-		kv("y", "Sync Codex plugin manifest from another Profile"),
-		kv("/", "Filter skills and plugins"),
-		kv("p", "Switch Profile"),
-		kv("r", "Refresh"),
-	}, "\n")
 }

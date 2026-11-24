@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,128 +110,203 @@ func TestResolveSkillsCLIPriority(t *testing.T) {
 	}
 }
 
-func TestBuildPluginSyncPlanDiffsManifestOnly(t *testing.T) {
-	bA := profileBinding{WorkspaceID: "ws", ProfileID: "a", Client: "codex", EnvironmentID: "ea"}
-	bB := profileBinding{WorkspaceID: "ws", ProfileID: "b", Client: "codex", EnvironmentID: "eb"}
-	src := extensionSnapshot{
-		Profile:     bA,
-		ProfileName: "Work",
-		Marketplaces: []extensionMarketplace{
-			{Name: "official", Source: "https://example.test/official"},
-			{Name: "team", Source: "https://example.test/team"},
-		},
-		Plugins: []extensionItem{
-			{Kind: extPlugin, ID: "github@official", Name: "github", Marketplace: "official"},
-			{Kind: extPlugin, ID: "linear@team", Name: "linear", Marketplace: "team"},
-		},
-	}
-	dst := extensionSnapshot{
-		Profile:     bB,
-		ProfileName: "Personal",
-		Marketplaces: []extensionMarketplace{
-			{Name: "official", Source: "https://example.test/official"},
-		},
-		Plugins: []extensionItem{
-			{Kind: extPlugin, ID: "github@official", Name: "github", Marketplace: "official"},
-		},
-	}
-	plan := buildPluginSyncPlan(src, dst)
-	if len(plan.MarketplacesToAdd) != 1 || plan.MarketplacesToAdd[0].Name != "team" {
-		t.Fatalf("unexpected marketplaces diff: %+v", plan.MarketplacesToAdd)
-	}
-	if len(plan.PluginsToAdd) != 1 || plan.PluginsToAdd[0].ID != "linear@team" {
-		t.Fatalf("unexpected plugins diff: %+v", plan.PluginsToAdd)
-	}
-	if len(plan.AlreadyInstalled) != 1 || plan.AlreadyInstalled[0] != "github" {
-		t.Fatalf("unexpected already installed list: %+v", plan.AlreadyInstalled)
+func TestParseSkillsCatalogResponse(t *testing.T) {
+	result, err := parseSkillsCatalogResponse([]byte(`{"skills":[{"id":"vercel-labs/agent-skills/react","source":"vercel-labs/agent-skills","skillId":"react","name":"React","installs":42}]}`))
+	if err != nil || len(result) != 1 || result[0].Skill != "react" || result[0].Installs != 42 {
+		t.Fatalf("unexpected catalog result: %+v %v", result, err)
 	}
 }
 
-func TestExtensionsUIToggleSyncAndNavigation(t *testing.T) {
-	f := &fakeApplicationService{}
-	pA, _ := f.CreateProfile(profileCreateRequest{Name: "Default", Kind: profileIsolated})
-	pB, _ := f.CreateProfile(profileCreateRequest{Name: "Work", Kind: profileIsolated})
-	bA, _ := bindingOf(pA, "codex")
-	bB, _ := bindingOf(pB, "codex")
-	f.Extensions = map[profileBinding]extensionSnapshot{
-		bA: {
-			Profile:     bA,
-			ProfileName: "Default",
-			SkillsCLI:   "path",
-			Skills: []extensionItem{
-				{Kind: extSkill, ID: "/s/code-review", Name: "code-review", Description: "Review code", Source: "shared (~/.agents/skills)", Path: "/s/code-review", Enabled: true, Toggleable: true},
-			},
-			Plugins: []extensionItem{
-				{Kind: extPlugin, ID: "github@official", Name: "github", Marketplace: "official", Enabled: true},
-			},
-		},
-		bB: {
-			Profile:     bB,
-			ProfileName: "Work",
-			SkillsCLI:   "path",
-			Plugins: []extensionItem{
-				{Kind: extPlugin, ID: "github@official", Name: "github", Marketplace: "official", Enabled: true},
-				{Kind: extPlugin, ID: "linear@team", Name: "linear", Marketplace: "team", Enabled: true},
-			},
-		},
+func TestSkillInputClassifiesKeywordsAndSources(t *testing.T) {
+	for _, keyword := range []string{"tdd", "react", "code-review"} {
+		if skillInputIsSource(keyword) {
+			t.Fatalf("keyword classified as source: %q", keyword)
+		}
 	}
-
-	m := newHarborModel(f)
-	m.width, m.height = 100, 30
-	m.profiles = []profile{pA, pB}
-	m.activeProfile = &bA
-
-	// Navigate from Sessions -> Extensions via Right arrow.
-	n, cmd := m.Update(uiKey("right"))
-	m = settleApp(n, cmd).(harborModel)
-	if m.screen != "extensions" || m.ext.snapshot == nil || len(m.ext.snapshot.Skills) != 1 {
-		t.Fatalf("failed to enter extensions tab: screen=%q snap=%+v", m.screen, m.ext.snapshot)
+	for _, source := range []string{"owner/repo", "https://example.test/skills.git", "/tmp/skills", "git@example.test:owner/repo.git"} {
+		if !skillInputIsSource(source) {
+			t.Fatalf("source classified as keyword: %q", source)
+		}
 	}
-	view := cleanUI(m.View())
-	if !strings.Contains(view, "code-review") || !strings.Contains(view, "github") {
-		t.Fatalf("extensions view missing items:\n%s", view)
+	if got, err := buildSkillsCLIArgs("path", "add", "tdd"); err == nil {
+		t.Fatalf("keyword reached skills add: %v", got)
 	}
+	if got, err := buildSkillsCLIArgs("npx", "add", "owner/repo"); err != nil || strings.Join(got, " ") != "--yes skills add owner/repo -g -a codex" {
+		t.Fatalf("repository should run skills add: %v %v", got, err)
+	}
+}
 
-	// Toggle skill with Space.
-	n, cmd = m.Update(uiKey(" "))
-	m = settleApp(n, cmd).(harborModel)
+func TestExtensionsToggleAndPluginPlaceholderNavigation(t *testing.T) {
+	service := &fakeApplicationService{}
+	profile, _ := service.CreateProfile(profileCreateRequest{Name: "Default", Kind: profileIsolated})
+	binding, _ := bindingOf(profile, "codex")
+	service.Extensions = map[profileBinding]extensionSnapshot{binding: {
+		SkillsCLI: "path",
+		Skills:    []extensionItem{{ID: "/s/review", Name: "review", Path: "/s/review", Enabled: true, Toggleable: true}},
+	}}
+	m := newHarborModel(service)
+	m.width, m.height = 60, 24
+	m.activeProfile = &binding
+	enter, load := m.Update(uiKey("right"))
+	local, enrich := enter.Update(load())
+	m = local.(harborModel)
+	if enrich == nil || !strings.Contains(m.View(), "review") || !strings.Contains(m.View(), "Plugins") {
+		t.Fatalf("local Skills and Plugins entry must render before Codex responds:\n%s", m.View())
+	}
+	m = settleApp(m, enrich).(harborModel)
+	next, toggle := m.Update(uiKey(" "))
+	m = settleApp(next, toggle).(harborModel)
 	if m.ext.snapshot.Skills[0].Enabled {
-		t.Fatal("space did not disable skill")
+		t.Fatal("space did not disable the Skill")
 	}
+	calls := len(service.Calls)
+	for _, step := range []struct{ key, screen, text string }{
+		{"b", "extensions-plugins", "Plugin support pending."},
+		{"enter", "extensions-plugins", "Plugin support pending."},
+		{"a", "extensions-plugins", "Plugin support pending."},
+		{"m", "extensions-marketplaces", "Marketplace support pending."},
+		{"r", "extensions-marketplaces", "Marketplace support pending."},
+		{"x", "extensions-marketplaces", "Marketplace support pending."},
+		{"esc", "extensions-plugins", "Plugin support pending."},
+		{"esc", "extensions", "Installed Skills"},
+	} {
+		next, cmd := m.Update(uiKey(step.key))
+		m = next.(harborModel)
+		if cmd != nil || m.screen != step.screen || !strings.Contains(m.View(), step.text) {
+			t.Fatalf("%q: screen=%q, called command=%v, view:\n%s", step.key, m.screen, cmd != nil, m.View())
+		}
+	}
+	if len(service.Calls) != calls || len(service.ExecCommands) != 0 {
+		t.Fatalf("placeholder invoked the service: %v %v", service.Calls[calls:], service.ExecCommands)
+	}
+}
 
-	// Sync plugins from Work -> Default.
-	n, cmd = m.Update(uiKey("y"))
-	m = settleApp(n, cmd).(harborModel)
-	if m.screen != "extensions-sync-pick" || len(m.ext.syncSources) != 1 || m.ext.syncSources[0].Name != "Work" {
-		t.Fatalf("sync picker unexpected: screen=%q sources=%+v", m.screen, m.ext.syncSources)
-	}
-	n, cmd = m.Update(uiKey("enter"))
-	m = settleApp(n, cmd).(harborModel)
-	if m.screen != "extensions-sync-confirm" || m.ext.syncPlan == nil || len(m.ext.syncPlan.PluginsToAdd) != 1 {
-		t.Fatalf("sync confirm unexpected: screen=%q plan=%+v", m.screen, m.ext.syncPlan)
-	}
-	n, cmd = m.Update(uiKey("enter"))
-	m = settleApp(n, cmd).(harborModel)
-	if m.screen != "extensions-sync-result" || m.ext.syncResult == nil || len(m.ext.syncResult.Outcomes) != 2 {
-		t.Fatalf("sync result unexpected: screen=%q res=%+v", m.screen, m.ext.syncResult)
-	}
-
-	// Test Settings -> Profiles -> Esc returns to Settings.
-	m.screen = "sessions"
+func TestSettingsProfilesReturnsToSettings(t *testing.T) {
+	service := &fakeApplicationService{}
+	m := newHarborModel(service)
 	settings := m.openSettingsModel()
 	m.settings = &settings
 	m.settings.cursor = settingProfiles
+	next, cmd := m.Update(uiKey("enter"))
+	m = settleApp(next, cmd).(harborModel)
+	if m.screen != "profile-list" || m.profileReturn != "settings" {
+		t.Fatalf("Settings Profiles opened %q with return page %q", m.screen, m.profileReturn)
+	}
+	next, _ = m.Update(uiKey("esc"))
+	if next.(harborModel).settings == nil {
+		t.Fatal("Esc from Profiles did not return to Settings")
+	}
+}
+
+func TestExtensionsReentryUsesFreshProfileCache(t *testing.T) {
+	f := &fakeApplicationService{}
+	p, _ := f.CreateProfile(profileCreateRequest{Name: "Default", Kind: profileIsolated})
+	b, _ := bindingOf(p, "codex")
+	f.Extensions = map[profileBinding]extensionSnapshot{b: {ProfileName: "Default", SkillsCLI: "path"}}
+	m := newHarborModel(f)
+	m.activeProfile = &b
+	m.ext.profile = &b
+	m.screen = "sessions"
+	n, cmd := m.Update(uiKey("right"))
+	m = settleApp(n, cmd).(harborModel)
+	first := countCall(f.Calls, "extensions-local-inspect")
+	if first != 1 {
+		t.Fatalf("expected one initial inspection, calls=%v", f.Calls)
+	}
+	m.screen = "sessions"
+	if cmd := m.beginExtensionsInspect(); cmd != nil {
+		t.Fatal("fresh Extensions cache started another inspection")
+	}
+	if got := countCall(f.Calls, "extensions-local-inspect"); got != first {
+		t.Fatalf("fresh Extensions cache did not avoid inspection, calls=%v", f.Calls)
+	}
+}
+
+func TestExtensionsDiscoverSearchStaysInHarbor(t *testing.T) {
+	f := &fakeApplicationService{}
+	p, _ := f.CreateProfile(profileCreateRequest{Name: "Default", Kind: profileIsolated})
+	b, _ := bindingOf(p, "codex")
+	f.Extensions = map[profileBinding]extensionSnapshot{b: {ProfileName: "Default", SkillsCLI: "path"}}
+	f.SkillSearch = map[profileBinding][]skillCatalogItem{b: {
+		{ID: "owner/repo/react", Name: "React", Source: "owner/repo", Skill: "react"},
+	}}
+	m := newHarborModel(f)
+	m.width, m.height = 100, 30
+	m.profiles = []profile{p}
+	m.activeProfile = &b
+	m.screen = "sessions"
+	n, cmd := m.Update(uiKey("right"))
+	m = settleApp(n, cmd).(harborModel)
+	n, _ = m.Update(uiKey("d"))
+	m = n.(harborModel)
+	if m.screen != "extensions-discover" || !m.ext.discoverSearching {
+		t.Fatalf("d did not open Discover search: screen=%q searching=%v", m.screen, m.ext.discoverSearching)
+	}
+	for _, letter := range "react" {
+		n, _ = m.Update(uiKey(string(letter)))
+		m = n.(harborModel)
+	}
 	n, cmd = m.Update(uiKey("enter"))
 	m = settleApp(n, cmd).(harborModel)
-	if m.screen != "profile-list" || m.profileReturn != "settings" {
-		t.Fatalf("Settings -> Profiles failed: screen=%q return=%q", m.screen, m.profileReturn)
+	if m.screen != "extensions-discover" || len(m.ext.discoverResults) != 1 || m.ext.discoverResults[0].Name != "React" {
+		t.Fatalf("search result did not stay in Discover: screen=%q results=%+v", m.screen, m.ext.discoverResults)
+	}
+	n, cmd = m.Update(uiKey("a"))
+	m = settleApp(n, cmd).(harborModel)
+	if !containsExecCommand(f.ExecCommands, "install-skill:owner/repo\x00react") {
+		t.Fatalf("Discover install command missing: %+v", f.ExecCommands)
+	}
+	if m.screen != "extensions-discover" {
+		t.Fatalf("install returned to wrong page: %q", m.screen)
+	}
+	n, cmd = m.Update(appExtensionExecDone{action: "install-skill"})
+	m = settleApp(n, cmd).(harborModel)
+	if m.screen != "extensions-discover" || !m.ext.discoverResults[0].Installed {
+		t.Fatal("successful installation did not keep the result in Discover")
 	}
 	n, _ = m.Update(uiKey("esc"))
-	m = n.(harborModel)
-	if m.settings == nil {
-		t.Fatal("Esc from Profiles opened via Settings did not return to Settings")
+	n, _ = n.Update(uiKey("a"))
+	for _, letter := range "react" {
+		n, _ = n.Update(uiKey(string(letter)))
 	}
-	_ = context.Background()
+	n, cmd = n.Update(uiKey("enter"))
+	m = settleApp(n, cmd).(harborModel)
+	if m.screen != "extensions-discover" || len(m.ext.discoverResults) != 1 || len(f.ExecCommands) != 1 {
+		t.Fatalf("Add keyword failed to route to Discover: screen=%q results=%v exec=%v", m.screen, m.ext.discoverResults, f.ExecCommands)
+	}
+}
+
+func TestExtensionsDiscoverSearchOwnsHJKLInput(t *testing.T) {
+	m := newHarborModel(&fakeApplicationService{})
+	m.screen = "extensions-discover"
+	m.ext.discoverSearching = true
+	m.input.Focus()
+	for _, letter := range "hjklHJKL" {
+		next, _ := m.Update(uiKey(string(letter)))
+		m = next.(harborModel)
+	}
+	if m.input.Value() != "hjklHJKL" {
+		t.Fatalf("Discover search lost typed characters: %q", m.input.Value())
+	}
+}
+
+func containsExecCommand(commands []string, want string) bool {
+	for _, command := range commands {
+		if command == want {
+			return true
+		}
+	}
+	return false
+}
+
+func countCall(calls []string, want string) int {
+	count := 0
+	for _, call := range calls {
+		if call == want {
+			count++
+		}
+	}
+	return count
 }
 
 func TestSettingsTwoColumnOmpStyleUnsavedAndNarrowMode(t *testing.T) {

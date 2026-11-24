@@ -320,10 +320,9 @@ func (m harborModel) profilePageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				n.accountSnapshot = nil
 				n.accountRow = ""
 				n.accountGeneration++
-				n.ext.profile = &b
-				n.ext.snapshot = nil
-				n.ext.notice = ""
-				n.ext.cursor = 0
+				if n.ext.profile == nil || *n.ext.profile != b {
+					n.ext = extensionState{profile: &b, cache: n.ext.cache, generation: n.ext.generation + 1, discoverGeneration: n.ext.discoverGeneration + 1}
+				}
 				n.generation++
 				n.screen = "sessions"
 				n.uiFocus = "list"

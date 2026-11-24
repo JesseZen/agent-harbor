@@ -6,7 +6,7 @@
 
 `Settings` 参照 omp 双栏视觉层级：宽屏（`>= 76` 列）左列展示可点击分区导航与 `│` 竖线（当前分区使用光标青绿 `brand` 粗体，非当前暗灰），右列当前分区亮白、非当前分区暗灰；修改未保存项使用黄色（`warn`）常驻区分；底部固定灰字（`muted`）选项说明，有未保存改动尝试离开时在其上方插入醒目红色（`bad`）`⚠ Unsaved changes` 提示；窄屏隐藏左列与竖线，保持单列紧凑对齐。
 
-`Extensions` 复用共享 `groupBand` 分区横条、2 行紧凑条目、宽屏右侧预览与右侧比例滚动条，修复了窄屏非分栏溢出时滚动条占宽导致最右侧 1 列字符被误截断的问题（同步惠及 `Sessions`）。已在 macOS arm64 真实 Herdr `0.9.5` + 原生 Codex `0.169.0` 的 `160×45`、`100×30`、`80×24`、`60×24` 弹窗中核验带色 ANSI 与 RGB 序列；Unicode 15 PNG 重渲染与 Linux/远端复核待补。详见[走查记录](ui-flow-audit.md#5-tab-重排omp-风格双栏-settings-与-extensions-管理milestone-b2026-11-23)。
+`Extensions` 复用共享 `groupBand` 分区横条、两行 Skills 条目、宽屏右侧预览和比例滚动条。窄屏使用单列，详情通过 Enter 查看。B.1 保留本地快照优先和 Harbor 内的 Skills Discover。Plugins 和 Marketplaces 各显示一行占位说明，操作提示只保留导航。当前验证尺寸和待验证项见[Extensions 交接记录](extensions-handoff.md)。
 
 ## Sessions 分组横条、语义色修复与 2 行降噪（Milestone A，2026-11-23）
 

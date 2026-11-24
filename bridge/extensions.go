@@ -15,76 +15,41 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-type extensionKind string
-
-const (
-	extSkill  extensionKind = "skill"
-	extPlugin extensionKind = "plugin"
-)
-
 type extensionItem struct {
-	Kind        extensionKind `json:"kind"`
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	Description string        `json:"description,omitempty"`
-	Source      string        `json:"source,omitempty"`
-	Path        string        `json:"path,omitempty"`
-	Enabled     bool          `json:"enabled"`
-	Toggleable  bool          `json:"toggleable"`
-	Scope       string        `json:"scope,omitempty"`
-	Clients     []string      `json:"clients,omitempty"`
-	Marketplace string        `json:"marketplace,omitempty"`
-	DetailErr   string        `json:"detail_err,omitempty"`
-}
-
-type extensionMarketplace struct {
-	Name   string `json:"name"`
-	Source string `json:"source,omitempty"`
-	Root   string `json:"root,omitempty"`
+	ID          string
+	Name        string
+	Description string
+	Source      string
+	Path        string
+	Enabled     bool
+	Toggleable  bool
+	Scope       string
+	Clients     []string
 }
 
 type extensionSnapshot struct {
-	Profile       profileBinding         `json:"profile"`
-	ProfileName   string                 `json:"profile_name"`
-	CodexHome     string                 `json:"codex_home"`
-	SkillsCLI     string                 `json:"skills_cli"` // companion | path | npx | unavailable
-	SkillsCLIPath string                 `json:"skills_cli_path,omitempty"`
-	Skills        []extensionItem        `json:"skills"`
-	Plugins       []extensionItem        `json:"plugins"`
-	Marketplaces  []extensionMarketplace `json:"marketplaces,omitempty"`
-	Warnings      []string               `json:"warnings,omitempty"`
+	ProfileName string
+	CodexHome   string
+	SkillsCLI   string
+	Skills      []extensionItem
+	Warnings    []string
 }
 
-type pluginSyncPlan struct {
-	SourceProfile     profileBinding         `json:"source_profile"`
-	TargetProfile     profileBinding         `json:"target_profile"`
-	SourceName        string                 `json:"source_name"`
-	TargetName        string                 `json:"target_name"`
-	MarketplacesToAdd []extensionMarketplace `json:"marketplaces_to_add"`
-	PluginsToAdd      []extensionItem        `json:"plugins_to_add"`
-	AlreadyInstalled  []string               `json:"already_installed"`
+type skillCatalogItem struct {
+	ID        string
+	Name      string
+	Source    string
+	Skill     string
+	Installs  int
+	Installed bool
 }
 
-type pluginSyncOutcome struct {
-	Kind   string `json:"kind"`  // marketplace | plugin
-	Name   string `json:"name"`
-	State  string `json:"state"` // installed | skipped | failed
-	Detail string `json:"detail,omitempty"`
-}
-
-type pluginSyncResult struct {
-	Plan     pluginSyncPlan      `json:"plan"`
-	Outcomes []pluginSyncOutcome `json:"outcomes"`
-}
-
-// profileExtensionService is an optional capability interface implemented by
-// harborService and test fakes, keeping existing applicationService stubs intact.
 type profileExtensionService interface {
-	InspectExtensions(context.Context, profileBinding) (extensionSnapshot, error)
+	InspectExtensionsLocal(context.Context, profileBinding) (extensionSnapshot, error)
+	InspectCodexSkills(context.Context, profileBinding) ([]extensionItem, error)
+	SearchSkills(context.Context, profileBinding, string) ([]skillCatalogItem, error)
 	ToggleExtension(context.Context, profileBinding, extensionItem, bool) error
-	PlanPluginSync(context.Context, profileBinding, profileBinding) (pluginSyncPlan, error)
-	ExecutePluginSync(context.Context, pluginSyncPlan) (pluginSyncResult, error)
-	ExtensionExecCommand(context.Context, profileBinding, string, extensionKind, string) (*exec.Cmd, error)
+	ExtensionExecCommand(context.Context, profileBinding, string, string) (*exec.Cmd, error)
 }
 
 func resolveSkillsCLI(env []string) (mode, path string) {
@@ -128,6 +93,11 @@ func resolveSkillsCLI(env []string) (mode, path string) {
 func isExecutableFile(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir() && info.Mode()&0111 != 0
+}
+
+func skillInputIsSource(target string) bool {
+	target = strings.TrimSpace(target)
+	return strings.Contains(target, "/") || strings.HasPrefix(target, "git@")
 }
 
 type codexSkillConfigEntry struct {
@@ -309,7 +279,6 @@ func scanLocalSkills(userHome, codexHome string) ([]extensionItem, []string) {
 			}
 			enabled := !disabled[skillFile] && !disabled[canonical]
 			byCanonical[canonical] = extensionItem{
-				Kind:        extSkill,
 				ID:          canonical,
 				Name:        parsedName,
 				Description: desc,

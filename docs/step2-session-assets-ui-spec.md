@@ -1,5 +1,7 @@
 # Agent Harbor 第二步规格与实施文档：会话绑定模型升级、Sessions 页面重构与统一资产管理（Skills / Plugins）
 
+> 扩展管理章节记录 Milestone B 的原始设计。当前功能以[产品规格](spec.md)为准，实机发现和重做建议见[Extensions 交接记录](extensions-handoff.md)。
+
 - **状态**：已通过 `/grill-me` 全量决策对齐，待获批后按 Milestone A → B 顺序实施
 - **基线仓库**：`agent-harbor`（`main`，含第一步已验证的 23 项未提交改动）
 - **实测底层前提**：Codex CLI `0.169.0`（及 `0.170.0`）、Herdr `0.9.5`（本地恢复查询候选）、Magpie `0.1.3528-harbor-dev`（含 `caller-only` + `profile-isolation` 补丁）、`codex-auth 0.4.0`

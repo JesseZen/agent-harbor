@@ -67,8 +67,8 @@ func TestTabLeavesSelectorFocusUnchanged(t *testing.T) {
 func TestMainTabNavigationAndTextOwnership(t *testing.T) {
 	m := newHarborModel(&fakeApplicationService{})
 	for _, step := range []struct{ key, screen string }{
-		{"tab", "sessions"}, {"l", "magpie"}, {"right", "accounts"},
-		{"l", "profile-list"}, {"right", "profile-list"},
+		{"tab", "sessions"}, {"l", "extensions"}, {"l", "magpie"}, {"right", "accounts"},
+		{"l", "accounts"}, {"right", "accounts"},
 	} {
 		next, _ := m.Update(uiKey(step.key))
 		m = next.(harborModel)
@@ -77,15 +77,15 @@ func TestMainTabNavigationAndTextOwnership(t *testing.T) {
 		}
 	}
 	if m.settings == nil {
-		t.Fatal("right from Profiles did not open Settings")
+		t.Fatal("right from Accounts did not open Settings")
 	}
 	next, _ := m.Update(uiKey("h"))
 	m = next.(harborModel)
-	if m.settings != nil || m.screen != "profile-list" {
-		t.Fatal("h did not go back to Profiles")
+	if m.settings != nil || m.screen != "accounts" {
+		t.Fatal("h did not go back to Accounts")
 	}
 	for _, step := range []struct{ key, screen string }{
-		{"left", "accounts"}, {"h", "magpie"}, {"left", "sessions"},
+		{"h", "magpie"}, {"left", "extensions"}, {"left", "sessions"},
 		{"/", "sessions"}, {"h", "sessions"}, {"l", "sessions"}, {"j", "sessions"}, {"k", "sessions"},
 	} {
 		next, _ := m.Update(uiKey(step.key))

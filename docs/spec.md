@@ -79,17 +79,23 @@ banner above that description; narrow viewports hide the left sidebar. See
 [Workspace shortcuts](workspace-shortcuts.md) for defaults, editing and the
 direct New session entry.
 
-Extensions (`🧩 Extensions`) manages Skills and Codex Plugins for the active
-Profile. Skills are discovered from the shared `~/.agents/skills` store and
-`$CODEX_HOME/skills` (using Codex `skills/list` RPC with pure-Go fallback) and
-enabled/disabled per Profile in `$CODEX_HOME/config.toml` (`[[skills.config]]`)
-without modifying shared source files or requiring Node. Searching, adding,
-updating and removing Skills hand off interactively to `skills` CLI (resolved
-from `AGENT_HARBOR_SKILLS_BIN`, companion dir, `PATH`, or `npx skills`), while
-Codex Plugins use `codex plugin` scoped to the Profile. When multiple Profiles
-exist, Extensions offers an explicit declarative plugin-manifest sync between
-Profiles that installs missing marketplaces and plugins without symlinking
-`plugins/` or copying credentials, histories or MCP OAuth tokens.
+Extensions (`🧩 Extensions`) manages Skills for the active Profile. The home
+page lists shared `~/.agents/skills` and `$CODEX_HOME/skills` from disk first and
+then merges Skill metadata from the Codex App Server `skills/list` RPC in the
+background. Returning to Extensions in the same popup reuses the Profile's
+snapshot for 30 seconds. `r` scans again. Skill enablement belongs to the
+active Profile's `$CODEX_HOME/config.toml` (`[[skills.config]]`).
+
+`d` opens Discover Skills in Harbor. `a` accepts a keyword or a repository
+source. Keywords use the same Skills catalog JSON search, and a repository
+source opens the Skills CLI installer. Search, selection and the outcome of
+installing a selected result stay in Discover. Installation, update and removal
+use the `skills` CLI, resolved from `AGENT_HARBOR_SKILLS_BIN`, the companion
+directory, `PATH`, or `npx skills`.
+
+`b` opens the Plugins placeholder and `m` from there opens the Marketplaces
+placeholder. Plugin and Marketplace management are pending. See the
+[Extensions handoff](extensions-handoff.md) for past implementation and runtime findings.
 
 New session → Options sets Codex-only launch overrides: Sandbox, Approval,
 Reasoning, configured context window, automatic compaction token limit,

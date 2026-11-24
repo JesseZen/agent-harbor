@@ -22,7 +22,9 @@ func (m harborModel) editingText() bool {
 	if m.searchFocus == m.screen {
 		return true
 	}
-	if m.screen == "extensions" && m.ext.searching || m.screen == "extensions-add" {
+	if m.screen == "extensions" && m.ext.searching ||
+		m.screen == "extensions-add" ||
+		m.screen == "extensions-discover" && m.ext.discoverSearching {
 		return true
 	}
 	switch m.screen {
@@ -123,7 +125,7 @@ func (m harborModel) updateFrame(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case appAccountStatus, appAccountRead, appAccountDone, appAccountRetry:
 		next, cmd, _ := m.accountsPageInput(msg)
 		return next, cmd
-	case appExtensionsLoaded, appExtensionToggled, appExtensionExecDone, appPluginSyncPlanned, appPluginSyncDone:
+	case appExtensionsLocalLoaded, appCodexSkillsLoaded, appSkillsSearchLoaded, appExtensionToggled, appExtensionExecDone:
 		next, cmd, _ := m.extensionsPageInput(msg)
 		return next, cmd
 	}

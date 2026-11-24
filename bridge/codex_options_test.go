@@ -226,10 +226,7 @@ func TestCodexOptionsPageApplyCancelResetAndReasoningChoices(t *testing.T) {
 	press := func(keys ...string) {
 		for _, key := range keys {
 			updated, cmd := state.Update(uiKey(key))
-			state = updated
-			if updated.(harborModel).servicePending && cmd != nil {
-				state, _ = updated.Update(cmd())
-			}
+			state = settleApp(updated, cmd)
 		}
 	}
 	press("enter", "enter", "down", "down", "enter", "esc")
@@ -240,7 +237,7 @@ func TestCodexOptionsPageApplyCancelResetAndReasoningChoices(t *testing.T) {
 	if rendered := cleanUI(state.View()); !strings.Contains(rendered, "fixture") || !strings.Contains(rendered, "high") || strings.Contains(rendered, "medium") {
 		t.Fatalf("reasoning did not use advertised choices: %s", rendered)
 	}
-	press("down", "down", "enter", "down", "enter", "128000", "enter", "down", "down", "enter", "0", "enter")
+	press("down", "down", "enter", "down", "right", "down", "right", "down", "enter", "down", "enter")
 	for _, size := range [][2]int{{160, 45}, {100, 30}, {80, 24}, {60, 24}, {48, 12}} {
 		state, _ = state.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 		frame := state.View()
@@ -260,7 +257,7 @@ func TestCodexOptionsPageApplyCancelResetAndReasoningChoices(t *testing.T) {
 	if fixture.binding != binding || current.screen != "new-form" || current.formFocus != formOptions || len(fake.Sessions) != 0 {
 		t.Fatalf("Apply created a session or lost scope/focus: %s %+v", current.screen, fixture.binding)
 	}
-	want := codexOptions{SandboxMode: "workspace-write", ApprovalPolicy: "on-request", ReasoningEffort: "high", ContextWindow: optionNumber(128000), PostTurnCompactPercent: optionNumber(0)}
+	want := codexOptions{SandboxMode: "workspace-write", ApprovalPolicy: "on-request", ReasoningEffort: "high", ContextWindow: optionNumber(300000), AutoCompactTokenLimit: optionNumber(272000), PostTurnCompactPercent: optionNumber(0)}
 	if !reflect.DeepEqual(fixture.saved, want) || !reflect.DeepEqual(current.draft.CodexOptions, want.saved()) {
 		t.Fatalf("Apply saved %+v, draft %+v", fixture.saved, current.draft.CodexOptions)
 	}

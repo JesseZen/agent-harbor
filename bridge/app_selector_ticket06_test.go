@@ -72,6 +72,158 @@ func TestFullAccessOptionsExplainFocusedField(t *testing.T) {
 		t.Fatalf("auto compact help missing with Full access selected: %s", frame)
 	}
 }
+
+func TestCodexContextOptionsAreIndependent(t *testing.T) {
+	model, _ := formFixture()
+	model.width, model.height = 60, 24
+	model.openCodexOptions(codexOptionEditor{returnScreen: "new-form", field: optionWindow, value: codexOptions{PostTurnCompactPercent: optionNumber(80)}})
+	press := func(keys ...string) {
+		for _, key := range keys {
+			next, _ := model.Update(uiKey(key))
+			model = next.(harborModel)
+		}
+	}
+	check := func(window, compact string) {
+		t.Helper()
+		value := model.codexEditor.value
+		if contextTokens(value.ContextWindow) != window || contextTokens(value.AutoCompactTokenLimit) != compact || *value.PostTurnCompactPercent != 80 {
+			t.Fatalf("expected %s and %s, got %+v", window, compact, value)
+		}
+	}
+	press("right")
+	check("300K", "Inherited")
+	press("enter", "down", "esc")
+	check("300K", "Inherited")
+	press("j")
+	press("enter")
+	frame := cleanUI(model.View())
+	for _, text := range []string{"Auto compact", "272K", "Recommended", "450K", "Above", "Custom"} {
+		if !strings.Contains(frame, text) {
+			t.Fatalf("picker missing %q: %s", text, frame)
+		}
+	}
+	press("down", "enter")
+	check("300K", "272K")
+	press("right")
+	check("300K", "450K")
+	press("k", "l", "h")
+	check("300K", "450K")
+	press("enter", "down", "down", "enter")
+	model.input.SetValue("420k")
+	press("enter")
+	check("420K", "450K")
+	press("left")
+	check("300K", "450K")
+	press("right")
+	check("500K", "450K")
+	press("down", "enter", "down", "enter")
+	model.input.SetValue("")
+	press("enter")
+	check("500K", "Inherited")
+}
+
+func TestCodexOptionsSplitFocusAndQuickChoices(t *testing.T) {
+	model, fake := formFixture()
+	model.service = &optionUIService{fakeApplicationService: fake}
+	model.width, model.height = 104, 33
+	model.openCodexOptions(codexOptionEditor{returnScreen: "new-form"})
+	press := func(keys ...string) {
+		for _, key := range keys {
+			next, cmd := model.Update(uiKey(key))
+			model = settleApp(next, cmd).(harborModel)
+		}
+	}
+	frame := func(parts ...string) {
+		t.Helper()
+		view := cleanUI(model.View())
+		for _, part := range parts {
+			if !strings.Contains(view, part) {
+				t.Fatalf("missing %q: %s", part, view)
+			}
+		}
+	}
+	frame("Execution", "Context", "Advanced", "Workspace write", "Full access")
+	press("l", "down", "right", "down")
+	frame("Model: fixture", "low", "high")
+	press("right", "right")
+	if got := model.codexEditor.value; got.SandboxMode != "read-only" || got.ApprovalPolicy != "on-request" || got.ReasoningEffort != "high" {
+		t.Fatalf("unexpected quick choices: %+v", got)
+	}
+	press("enter", "up")
+	frame("Execution", "Advanced", "Select", "high")
+	if model.codexEditor.field != optionReasoning || model.codexEditor.value.ReasoningEffort != "high" {
+		t.Fatal("moving the right-hand cursor changed the draft or field")
+	}
+	press("enter")
+	if model.codexEditor.mode != "" || model.codexEditor.field != optionReasoning || model.codexEditor.value.ReasoningEffort != "low" {
+		t.Fatal("confirm did not return to the original field")
+	}
+	press("down", "right", "enter", "down")
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 60, Height: 24})
+	model = next.(harborModel)
+	view := cleanUI(model.View())
+	if strings.Contains(view, "Execution") || !strings.Contains(view, "500K") {
+		t.Fatalf("narrow editor did not replace the summary: %s", view)
+	}
+	press("esc")
+	if model.codexEditor.field != optionWindow || model.codexEditor.mode != "" || *model.codexEditor.value.ContextWindow != 300000 {
+		t.Fatal("cancel after resize did not restore overview and preserve value")
+	}
+}
+
+func TestCodexOptionsAdvancedEditsStayInDraft(t *testing.T) {
+	model, _ := formFixture()
+	model.width, model.height = 104, 33
+	model.openCodexOptions(codexOptionEditor{returnScreen: "new-form", field: optionPostTurn, value: codexOptions{
+		PostTurnCompactPercent: optionNumber(90), WritableDirs: []string{"/original"},
+	}})
+	press := func(keys ...string) {
+		for _, key := range keys {
+			next, cmd := model.Update(uiKey(key))
+			model = settleApp(next, cmd).(harborModel)
+		}
+	}
+	press("right", "enter", "enter")
+	model.input.SetValue("85")
+	press("esc")
+	if model.codexEditor.mode != "" || *model.codexEditor.value.PostTurnCompactPercent != 90 {
+		t.Fatal("custom percent changed on cancel or was changed by a quick key")
+	}
+	press("enter", "up", "enter", "down", "enter", "d", "n")
+	model.input.SetValue("/draft")
+	press("enter", "esc")
+	if got := model.codexEditor.value.WritableDirs; len(got) != 1 || got[0] != "/original" {
+		t.Fatalf("directory cancel changed the draft: %v", got)
+	}
+	press("enter", "d", "n")
+	model.input.SetValue("/accepted")
+	press("enter", "enter")
+	value := model.codexEditor.value
+	if model.codexEditor.mode != "" || model.codexEditor.field != optionDirectories || *value.PostTurnCompactPercent != 0 ||
+		len(value.WritableDirs) != 1 || value.WritableDirs[0] != "/accepted" || model.draft.CodexOptions != nil {
+		t.Fatalf("advanced edits were not staged independently: %+v", value)
+	}
+}
+
+func TestCodexOptionsIgnoresPriorReasoningLookup(t *testing.T) {
+	model, fake := formFixture()
+	model.service = &optionUIService{fakeApplicationService: fake}
+	model.openCodexOptions(codexOptionEditor{returnScreen: "new-form", field: optionApproval})
+	waiting, command := model.Update(uiKey("down"))
+	if command == nil || waiting.(harborModel).servicePending {
+		t.Fatal("reasoning lookup did not start asynchronously")
+	}
+	result := command()
+	cancelled, _ := waiting.Update(uiKey("esc"))
+	model = cancelled.(harborModel)
+	model.openCodexOptions(codexOptionEditor{returnScreen: "new-form", field: optionWindow})
+	next, _ := model.Update(result)
+	model = next.(harborModel)
+	if model.codexEditor.reasoning != nil || model.codexEditor.field != optionWindow {
+		t.Fatal("an older editor's reasoning choices reached the new editor")
+	}
+}
+
 func TestTicket06CancelAndStaleCatalog(t *testing.T) {
 	m, _ := formFixture()
 	m.width = 100

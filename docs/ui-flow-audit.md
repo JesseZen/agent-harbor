@@ -1,5 +1,19 @@
 # UI 实机走查 — 2026-11-17
 
+## Codex Options 双栏编辑
+
+新建会话、停止会话的启动选项和 Profile Codex defaults 共用编辑器。宽屏左侧按
+Execution / Context / Advanced 显示当前草稿，右侧显示聚焦字段的候选及说明。
+上下键选字段，左右键快调 Execution 和 Context，Reasoning 只使用当前模型返回的级别。
+Enter 在右栏编辑，确认或取消后回到原字段。窄屏和矮窗使用单列。Writable dirs
+可连续修改，Done 接受列表；Ctrl+S 才应用整页。窗口和压缩阈值独立。
+
+macOS arm64 的隔离 Herdr 0.9.5、Codex 0.172.0、Magpie 0.1.3528-harbor-dev
+通过外层 160×45、100×30、80×24、60×24 弹窗验收。覆盖键盘快调、鼠标选择推理、
+候选取消、数值校验、目录提交、Profile 保存和 Native/API-only Magpie 恢复，
+使用隔离的模拟提供商。Go 回归另覆盖编辑中缩窗和过期异步结果。Linux、远端及真实
+provider 未验证。
+
 ## Sessions 彩色只读终端预览（2026-11-23）
 
 已实现 Sessions 宽屏双栏预览、窄屏两行列表、统一列表/滚轮几何、ANSI 安全解析与

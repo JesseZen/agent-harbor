@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 )
 
 const codexOptionsScreen = "codex-options"
@@ -26,20 +25,74 @@ const (
 
 var codexOptionLabels = []string{"Sandbox", "Approval", "Reasoning", "Context window", "Auto compact", "Post-turn compact", "Writable dirs"}
 
+const customCodexOption = "Custom…"
+
+func isContextOption(field int) bool {
+	return field == optionWindow || field == optionCompact
+}
+
+func contextPresets(field int) []string {
+	if field == optionWindow {
+		return []string{"", "300000", "500000"}
+	}
+	return []string{"", "272000", "450000"}
+}
+
+func contextTokens(value *int64) string {
+	if value != nil && *value%1000 == 0 {
+		return fmt.Sprintf("%dK", *value/1000)
+	}
+	return codexOptionNumber(value, "")
+}
+
+func contextChoiceLabel(choice string) string {
+	if tokenCount, err := strconv.ParseInt(choice, 10, 64); err == nil {
+		return contextTokens(&tokenCount)
+	}
+	return codexOptionChoiceLabel(choice)
+}
+
+func (o codexOptions) recommendedCompact() string {
+	if o.ContextWindow != nil {
+		index := slices.Index(contextPresets(optionWindow), strconv.FormatInt(*o.ContextWindow, 10))
+		if index > 0 {
+			return contextPresets(optionCompact)[index]
+		}
+	}
+	return ""
+}
+
+func (o codexOptions) compactExceedsWindow(choice string) bool {
+	limit, err := strconv.ParseInt(choice, 10, 64)
+	return err == nil && o.ContextWindow != nil && limit > *o.ContextWindow
+}
+
 type codexOptionEditor struct {
-	value        codexOptions
-	field        int
-	mode         string
-	cursor       int
-	dirCursor    int
-	choices      []string
-	model        string
-	returnScroll int
-	returnScreen string
-	session      *sessionView
-	binding      profileBinding
-	defaults     *profileCodexDefaults
-	project      string
+	value            codexOptions
+	field            int
+	mode             string
+	cursor           int
+	dirCursor        int
+	directoryDraft   []string
+	reasoningRequest *codexReasoningRequest
+	reasoning        *codexReasoningLoaded
+	returnScroll     int
+	returnScreen     string
+	session          *sessionView
+	binding          profileBinding
+	defaults         *profileCodexDefaults
+	project          string
+}
+
+type codexReasoningRequest struct {
+	draft   sessionDraft
+	session *sessionView
+}
+
+type codexReasoningLoaded struct {
+	request *codexReasoningRequest
+	choices codexReasoningChoices
+	err     error
 }
 
 type codexOptionService interface {
@@ -164,9 +217,55 @@ func (editor codexOptionEditor) currentChoice() string {
 		return editor.value.SandboxMode
 	case optionApproval:
 		return editor.value.ApprovalPolicy
-	default:
+	case optionWindow, optionCompact, optionPostTurn:
+		if value := *editor.number(); value != nil {
+			return strconv.FormatInt(*value, 10)
+		}
+		return ""
+	case optionReasoning:
 		return editor.value.ReasoningEffort
 	}
+	return ""
+}
+
+func (editor codexOptionEditor) quickChoices() []string {
+	switch editor.field {
+	case optionSandbox:
+		return codexSandboxModes
+	case optionApproval:
+		return codexApprovalPolicies
+	case optionReasoning:
+		if editor.reasoning != nil && len(editor.reasoning.choices.Efforts) > 0 {
+			return append([]string{""}, editor.reasoning.choices.Efforts...)
+		}
+	case optionWindow, optionCompact:
+		return contextPresets(editor.field)
+	}
+	return nil
+}
+
+func (editor codexOptionEditor) fieldChoices() []string {
+	switch editor.field {
+	case optionWindow, optionCompact:
+		return append(editor.quickChoices(), customCodexOption)
+	case optionPostTurn:
+		return []string{"", "0", customCodexOption}
+	case optionReasoning:
+		if choices := editor.quickChoices(); len(choices) > 0 {
+			return choices
+		}
+		return []string{""}
+	default:
+		return editor.quickChoices()
+	}
+}
+
+func (editor codexOptionEditor) selectedChoice(choices []string) string {
+	choice := editor.currentChoice()
+	if !slices.Contains(choices, choice) && slices.Contains(choices, customCodexOption) {
+		return customCodexOption
+	}
+	return choice
 }
 
 func (editor *codexOptionEditor) selectChoice(value string) {
@@ -177,7 +276,49 @@ func (editor *codexOptionEditor) selectChoice(value string) {
 		editor.value.ApprovalPolicy = value
 	case optionReasoning:
 		editor.value.ReasoningEffort = value
+	case optionWindow, optionCompact, optionPostTurn:
+		if value == "" {
+			*editor.number() = nil
+		} else if tokenCount, err := strconv.ParseInt(value, 10, 64); err == nil {
+			*editor.number() = &tokenCount
+		}
 	}
+}
+
+func (editor *codexOptionEditor) cycleChoice(direction int) {
+	choices := editor.quickChoices()
+	if len(choices) == 0 {
+		return
+	}
+	current := editor.currentChoice()
+	index := slices.Index(choices, current)
+	if index < 0 && isContextOption(editor.field) {
+		value, _ := strconv.ParseInt(current, 10, 64)
+		lower, upper := 0, 0
+		for presetIndex, preset := range choices[1:] {
+			tokens, _ := strconv.ParseInt(preset, 10, 64)
+			if tokens < value {
+				lower = presetIndex + 1
+			} else {
+				upper = presetIndex + 1
+				break
+			}
+		}
+		if direction > 0 {
+			index = upper
+		} else {
+			index = lower
+		}
+		editor.selectChoice(choices[index])
+		return
+	}
+	if index < 0 {
+		index = 0
+		if direction > 0 {
+			index = len(choices) - 1
+		}
+	}
+	editor.selectChoice(choices[(index+direction+len(choices))%len(choices)])
 }
 
 func (editor *codexOptionEditor) number() **int64 {
@@ -220,135 +361,16 @@ func codexOptionDescription(field int, choice string) string {
 	case optionCompact:
 		return "Token threshold for automatic history compaction. The model window may cap it."
 	case optionPostTurn:
-		return "Compacts after a reply at this window %. 0 turns off this check only."
+		if percent, err := strconv.Atoi(choice); err == nil {
+			if percent == 0 {
+				return "Turns off the end-of-reply check. Auto compact still applies."
+			}
+			return fmt.Sprintf("After a reply, compact if at least %d%% of the usable window is occupied or the usual token limit is reached.", percent)
+		}
+		return "After a reply, check context usage against a percentage of the usable window."
 	default:
 		return "Extra writable paths for Workspace write. Use absolute paths on the session's host."
 	}
-}
-
-func (m harborModel) codexOptionsPage() (uiPage, bool) {
-	if m.screen != codexOptionsScreen {
-		return uiPage{}, false
-	}
-	editor := m.codexEditor
-	p := newUIPage(m.width, m.height)
-	p.title(editor.title())
-	var actions []uiAction
-	focused := 0
-	addNote := func(text string) {
-		for _, line := range strings.Split(ansi.Wrap(cleanUI(text), max(1, p.Width-3), ""), "\n") {
-			p.line(paint(fg("muted"), line))
-		}
-	}
-	switch editor.mode {
-	case "number", "path", "project":
-		label, placeholder := codexOptionLabels[editor.field], "Empty = inherited"
-		if editor.mode == "path" {
-			placeholder = "/absolute/directory"
-		} else if editor.mode == "project" {
-			label, placeholder = "Project for effective defaults", "/absolute/project"
-		}
-		p.line(label)
-		for _, line := range strings.Split(textEntry(m.input, m.width, placeholder), "\n") {
-			p.line(documentLine(line))
-		}
-		focused = len(p.Lines) - 1
-		if editor.mode != "project" {
-			addNote(codexOptionDescription(editor.field, ""))
-			focused = len(p.Lines) - 1
-		}
-		actions = []uiAction{{ID: "option:enter", Label: "Accept field", Key: "enter"}, {ID: "option:esc", Label: "Cancel edit", Key: "esc"}}
-	case "choose":
-		if editor.model != "" {
-			p.line("Model: " + cleanUI(editor.model))
-		}
-		for index, choice := range editor.choices {
-			id := fmt.Sprintf("option-choice:%d", index)
-			selected := choice == editor.currentChoice()
-			if index == editor.cursor {
-				focused = len(p.Lines)
-			}
-			p.listRow(id, selectorMark(selected), codexOptionChoiceLabel(choice), "", m.rowStyle(id, index == editor.cursor, selected))
-		}
-		addNote(codexOptionDescription(editor.field, editor.choices[editor.cursor]))
-		actions = []uiAction{{ID: "option:enter", Label: "Select", Key: "enter"}, {ID: "option:esc", Label: "Cancel edit", Key: "esc"}}
-		p.Hint = "↑↓/jk choose"
-	case "dirs":
-		p.line("Writable dirs")
-		if len(editor.value.WritableDirs) == 0 {
-			p.emptyState("No additional directories")
-		}
-		for index, directory := range editor.value.WritableDirs {
-			id := fmt.Sprintf("option-dir:%d", index)
-			if index == editor.dirCursor {
-				focused = len(p.Lines)
-			}
-			p.listRow(id, "", cleanUI(directory), "", m.rowStyle(id, index == editor.dirCursor, false))
-		}
-		addNote(codexOptionDescription(optionDirectories, ""))
-		actions = []uiAction{{ID: "option:n", Label: "Add directory", Key: "n"}, {ID: "option:esc", Label: "Back", Key: "esc"}}
-		if len(editor.value.WritableDirs) > 0 {
-			actions = append(actions, uiAction{ID: "option:d", Label: "Remove selected", Key: "d"})
-			p.Hint = "↑↓/jk choose"
-		}
-	case "confirm":
-		addNote("This existing environment is shared. Saving changes Codex defaults for every client using:")
-		addNote(editor.defaults.Path)
-		actions = []uiAction{{ID: "option:y", Label: "Save shared defaults", Key: "y"}, {ID: "option:esc", Label: "Cancel", Key: "esc"}}
-	default:
-		if editor.defaults != nil {
-			label := editor.defaults.Profile
-			if editor.defaults.Kind == profileExisting {
-				label += " · shared"
-			}
-			p.line("Profile: " + cleanUI(label))
-			p.line("Project: " + cleanUI(editor.defaults.Project))
-		}
-		for _, field := range editor.fields() {
-			p.FieldColumn = max(p.FieldColumn, 8+ansi.StringWidth(codexOptionLabels[field]))
-		}
-		for _, field := range editor.fields() {
-			if field == editor.field {
-				focused = len(p.Lines)
-			}
-			p.field(fmt.Sprintf("option-field:%d", field), "", codexOptionLabels[field], editor.value.displayField(field), field == editor.field, true)
-		}
-		if editor.defaults != nil {
-			value := editor.defaults.Resolved.displayField(editor.field)
-			edits := codexNumberOverrides(editor.value)
-			key := edits[editor.field-optionWindow].KeyPath
-			origin := editor.defaults.Origins[key].Name
-			source := origin.Type
-			if origin.Project != "" {
-				source = origin.Project
-			} else if origin.File != "" {
-				source = origin.File
-			}
-			if source != "" {
-				value += " · " + source
-			}
-			addNote("Effective now: " + value)
-			addNote("Saved defaults affect newly loaded conversations, not running ones.")
-		}
-		addNote(codexOptionDescription(editor.field, editor.currentChoice()))
-		focused = len(p.Lines) - 1
-		apply := "Apply"
-		if editor.defaults != nil {
-			apply = "Save"
-		}
-		actions = []uiAction{{ID: "option:ctrl+s", Label: apply, Key: "ctrl+s", Primary: true}, {ID: "option:ctrl+r", Label: "Reset to inherited", Key: "ctrl+r"}, {ID: "option:esc", Label: "Cancel", Key: "esc"}}
-		if editor.defaults != nil {
-			actions = append(actions, uiAction{ID: "option:p", Label: "Project", Key: "p"}, uiAction{ID: "option:r", Label: "Reload saved", Key: "r"})
-		}
-		p.Hint = "↑↓/jk fields · Enter edit"
-	}
-	if m.notice != "" {
-		addNote(m.notice)
-		focused = max(focused, len(p.Lines)-1)
-	}
-	p.shortcuts(actions, "")
-	capacity := max(1, p.Height-len(p.shortcutBar().Lines))
-	return p.finish(max(0, focused-capacity+1)), true
 }
 
 func (m *harborModel) openCodexOptions(editor codexOptionEditor) {
@@ -369,10 +391,19 @@ func (m *harborModel) codexOptionText(mode, text string) tea.Cmd {
 }
 
 func (m harborModel) codexOptionsInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	editor := &m.codexEditor
+	if loaded, ok := msg.(codexReasoningLoaded); ok {
+		if loaded.request == editor.reasoningRequest {
+			editor.reasoning = &loaded
+			if editor.field == optionReasoning && editor.mode == "choose" {
+				editor.openChoices()
+			}
+		}
+		return m, nil, true
+	}
 	if m.screen != codexOptionsScreen {
 		return m, nil, false
 	}
-	editor := &m.codexEditor
 	var key string
 	switch event := msg.(type) {
 	case tea.KeyMsg:
@@ -392,10 +423,17 @@ func (m harborModel) codexOptionsInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			case "option-field":
 				if editor.field != index {
 					editor.field, m.notice = index, ""
-					return m, nil, true
+					cmd := m.requestCodexReasoning()
+					return m, cmd, true
 				}
 				key = "enter"
 			case "option-choice":
+				if editor.mode == "" {
+					editor.openChoices()
+					editor.cursor, m.notice = index, ""
+					cmd := m.requestCodexReasoning()
+					return m, cmd, true
+				}
 				if editor.cursor != index {
 					editor.cursor = index
 					return m, nil, true
@@ -420,6 +458,7 @@ func (m harborModel) codexOptionsInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				editor.mode = "dirs"
 			} else {
 				editor.mode = ""
+				editor.directoryDraft = nil
 			}
 			m.input.Blur()
 		}
@@ -437,9 +476,9 @@ func (m harborModel) codexOptionsInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	var delta int
-	if key == "up" {
+	if key == "up" || key == "k" {
 		delta = -1
-	} else if key == "down" {
+	} else if key == "down" || key == "j" {
 		delta = 1
 	}
 	switch editor.mode {
@@ -448,32 +487,44 @@ func (m harborModel) codexOptionsInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			return m.applyCodexEditor()
 		}
 	case "choose":
+		choices := editor.fieldChoices()
 		if delta != 0 {
-			editor.cursor = min(max(0, editor.cursor+delta), len(editor.choices)-1)
+			editor.cursor = min(max(0, editor.cursor+delta), len(choices)-1)
 		}
 		if key == "enter" {
-			editor.selectChoice(editor.choices[editor.cursor])
-			editor.mode, m.notice = "", ""
+			choice := choices[editor.cursor]
+			m.notice = ""
+			if choice == customCodexOption {
+				cmd := m.codexOptionText("number", editor.currentChoice())
+				return m, cmd, true
+			}
+			editor.selectChoice(choice)
+			editor.mode = ""
 		}
 	case "dirs":
 		if delta != 0 {
-			editor.dirCursor = min(max(0, editor.dirCursor+delta), max(0, len(editor.value.WritableDirs)-1))
+			editor.dirCursor = min(max(0, editor.dirCursor+delta), max(0, len(editor.directoryDraft)-1))
 		}
-		if key == "n" {
+		switch key {
+		case "enter":
+			editor.value.WritableDirs = editor.directoryDraft
+			editor.directoryDraft, editor.mode = nil, ""
+		case "n":
 			cmd := m.codexOptionText("path", "")
 			return m, cmd, true
-		}
-		if key == "d" && len(editor.value.WritableDirs) > 0 {
-			editor.value.WritableDirs = slices.Delete(slices.Clone(editor.value.WritableDirs), editor.dirCursor, editor.dirCursor+1)
-			editor.dirCursor = min(editor.dirCursor, max(0, len(editor.value.WritableDirs)-1))
+		case "d":
+			if len(editor.directoryDraft) > 0 {
+				editor.directoryDraft = slices.Delete(slices.Clone(editor.directoryDraft), editor.dirCursor, editor.dirCursor+1)
+				editor.dirCursor = min(editor.dirCursor, max(0, len(editor.directoryDraft)-1))
+			}
 		}
 	case "path":
 		if key == "enter" {
-			directories := append(slices.Clone(editor.value.WritableDirs), m.input.Value())
+			directories := append(slices.Clone(editor.directoryDraft), m.input.Value())
 			if err := (codexOptions{WritableDirs: directories}).validate("codex", false); err != nil {
 				m.notice = err.Error()
 			} else {
-				editor.value.WritableDirs, editor.dirCursor = directories, len(directories)-1
+				editor.directoryDraft, editor.dirCursor = directories, len(directories)-1
 				editor.mode, m.notice = "dirs", ""
 				m.input.Blur()
 			}
@@ -489,6 +540,9 @@ func (m harborModel) codexOptionsInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			if value == "" {
 				*editor.number() = nil
 			} else {
+				if editor.field != optionPostTurn && strings.HasSuffix(strings.ToUpper(value), "K") {
+					value = strings.TrimSpace(value[:len(value)-1]) + "000"
+				}
 				number, err := strconv.ParseInt(value, 10, 64)
 				if err != nil {
 					m.notice = "Enter a whole number, or leave empty to inherit."
@@ -510,8 +564,21 @@ func (m harborModel) codexOptionsInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			index := slices.Index(fields, editor.field)
 			editor.field = fields[(index+len(fields)+delta)%len(fields)]
 			m.notice = ""
+			cmd := m.requestCodexReasoning()
+			return m, cmd, true
 		}
 		switch key {
+		case "left", "h", "right", "l":
+			if len(editor.quickChoices()) > 1 {
+				direction := 1
+				if key == "left" || key == "h" {
+					direction = -1
+				}
+				editor.cycleChoice(direction)
+				m.notice = ""
+			}
+			cmd := m.requestCodexReasoning()
+			return m, cmd, true
 		case "ctrl+r":
 			editor.value, m.notice = codexOptions{}, ""
 		case "ctrl+s":
@@ -527,23 +594,12 @@ func (m harborModel) codexOptionsInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			}
 		case "enter":
 			m.notice = ""
-			switch editor.field {
-			case optionSandbox, optionApproval:
-				choices := codexSandboxModes
-				if editor.field == optionApproval {
-					choices = codexApprovalPolicies
-				}
-				editor.openChoices(choices, "")
-			case optionReasoning:
-				return m.loadCodexReasoning()
-			case optionDirectories:
+			if editor.field == optionDirectories {
 				editor.mode, editor.dirCursor = "dirs", 0
-			default:
-				text := ""
-				if value := *editor.number(); value != nil {
-					text = strconv.FormatInt(*value, 10)
-				}
-				cmd := m.codexOptionText("number", text)
+				editor.directoryDraft = slices.Clone(editor.value.WritableDirs)
+			} else {
+				editor.openChoices()
+				cmd := m.requestCodexReasoning()
 				return m, cmd, true
 			}
 		}
@@ -551,44 +607,41 @@ func (m harborModel) codexOptionsInput(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	return m, nil, true
 }
 
-func (editor *codexOptionEditor) openChoices(choices []string, model string) {
-	editor.choices, editor.model, editor.mode = choices, model, "choose"
-	editor.cursor = max(0, slices.Index(choices, editor.currentChoice()))
+func (editor *codexOptionEditor) openChoices() {
+	choices := editor.fieldChoices()
+	editor.mode = "choose"
+	editor.cursor = max(0, slices.Index(choices, editor.selectedChoice(choices)))
 }
 
-func (m harborModel) loadCodexReasoning() (tea.Model, tea.Cmd, bool) {
+func (m *harborModel) requestCodexReasoning() tea.Cmd {
+	editor := &m.codexEditor
+	if editor.field != optionReasoning || editor.reasoningRequest != nil || editor.reasoning != nil {
+		return nil
+	}
 	service, ok := m.service.(codexOptionService)
 	if !ok {
-		m.codexEditor.openChoices([]string{""}, "")
-		m.notice = "Model catalog unavailable; you can still choose Inherited."
-		return m, nil, true
-	}
-	var choices codexReasoningChoices
-	target := m.codexEditor.session
-	return m.serviceTask(func() error {
-		var err error
-		if target != nil {
-			choices, err = service.SessionCodexReasoningChoices(target.session)
-		} else {
-			choices, err = service.CodexReasoningChoices(m.draft)
-		}
-		return err
-	}, func(next *harborModel, err error) tea.Cmd {
-		next.codexEditor.openChoices(append([]string{""}, choices.Efforts...), choices.Model)
-		if err != nil {
-			next.notice = err.Error() + "; Inherited is available."
-		} else if len(choices.Efforts) == 0 {
-			next.notice = "No reasoning efforts advertised; choose Inherited."
-		}
+		editor.reasoning = &codexReasoningLoaded{err: errors.New("Model catalog unavailable")}
 		return nil
-	})
+	}
+	request := &codexReasoningRequest{draft: m.draft, session: editor.session}
+	editor.reasoningRequest = request
+	return func() tea.Msg {
+		result := codexReasoningLoaded{request: request}
+		if request.session != nil {
+			result.choices, result.err = service.SessionCodexReasoningChoices(request.session.session)
+		} else {
+			result.choices, result.err = service.CodexReasoningChoices(request.draft)
+		}
+		return result
+	}
 }
 
 func (m harborModel) applyCodexEditor() (tea.Model, tea.Cmd, bool) {
 	editor := m.codexEditor
 	if err := editor.value.validate("codex", false); err != nil {
 		m.codexEditorError(err)
-		return m, nil, true
+		cmd := m.requestCodexReasoning()
+		return m, cmd, true
 	}
 	service, ok := m.service.(codexOptionService)
 	if !ok {
@@ -618,7 +671,7 @@ func (m harborModel) applyCodexEditor() (tea.Model, tea.Cmd, bool) {
 		next.codexEditor.mode = ""
 		if err != nil {
 			next.codexEditorError(err)
-			return nil
+			return next.requestCodexReasoning()
 		}
 		next.notice = ""
 		if editor.defaults != nil {
@@ -643,7 +696,8 @@ func (m *harborModel) codexEditorError(err error) {
 	m.notice = err.Error()
 	var option *codexOptionError
 	if errors.As(err, &option) {
-		if field := slices.Index(codexOptionLabels, option.field); slices.Contains(m.codexEditor.fields(), field) {
+		field := slices.Index(codexOptionLabels, option.field)
+		if slices.Contains(m.codexEditor.fields(), field) {
 			m.codexEditor.field = field
 		}
 	}

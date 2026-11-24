@@ -104,6 +104,16 @@ inherit; `0` explicitly disables post-turn compaction only. Reasoning choices
 come from the selected model, not from a shared list of levels. Paths refer to
 the server owning the session. `Never` does not remove sandbox restrictions.
 
+Options groups its fields into Execution, Context and Advanced. Up/Down moves
+between fields, and Left/Right changes the focused Execution or Context field
+through its available choices. On a wide pane the left column shows the current
+draft values and the right previews the focused field. Enter focuses the right
+editor. Confirming or cancelling an edit returns to the original field. Narrow
+or short panes open the same editor in a single column. Writable dirs can be
+edited repeatedly before accepting the list with Done. Post-turn compact offers
+Inherited, Off or a custom percentage. Field edits stay in the Options draft
+until Ctrl+S applies the page.
+
 Apply remembers options for the full Workspace/Profile/client environment
 binding, shared by that binding's Native and Magpie drafts. Cancel discards
 unapplied changes; applying and cancelling creation still remembers the choices.
@@ -126,6 +136,10 @@ starting another Conversation through `/new`. Harbor still uses its own
 Conversation evidence and recovery rules. The context
 window and the two automatic compaction triggers are independent settings.
 Codex can reserve part of the window and cap it to the active model's capacity.
+Context window presets are Inherited, 300K and 500K. Auto compact presets are
+Inherited, 272K and 450K. The candidate list recommends 272K for 300K and 450K
+for 500K, and flags values above the requested window. Each field can be set
+independently, including a custom token count such as `272000` or `272K`.
 
 Profiles → Codex defaults edits only the three window/compaction values in the
 selected Codex home's user config. The page shows the effective value and its

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -753,5 +755,346 @@ func TestSessionsColumnAlignmentBeforeAndAfterExpandWideAndNarrow(t *testing.T) 
 		if ansi.StringWidth(glyph) != ansi.StringWidth(chromeText(glyph)) {
 			t.Fatalf("ASCII width mismatch for %q: %d vs %d (%q)", glyph, ansi.StringWidth(glyph), ansi.StringWidth(chromeText(glyph)), chromeText(glyph))
 		}
+	}
+}
+
+func TestSessionsPinArchiveSurviveOldPaneRewritingSessionsJSON(t *testing.T) {
+	root := t.TempDir()
+	bridgeDir := filepath.Join(root, "bridge")
+	t.Setenv("AGENT_HARBOR_BRIDGE_HOME", bridgeDir)
+	t.Setenv("HERDR_SOCKET_PATH", "")
+
+	idA := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa01"
+	idB := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb02"
+	exited := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	if err := withSessions(func([]session) ([]session, error) {
+		return []session{
+			{ID: idA, Version: 3, Name: "Active A", WorkingDirectory: root, CLI: "codex", Mode: "local", Recovery: "ready", CreatedAt: exited},
+			{ID: idB, Version: 3, Name: "Stopped B", WorkingDirectory: root, CLI: "codex", Mode: "local", Recovery: "ready", Started: true, LastExitAt: &exited, CreatedAt: exited},
+		}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := harborService{}
+	viewA, err := svc.Get(idA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewB, err := svc.Get(idB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetPinned(viewA, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetPinned(viewB, true); err != nil {
+		t.Fatal(err)
+	}
+	viewB, err = svc.Get(idB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Archive(viewB); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate an already-running older `_pane` process rewriting sessions.json
+	// without knowing about pinned / archived / archived_at.
+	stripOrgFromSessionsJSON := func() {
+		t.Helper()
+		sessionsPath := filepath.Join(bridgeDir, "sessions.json")
+		raw, err := os.ReadFile(sessionsPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var objs []map[string]any
+		if err := json.Unmarshal(raw, &objs); err != nil {
+			t.Fatal(err)
+		}
+		for _, obj := range objs {
+			delete(obj, "pinned")
+			delete(obj, "archived")
+			delete(obj, "archived_at")
+		}
+		rewritten, err := json.MarshalIndent(objs, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(sessionsPath, append(rewritten, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stripOrgFromSessionsJSON()
+
+	gotA, err := svc.Get(idA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotB, err := svc.Get(idB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gotA.Pinned {
+		t.Fatalf("Pin on A was wiped when old _pane rewrote sessions.json: %+v", gotA.session)
+	}
+	if !gotB.Pinned || !gotB.Archived || gotB.ArchivedAt == nil {
+		t.Fatalf("Pin/Archive on B was wiped when old _pane rewrote sessions.json: %+v", gotB.session)
+	}
+
+	// Unarchive B -> still keeps Pin even if old _pane strips sessions.json again.
+	if err := svc.Unarchive(gotB); err != nil {
+		t.Fatal(err)
+	}
+	stripOrgFromSessionsJSON()
+	gotB, err = svc.Get(idB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotB.Archived || gotB.ArchivedAt != nil || !gotB.Pinned {
+		t.Fatalf("Unarchive + old _pane rewrite corrupted B: %+v", gotB.session)
+	}
+
+	// Unpin A and remove B -> organization sidecar prunes both entries cleanly.
+	if err := svc.SetPinned(gotA, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Remove(sessionApproval{Session: gotB.session, Observation: &gotB.Runtime, Confirmed: true}); err != nil {
+		t.Fatal(err)
+	}
+	org, err := readSessionOrg(bridgeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(org.Entries) != 0 {
+		t.Fatalf("expected empty session_organization entries after unpin/remove, got %+v", org.Entries)
+	}
+}
+
+func TestStorePreservesUnknownSessionJSONFields(t *testing.T) {
+	root := t.TempDir()
+	bridgeDir := filepath.Join(root, "bridge")
+	t.Setenv("AGENT_HARBOR_BRIDGE_HOME", bridgeDir)
+
+	id := "cccccccccccccccccccccccccccccc03"
+	if err := withSessions(func([]session) ([]session, error) {
+		return []session{{ID: id, Version: 3, Name: "Original", WorkingDirectory: root, CLI: "codex", Mode: "local", Recovery: "ready"}}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Inject a hypothetical future JSON field directly into sessions.json.
+	sessionsPath := filepath.Join(bridgeDir, "sessions.json")
+	raw, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var objs []map[string]any
+	if err := json.Unmarshal(raw, &objs); err != nil {
+		t.Fatal(err)
+	}
+	objs[0]["future_meta"] = map[string]any{"tier": "gold", "count": 42}
+	encoded, err := json.MarshalIndent(objs, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sessionsPath, append(encoded, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Perform a normal session mutation through withSessions.
+	if err := withSessions(func(all []session) ([]session, error) {
+		all[0].Name = "Renamed"
+		return all, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	afterRaw, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var afterObjs []map[string]any
+	if err := json.Unmarshal(afterRaw, &afterObjs); err != nil {
+		t.Fatal(err)
+	}
+	meta, ok := afterObjs[0]["future_meta"].(map[string]any)
+	if !ok || meta["tier"] != "gold" {
+		t.Fatalf("unknown future field was stripped on write: %s", string(afterRaw))
+	}
+	if afterObjs[0]["name"] != "Renamed" {
+		t.Fatalf("known field update was not saved: %s", string(afterRaw))
+	}
+}
+
+func TestPinArchiveForceRefreshRejectsStaleInFlightAppLoaded(t *testing.T) {
+	s1 := makeOrganizeSession("s1", "First", "historical_exit", "unknown")
+	s2 := makeOrganizeSession("s2", "Second", "historical_exit", "unknown")
+	fake := &fakeApplicationService{Sessions: []sessionView{s1, s2}}
+	m := newHarborModel(fake)
+	m.sessions = []sessionView{s1, s2}
+	m.width, m.height = 120, 34
+
+	// Simulate an in-flight 2s auto-refresh from BEFORE Pin.
+	m.refreshing = true
+	m.listGeneration = 5
+	stalePrePin := []sessionView{s1, s2}
+
+	// Press 'P' to Pin s1 (run serviceTask without running its queued load() yet).
+	n, cmd := m.Update(uiKey("P"))
+	m = n.(harborModel)
+	if cmd == nil {
+		t.Fatal("expected serviceTask cmd for Pin")
+	}
+	doneMsg := cmd() // executes SetPinned + GetContext
+	n, _ = m.Update(doneMsg)
+	m = n.(harborModel)
+
+	if m.listGeneration <= 5 {
+		t.Fatalf("Pin did not advance listGeneration while refresh was in flight: %d", m.listGeneration)
+	}
+	// Deliver the stale pre-Pin appLoaded (generation 5) -> MUST be ignored!
+	n, _ = m.Update(appLoaded{generation: 5, sessions: stalePrePin})
+	m = n.(harborModel)
+	if !m.sessions[0].Pinned {
+		t.Fatal("stale in-flight appLoaded reverted Pin")
+	}
+
+	// Same race test for Archive ('A').
+	m.refreshing = true
+	genBeforeArchive := m.listGeneration
+	stalePreArchive := append([]sessionView(nil), m.sessions...)
+	n, cmd = m.Update(uiKey("A"))
+	m = n.(harborModel)
+	doneMsg = cmd()
+	n, _ = m.Update(doneMsg)
+	m = n.(harborModel)
+	if m.listGeneration <= genBeforeArchive {
+		t.Fatalf("Archive did not advance listGeneration: %d <= %d", m.listGeneration, genBeforeArchive)
+	}
+	n, _ = m.Update(appLoaded{generation: genBeforeArchive, sessions: stalePreArchive})
+	m = n.(harborModel)
+	if !m.sessions[0].Archived {
+		t.Fatal("stale in-flight appLoaded reverted Archive")
+	}
+
+	// Same race test for Unarchive ('u') in Archived view.
+	m.archivedView = true
+	m.cursor = 0
+	m.refreshing = true
+	genBeforeUnarchive := m.listGeneration
+	stalePreUnarchive := append([]sessionView(nil), m.sessions...)
+	n, cmd = m.Update(uiKey("u"))
+	m = n.(harborModel)
+	doneMsg = cmd()
+	n, _ = m.Update(doneMsg)
+	m = n.(harborModel)
+	if m.listGeneration <= genBeforeUnarchive {
+		t.Fatalf("Unarchive did not advance listGeneration: %d <= %d", m.listGeneration, genBeforeUnarchive)
+	}
+	n, _ = m.Update(appLoaded{generation: genBeforeUnarchive, sessions: stalePreUnarchive})
+	m = n.(harborModel)
+	if m.sessions[0].Archived {
+		t.Fatal("stale in-flight appLoaded reverted Unarchive")
+	}
+}
+
+func TestIdentityCandidateSkipsDiskWriteWhenUnchanged(t *testing.T) {
+	root := t.TempDir()
+	bridgeDir := filepath.Join(root, "bridge")
+	t.Setenv("AGENT_HARBOR_BRIDGE_HOME", bridgeDir)
+	t.Setenv("HERDR_PLUGIN_ID", "agent-harbor.bridge")
+	t.Setenv("HERDR_PLUGIN_ENTRYPOINT_ID", "codex")
+
+	sockBase := "/private/tmp"
+	if _, err := os.Stat(sockBase); err != nil {
+		sockBase = ""
+	}
+	sockDir, err := os.MkdirTemp(sockBase, "hs-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	sockPath := filepath.Join(sockDir, "h.sock")
+	// Create a fake unix socket file so socketIdentity returns a stable dev:ino.
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	t.Setenv("HERDR_SOCKET_PATH", sockPath)
+
+	convID := "12345678-1234-7123-8123-1234567890ab"
+	fakeHerdr := filepath.Join(root, "fake-herdr")
+	script := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\n{\"pane\":{\"agent_session\":{\"source\":\"herdr:codex\",\"agent\":\"codex\",\"kind\":\"id\",\"value\":\"%s\"}}}\nEOF\n", convID)
+	if err := os.WriteFile(fakeHerdr, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	id := "dddddddddddddddddddddddddddddd04"
+	if err := withSessions(func([]session) ([]session, error) {
+		return []session{{
+			ID:                  id,
+			Version:             3,
+			Name:                "Steady",
+			WorkingDirectory:    root,
+			CLI:                 "codex",
+			Mode:                "local",
+			Recovery:            "ready",
+			Started:             true,
+			RunToken:            "tok-steady",
+			HerdrPane:           "p1",
+			HerdrSocket:         sockPath,
+			HerdrSocketIdentity: socketIdentity(sockPath),
+		}}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Start identity capture when initial report is empty (so first 1s tick captures convID,
+	// and subsequent 1s ticks observe the exact same convID and must NOT rewrite sessions.json).
+	stateFile := filepath.Join(root, "herdr-calls")
+	scriptWithFirstEmpty := fmt.Sprintf(`#!/bin/sh
+if [ ! -f %q ]; then
+  touch %q
+  echo '{"pane":{}}'
+  exit 0
+fi
+cat <<'EOF'
+{"pane":{"agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"%s"}}}
+EOF
+`, stateFile, stateFile, convID)
+	if err := os.WriteFile(fakeHerdr, []byte(scriptWithFirstEmpty), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HERDR_BIN_PATH", fakeHerdr)
+	t.Setenv("HERDR_PANE_ID", "p1")
+	activate, finish := candidateIdentityCapture(id, "tok-steady", "codex", nil)
+	activate()
+	defer func() { _ = finish() }()
+
+	// Wait for the first 1s tick to observe convID and persist it.
+	sessionsPath := filepath.Join(bridgeDir, "sessions.json")
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		cur, err := getSession(id)
+		if err == nil && cur.Conversation != nil && cur.Conversation.Reference.Value == convID && cur.Conversation.Status == "observed" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	info1, err := os.Stat(sessionsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait across >1.5s (at least one more 1s ticker sample) -> sessions.json must NOT be rewritten!
+	time.Sleep(1600 * time.Millisecond)
+	info2, err := os.Stat(sessionsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(info1, info2) || !info1.ModTime().Equal(info2.ModTime()) {
+		t.Fatalf("identity observer rewrote unchanged sessions.json (mtime %v -> %v)", info1.ModTime(), info2.ModTime())
 	}
 }

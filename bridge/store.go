@@ -198,6 +198,7 @@ func withSessions(update func([]session) ([]session, error)) error {
 		return err
 	}
 	sessions := []session{}
+	var unknownFields map[string]map[string]json.RawMessage
 	if err == nil {
 		if err := json.Unmarshal(data, &sessions); err != nil {
 			return fmt.Errorf("invalid session state: %w", err)
@@ -205,7 +206,13 @@ func withSessions(update func([]session) ([]session, error)) error {
 		if sessions == nil {
 			return errors.New("invalid session state: expected an array")
 		}
+		unknownFields = extractUnknownSessionFields(data, sessions)
 	}
+	org, err := readSessionOrg(root)
+	if err != nil {
+		return err
+	}
+	applySessionOrg(sessions, org)
 	migrated := false
 	for i := range sessions {
 		if sessions[i].Version > 3 {
@@ -225,7 +232,7 @@ func withSessions(update func([]session) ([]session, error)) error {
 	}
 	// Persist migrations while holding the same lock, including read-only calls.
 	if migrated {
-		encoded, err := json.MarshalIndent(sessions, "", "  ")
+		encoded, err := marshalSessionsPreservingUnknown(sessions, unknownFields)
 		if err != nil {
 			return err
 		}
@@ -233,15 +240,19 @@ func withSessions(update func([]session) ([]session, error)) error {
 			return err
 		}
 	}
+	before := append([]session(nil), sessions...)
 	next, err := update(sessions)
 	if err != nil || next == nil {
 		return err
 	}
-	data, err = json.MarshalIndent(next, "", "  ")
+	data, err = marshalSessionsPreservingUnknown(next, unknownFields)
 	if err != nil {
 		return err
 	}
-	return writeStateFile(path, append(data, '\n'))
+	if err := writeStateFile(path, append(data, '\n')); err != nil {
+		return err
+	}
+	return pruneRemovedSessionOrg(root, before, next)
 }
 
 // writeStateFile replaces path atomically and durably so an interrupted

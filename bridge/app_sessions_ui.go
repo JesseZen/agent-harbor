@@ -825,7 +825,8 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 					} else {
 						n.notice = "Unpinned " + cleanUI(s.Name)
 					}
-					_, cmd := n.requestRefresh()
+					next, cmd := n.forceRefresh()
+					*n = next.(harborModel)
 					return cmd
 				})
 			case "A":
@@ -853,7 +854,8 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				}, func(n *harborModel, err error) tea.Cmd {
 					if err != nil {
 						n.notice = err.Error()
-						_, cmd := n.requestRefresh()
+						next, cmd := n.forceRefresh()
+						*n = next.(harborModel)
 						return cmd
 					}
 					for i := range n.sessions {
@@ -869,7 +871,8 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 					n.selectionMissing = false
 					n.focusSessionRowID(nextID)
 					n.notice = "Archived " + cleanUI(s.Name)
-					_, cmd := n.requestRefresh()
+					next, cmd := n.forceRefresh()
+					*n = next.(harborModel)
 					return cmd
 				})
 			case "u":
@@ -893,7 +896,8 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				}, func(n *harborModel, err error) tea.Cmd {
 					if err != nil {
 						n.notice = err.Error()
-						_, cmd := n.requestRefresh()
+						next, cmd := n.forceRefresh()
+						*n = next.(harborModel)
 						return cmd
 					}
 					for i := range n.sessions {
@@ -910,7 +914,8 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 					n.selectionMissing = false
 					n.focusSessionRowID(nextID)
 					n.notice = "Unarchived " + cleanUI(s.Name)
-					_, cmd := n.requestRefresh()
+					next, cmd := n.forceRefresh()
+					*n = next.(harborModel)
 					return cmd
 				})
 			case "o":

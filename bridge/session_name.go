@@ -186,6 +186,9 @@ func captureAutomaticSessionName(id, token string) {
 					return all, nil
 				}
 			}
+			if all[i].Name == name && !all[i].AutoNamePending && pane.Pane.Label == name && tab.Tab.Label == name {
+				return nil, nil
+			}
 			var result map[string]any
 			if err := agentRPC(s.HerdrSocket, "pane.rename", map[string]any{"pane_id": s.HerdrPane, "label": name}, &result); err != nil {
 				return nil, err

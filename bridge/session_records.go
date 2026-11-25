@@ -127,10 +127,21 @@ func (harborService) SetPinned(expected sessionView, pinned bool) error {
 	if !validID(expected.ID) {
 		return errors.New("invalid bridge session ID")
 	}
+	root, err := bridgeHome()
+	if err != nil {
+		return err
+	}
 	return withSessions(func(all []session) ([]session, error) {
 		for i := range all {
 			if all[i].ID == expected.ID {
 				all[i].Pinned = pinned
+				if err := setSessionOrgState(root, expected.ID, sessionOrgState{
+					Pinned:     all[i].Pinned,
+					Archived:   all[i].Archived,
+					ArchivedAt: all[i].ArchivedAt,
+				}); err != nil {
+					return nil, err
+				}
 				return all, nil
 			}
 		}
@@ -147,6 +158,10 @@ func (harborService) Archive(expected sessionView) error {
 	if !validID(expected.ID) {
 		return errors.New("invalid bridge session ID")
 	}
+	root, err := bridgeHome()
+	if err != nil {
+		return err
+	}
 	lock, err := lockSession(expected.ID)
 	if err != nil {
 		return err
@@ -162,7 +177,7 @@ func (harborService) Archive(expected sessionView) error {
 	if reason := archiveBlockReason(current); reason != "" {
 		return errors.New(reason)
 	}
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Millisecond)
 	return withSessions(func(all []session) ([]session, error) {
 		for i := range all {
 			if all[i].ID != expected.ID {
@@ -176,6 +191,13 @@ func (harborService) Archive(expected sessionView) error {
 			}
 			all[i].Archived = true
 			all[i].ArchivedAt = &now
+			if err := setSessionOrgState(root, expected.ID, sessionOrgState{
+				Pinned:     all[i].Pinned,
+				Archived:   true,
+				ArchivedAt: &now,
+			}); err != nil {
+				return nil, err
+			}
 			return all, nil
 		}
 		return nil, errors.New("session not found")
@@ -186,6 +208,10 @@ func (harborService) Unarchive(expected sessionView) error {
 	if expected.External {
 		return errors.New("external sessions cannot be unarchived")
 	}
+	root, err := bridgeHome()
+	if err != nil {
+		return err
+	}
 	return changeSessionRecord(expected.ID, func(s session) (*session, error) {
 		if !sameSession(s, expected.session) {
 			return nil, errors.New("session changed; refresh and try again")
@@ -195,6 +221,12 @@ func (harborService) Unarchive(expected sessionView) error {
 		}
 		s.Archived = false
 		s.ArchivedAt = nil
+		if err := setSessionOrgState(root, expected.ID, sessionOrgState{
+			Pinned:   s.Pinned,
+			Archived: false,
+		}); err != nil {
+			return nil, err
+		}
 		return &s, nil
 	})
 }

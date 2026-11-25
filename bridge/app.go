@@ -233,6 +233,14 @@ func (m harborModel) requestRefresh() (tea.Model, tea.Cmd) {
 	m.listGeneration++
 	return m, m.load()
 }
+func (m harborModel) forceRefresh() (tea.Model, tea.Cmd) {
+	if m.refreshContext != nil && m.refreshContext.Err() != nil {
+		return m, nil
+	}
+	m.refreshing = true
+	m.listGeneration++
+	return m, m.load()
+}
 func (m harborModel) refreshTimer() tea.Cmd {
 	return func() tea.Msg {
 		return tea.BatchMsg{tea.Tick(2*time.Second, func(time.Time) tea.Msg { return appRefreshTick{} })}
@@ -659,7 +667,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectionMissing = false
 			m.focusSessionRowID(nextID)
 		}
-		return m.requestRefresh()
+		return m.forceRefresh()
 	case appNewInstances:
 		if msg.generation != m.generation || m.screen != "new-instance-loading" {
 			return m, nil

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -84,11 +86,19 @@ func candidateIdentityCapture(id, token, client string, startup *conversationEvi
 				if s.RunToken != token {
 					return nil, nil
 				} // a newer run or explicit choice owns the record
+				before, _ := json.Marshal(*s)
+				commit := func() ([]session, error) {
+					after, _ := json.Marshal(*s)
+					if bytes.Equal(before, after) {
+						return nil, nil
+					}
+					return all, nil
+				}
 				if s.Conversation != nil && s.Conversation.PrimarySelection != nil && s.Conversation.PrimarySelection.RunToken == token {
 					if !observeAfterPrimarySelection(s, ref) {
 						return nil, nil
 					}
-					return all, nil
+					return commit()
 				}
 				s.IdentityWarning = warning
 				currentSocket := socketIdentity(socket)
@@ -115,7 +125,7 @@ func candidateIdentityCapture(id, token, client string, startup *conversationEvi
 						s.Conversation.Status = "observed"
 						s.Recovery = "ready"
 						s.IdentityWarning = ""
-						return all, nil
+						return commit()
 					}
 					// Codex 0.169+ does not re-emit SessionStart when launched via
 					// resume. Preserve a verified startup reference while the pane
@@ -124,7 +134,7 @@ func candidateIdentityCapture(id, token, client string, startup *conversationEvi
 						s.Conversation.Status = startup.Status
 						s.Recovery = "ready"
 						s.IdentityWarning = ""
-						return all, nil
+						return commit()
 					}
 					if finalReadUnresolved && state == "missing" {
 						state = "final_observation_unavailable"
@@ -134,7 +144,7 @@ func candidateIdentityCapture(id, token, client string, startup *conversationEvi
 					if s.Conversation != nil {
 						s.Conversation.Status = state
 					}
-					return all, nil
+					return commit()
 				}
 				expected := s.Conversation
 				sameObservation := expected != nil && expected.Status == "observed" && expected.Reference == *ref && expected.RunToken == token && expected.Pane == pane && expected.SocketIdentity == socketID
@@ -212,7 +222,7 @@ func candidateIdentityCapture(id, token, client string, startup *conversationEvi
 						s.ReportedCodexID = ref.Value
 					}
 				}
-				return all, nil
+				return commit()
 			}
 			return nil, nil
 		})

@@ -111,9 +111,7 @@ func TestRecoverSavedReferenceApprovalSurvivesFailedLaunch(t *testing.T) {
 		t.Fatal("retry asked for another review")
 	}
 	// A failed launch must not approve a later record edit implicitly.
-	changed := again
-	changed.Name = "Edited after confirmation"
-	if err := withSessions(func([]session) ([]session, error) { return []session{changed}, nil }); err != nil {
+	if err := renameSessionReviewed(again, "Edited after confirmation"); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.Open(retry.approval); err == nil || !strings.Contains(err.Error(), "session changed") {

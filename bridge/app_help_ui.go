@@ -62,7 +62,18 @@ func (m harborModel) contextHelp() []helpSection {
 	}
 	if len(actions) == 0 {
 		actions = append(m.sessionActions(false), m.sessionActions(true)...)
-		actions = append(actions, uiAction{Key: ",", Label: "Settings"}, uiAction{Key: "m", Label: "Connections"}, uiAction{Key: "a", Label: "Accounts"}, uiAction{Key: "p", Label: "Profiles"})
+		if !m.archivedView {
+			actions = append(actions,
+				uiAction{Key: "P", Label: "Pin / Unpin session"},
+				uiAction{Key: "A", Label: "Archive stopped or not-started session"},
+				uiAction{Key: "g", Label: "Archived view"},
+				uiAction{Key: "z", Label: "Collapse expanded group"},
+				uiAction{Key: ",", Label: "Settings"},
+				uiAction{Key: "m", Label: "Connections"},
+				uiAction{Key: "a", Label: "Accounts"},
+				uiAction{Key: "p", Label: "Profiles"},
+			)
+		}
 	}
 	current := helpSection{title: "Page actions"}
 	seen := map[string]bool{}

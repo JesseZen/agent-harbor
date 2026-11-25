@@ -84,6 +84,9 @@ type session struct {
 	ReportedCodexID      string              `json:"reported_codex_session_id,omitempty"`
 	Recovery             string              `json:"recovery"`
 	Started              bool                `json:"started"`
+	Pinned               bool                `json:"pinned,omitempty"`
+	Archived             bool                `json:"archived,omitempty"`
+	ArchivedAt           *time.Time          `json:"archived_at,omitempty"`
 	ProcessGroup         int                 `json:"process_group,omitempty"`
 	CreatedAt            time.Time           `json:"created_at"`
 }

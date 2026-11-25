@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -39,11 +40,71 @@ func navigationKey(key tea.KeyMsg) tea.KeyMsg {
 	return key
 }
 
+func (m harborModel) archivedActionLabel() string {
+	if n := m.archivedCount(); n > 0 {
+		return fmt.Sprintf("Archived (%d)", n)
+	}
+	return "Archived"
+}
+
+func (m harborModel) collapseActionLabel() string {
+	if m.width < 55 {
+		return "Collapse"
+	}
+	return "Collapse group"
+}
+
 func (m harborModel) sessionActions(more bool) []uiAction {
+	if m.archivedView {
+		if !more {
+			actions := []uiAction{{ID: "action:r", Label: "Refresh", Key: "r"}}
+			if _, ok := m.selected(); ok {
+				return append([]uiAction{
+					{ID: "action:i", Label: "Details", Key: "enter"},
+					{ID: "action:u", Label: "Unarchive", Key: "u", Primary: true},
+					{ID: "action:x", Label: "Remove record", Key: "x"},
+					{ID: "more", Label: "More…", Key: "."},
+					{ID: "action:esc", Label: "Back", Key: "esc"},
+				}, actions...)
+			}
+			return append(actions, uiAction{ID: "action:esc", Label: "Back", Key: "esc"})
+		}
+		actions := []uiAction{}
+		if _, ok := m.selected(); ok {
+			actions = append(actions,
+				uiAction{ID: "action:i", Label: "Details", Key: "i"},
+				uiAction{ID: "action:u", Label: "Unarchive", Key: "u", Primary: true},
+				uiAction{ID: "action:x", Label: "Remove record", Key: "x"},
+			)
+		}
+		return append(actions, uiAction{ID: "back", Label: "Back", Key: "esc"})
+	}
+
 	actions := []uiAction{{ID: "action:n", Label: "New session", Key: "n", Primary: true}, {ID: "action:r", Label: "Refresh", Key: "r"}}
+	if row, ok := m.selectedRow(); ok && row.Kind == sessionRowToggle {
+		if !more {
+			toggle := []uiAction{{ID: "action:enter", Label: row.ToggleLabel(), Key: "enter", Primary: true}}
+			if row.Expanded {
+				toggle = append(toggle, uiAction{ID: "action:z", Label: m.collapseActionLabel(), Key: "z"})
+			}
+			return append(toggle, actions...)
+		}
+		moreActions := []uiAction{{ID: "action:enter", Label: row.ToggleLabel(), Key: "enter", Primary: true}}
+		if n := m.archivedCount(); n > 0 {
+			moreActions = append(moreActions, uiAction{ID: "action:g", Label: m.archivedActionLabel(), Key: "g"})
+		}
+		return append(moreActions, uiAction{ID: "back", Label: "Back", Key: "esc"})
+	}
 	s, ok := m.selected()
 	if !ok {
-		return actions
+		if !more {
+			if n := m.archivedCount(); n > 0 {
+				actions = append(actions, uiAction{ID: "action:g", Label: m.archivedActionLabel(), Key: "g"})
+			}
+			return actions
+		}
+		moreActions := []uiAction{{ID: "action:g", Label: m.archivedActionLabel(), Key: "g"}}
+		return append(moreActions, uiAction{ID: "back", Label: "Back", Key: "esc"})
 	}
 	label := "Check recovery"
 	switch s.Runtime.Presence {
@@ -70,7 +131,16 @@ func (m harborModel) sessionActions(more bool) []uiAction {
 	}
 	actions = []uiAction{{ID: "action:i", Label: "Details", Key: "i"}}
 	if !s.External {
-		actions = append(actions, uiAction{ID: "action:e", Label: "Rename", Key: "e"}, uiAction{ID: "action:x", Label: "Remove record", Key: "x"})
+		pinLabel := "Pin"
+		if s.Pinned {
+			pinLabel = "Unpin"
+		}
+		actions = append(actions,
+			uiAction{ID: "action:e", Label: "Rename", Key: "e"},
+			uiAction{ID: "action:x", Label: "Remove record", Key: "x"},
+			uiAction{ID: "action:P", Label: pinLabel, Key: "P"},
+			uiAction{ID: "action:A", Label: "Archive", Key: "A", Disabled: archiveBlockReason(s)},
+		)
 		if s.Running || s.Runtime.Presence == "observed" {
 			actions = append(actions, uiAction{ID: "action:s", Label: "Stop process", Key: "s"})
 		}
@@ -83,6 +153,7 @@ func (m harborModel) sessionActions(more bool) []uiAction {
 			}
 		}
 	}
+	actions = append(actions, uiAction{ID: "action:g", Label: m.archivedActionLabel(), Key: "g"})
 	return append(actions, uiAction{ID: "back", Label: "Back", Key: "esc"})
 }
 func (m harborModel) sessionsTitle() string {
@@ -93,6 +164,12 @@ func (m harborModel) sessionsTitle() string {
 }
 func (m harborModel) sessionsHeader() uiPage {
 	p := newUIPage(m.width, m.height)
+	if m.archivedView {
+		p.title("Archived")
+		p.shortcuts([]uiAction{{ID: "action:r", Label: "Refresh", Key: "r"}}, m.uiFocus)
+		p.search(m.searchQuery(), "Search archived sessions", m.searchFocus == "sessions", m.input)
+		return p
+	}
 	p.line(paint(fg("brand"), m.sessionsTitle()))
 	p.tabs("sessions", m.uiHover, m.uiFocus)
 	p.shortcuts([]uiAction{{ID: "action:n", Label: "New session", Key: "n", Primary: true}, {ID: "action:r", Label: "Refresh", Key: "r"}}, m.uiFocus)
@@ -102,11 +179,52 @@ func (m harborModel) sessionsHeader() uiPage {
 func (m harborModel) sessionsFooter(p *uiPage) {
 	if m.searchFocus == "sessions" {
 		p.Actions = nil
-	} else if _, ok := m.selected(); ok {
-		p.shortcuts(m.sessionActions(false)[:3], m.uiFocus)
-		if m.width-2 >= sessionsSplitWidth {
-			p.shortcut(uiAction{ID: "action:o", Label: "Context", Key: "o"}, m.uiFocus == "action:o")
+		p.Hint = m.sessionsHint()
+		return
+	}
+	if m.archivedView {
+		if _, ok := m.selected(); ok {
+			p.shortcuts([]uiAction{
+				{ID: "action:i", Label: "Details", Key: "enter"},
+				{ID: "action:u", Label: "Unarchive", Key: "u", Primary: true},
+				{ID: "action:x", Label: "Remove record", Key: "x"},
+				{ID: "more", Label: "More…", Key: "."},
+				{ID: "action:esc", Label: "Back", Key: "esc"},
+			}, m.uiFocus)
+		} else {
+			p.shortcut(uiAction{ID: "action:esc", Label: "Back", Key: "esc"}, m.uiFocus == "action:esc")
 		}
+		p.Hint = m.sessionsHint()
+		return
+	}
+	if row, ok := m.selectedRow(); ok {
+		if row.Kind == sessionRowToggle {
+			p.shortcut(uiAction{ID: "action:enter", Label: row.ToggleLabel(), Key: "enter", Primary: true}, m.uiFocus == "action:enter")
+			if row.Expanded {
+				p.shortcut(uiAction{ID: "action:z", Label: m.collapseActionLabel(), Key: "z"}, m.uiFocus == "action:z")
+			}
+		} else {
+			p.shortcuts(m.sessionActions(false)[:3], m.uiFocus)
+			if _, expanded := m.currentGroupExpanded(); expanded {
+				p.shortcut(uiAction{ID: "action:z", Label: m.collapseActionLabel(), Key: "z"}, m.uiFocus == "action:z")
+			}
+			if m.width-2 >= sessionsSplitWidth {
+				p.shortcut(uiAction{ID: "action:o", Label: "Context", Key: "o"}, m.uiFocus == "action:o")
+				if !row.View.External {
+					pinLabel := "Pin"
+					if row.View.Pinned {
+						pinLabel = "Unpin"
+					}
+					p.shortcut(uiAction{ID: "action:P", Label: pinLabel, Key: "P"}, m.uiFocus == "action:P")
+					if archiveBlockReason(row.View) == "" {
+						p.shortcut(uiAction{ID: "action:A", Label: "Archive", Key: "A"}, m.uiFocus == "action:A")
+					}
+				}
+			}
+		}
+	}
+	if m.archivedCount() > 0 {
+		p.shortcut(uiAction{ID: "action:g", Label: m.archivedActionLabel(), Key: "g"}, m.uiFocus == "action:g")
 	}
 	p.Hint = m.sessionsHint()
 }
@@ -144,16 +262,27 @@ func (m harborModel) sessionsGeometryFor(header uiPage) sessionGeometry {
 
 type sessionListEntry struct {
 	isHeader     bool
+	isToggle     bool
 	title, meta  string
+	groupID      string
+	expanded     bool
+	hidden       int
 	index        int
 	view         sessionView
 	top          int
 	firstInGroup bool
 }
 
+func (e sessionListEntry) height(rowH int) int {
+	if e.isHeader || e.isToggle {
+		return 1
+	}
+	return rowH
+}
+
 func (m harborModel) sessionListPlan(geometry sessionGeometry) ([]sessionListEntry, int, int) {
 	bodyH, rowH := geometry.body, geometry.row
-	groups := m.sessionGroups()
+	groups := m.sessionDisplayGroups()
 	if len(groups) == 0 {
 		return nil, 0, 0
 	}
@@ -164,13 +293,30 @@ func (m harborModel) sessionListPlan(geometry sessionGeometry) ([]sessionListEnt
 			isHeader: true,
 			title:    g.Title,
 			meta:     g.Meta,
+			groupID:  g.ID,
 			top:      top,
 		})
 		top++
-		for i, s := range g.Sessions {
+		for i, r := range g.Rows {
+			if r.Kind == sessionRowToggle {
+				entries = append(entries, sessionListEntry{
+					isToggle:     true,
+					title:        r.GroupTitle,
+					groupID:      r.GroupID,
+					expanded:     r.Expanded,
+					hidden:       r.Hidden,
+					index:        flatIdx,
+					top:          top,
+					firstInGroup: i == 0,
+				})
+				top++
+				flatIdx++
+				continue
+			}
 			entries = append(entries, sessionListEntry{
 				index:        flatIdx,
-				view:         s,
+				groupID:      r.GroupID,
+				view:         r.View,
 				top:          top,
 				firstInGroup: i == 0,
 			})
@@ -180,13 +326,14 @@ func (m harborModel) sessionListPlan(geometry sessionGeometry) ([]sessionListEnt
 	}
 	totalLines := top
 	cursor := max(0, min(m.cursor, flatIdx-1))
-	itemTop, itemBottom, preferredTop := 0, 2, 0
+	itemTop, itemBottom, preferredTop := 0, rowH, 0
 	for _, e := range entries {
 		if !e.isHeader && e.index == cursor {
+			h := e.height(rowH)
 			itemTop = e.top
-			itemBottom = e.top + rowH
+			itemBottom = e.top + h
 			preferredTop = itemTop
-			if e.firstInGroup && bodyH >= 3 {
+			if e.firstInGroup && bodyH >= h+1 {
 				preferredTop = itemTop - 1
 			}
 			break
@@ -200,13 +347,14 @@ func (m harborModel) sessionListPlan(geometry sessionGeometry) ([]sessionListEnt
 		scrollTop = preferredTop
 	}
 	// Preserve the visible scroll offset on a click when it still contains the clicked row.
-	if m.mouseListScreen == m.screen && m.mouseListStart >= 0 && m.mouseListStart <= itemTop && itemBottom <= m.mouseListStart+bodyH {
+	preservedClick := m.mouseListScreen == m.screen && m.mouseListStart >= 0 && m.mouseListStart <= itemTop && itemBottom <= m.mouseListStart+bodyH
+	if preservedClick {
 		scrollTop = m.mouseListStart
 	}
 	scrollTop = max(0, min(scrollTop, max(0, totalLines-bodyH)))
-	if rowH == 2 && bodyH >= rowH {
+	if !preservedClick && rowH == 2 && bodyH >= rowH {
 		for _, entry := range entries {
-			if !entry.isHeader && entry.top+1 == scrollTop && itemBottom <= entry.top+bodyH {
+			if !entry.isHeader && !entry.isToggle && entry.top+1 == scrollTop && itemBottom <= entry.top+bodyH {
 				scrollTop = entry.top
 				break
 			}
@@ -235,10 +383,54 @@ func (m harborModel) renderSessionPrimaryLine(s sessionView, row uiRowStyle, wid
 	if badge != "" && (wide && badge != "Pending ID" || !wide && badge != sessionWord(s)) {
 		word += paint(row.style(role), " ["+badge+"]")
 	}
+	pinPrefix := ""
+	if !s.External && s.Pinned {
+		pinPrefix = "📌 "
+	}
+	pinW := ansi.StringWidth(pinPrefix)
 	space := max(1, width-4-ansi.StringWidth(word))
-	suffix = ansi.Truncate(suffix, max(0, space-2), "…")
-	name := ansi.Truncate(cleanUI(s.Name), max(1, space-ansi.StringWidth(suffix)), "…") + suffix
-	return paint(row.style("text"), row.marker()) + icon + paint(row.style("text"), " ") + highlightSearch(row.line(name, "text", space), m.filter) + word
+	if pinW >= space {
+		pinPrefix = ""
+		pinW = 0
+	}
+	nameSpace := max(1, space-pinW)
+	suffix = ansi.Truncate(suffix, max(0, nameSpace-2), "…")
+	name := ansi.Truncate(cleanUI(s.Name), max(1, nameSpace-ansi.StringWidth(suffix)), "…") + suffix
+	lead := paint(row.style("text"), row.marker()) + icon + paint(row.style("text"), " ")
+	if pinPrefix != "" {
+		lead += paint(row.style("text"), pinPrefix)
+	}
+	return lead + highlightSearch(row.line(name, "text", nameSpace), m.searchQuery()) + word
+}
+
+func (m harborModel) renderSessionToggleLine(entry sessionListEntry, row uiRowStyle, width int) string {
+	glyph := "▸"
+	label := fmt.Sprintf("Show %d more", entry.hidden)
+	if entry.expanded {
+		glyph = "▾"
+		label = "Show less"
+	}
+	role := "value"
+	if row.cursor {
+		role = "text"
+	}
+	lead := paint(row.style(role), row.marker()+glyph+" ")
+	return lead + row.line(label, role, max(1, width-4))
+}
+
+func (m harborModel) renderTogglePreview(row sessionRow, width int) []string {
+	title := cleanUI(row.GroupTitle) + " · "
+	detail := "Press Enter to expand this group."
+	if row.Expanded {
+		title += "expanded"
+		detail = "Press Enter or z to collapse this group."
+	} else {
+		title += fmt.Sprintf("%d hidden", row.Hidden)
+	}
+	return []string{
+		paint(fg("text").Bold(true), ansi.Truncate(title, width, "…")),
+		paint(fg("muted"), ansi.Truncate(detail, width, "…")),
+	}
 }
 
 func (m harborModel) renderSessionSecondaryLine(s sessionView, row uiRowStyle, width int) string {
@@ -304,11 +496,17 @@ func (m harborModel) renderSessionSecondaryLine(s sessionView, row uiRowStyle, w
 
 func (m harborModel) sessionsLayout() uiPage {
 	p := newUIPage(m.width, m.height)
-	p.line(paint(fg("brand"), m.sessionsTitle()))
-	p.tabs("sessions", m.uiHover, m.uiFocus)
+	if m.archivedView {
+		p.title("Archived")
+	} else {
+		p.line(paint(fg("brand"), m.sessionsTitle()))
+		p.tabs("sessions", m.uiHover, m.uiFocus)
+	}
 	if m.screen == "sessions-more" {
 		if s, ok := m.selected(); ok {
 			p.line("Actions for " + cleanUI(s.Name))
+		} else if row, ok := m.selectedRow(); ok && row.Kind == sessionRowToggle {
+			p.line("Actions for " + cleanUI(row.GroupTitle))
 		}
 		for _, a := range m.sessionActions(true) {
 			p.shortcut(a, m.uiFocus == a.ID)
@@ -323,7 +521,16 @@ func (m harborModel) sessionsLayout() uiPage {
 	entries, totalLines, scrollTop := m.sessionListPlan(g)
 	suffixes := m.sessionSuffixes(entries)
 	if len(entries) == 0 {
-		left.emptyState("No matching sessions")
+		switch {
+		case m.archivedView && m.archivedFilter != "":
+			left.emptyState("No matching archived sessions")
+		case m.archivedView:
+			left.emptyState("No archived sessions")
+		case m.filter == "" && m.archivedCount() > 0:
+			left.emptyState("No active or stopped sessions")
+		default:
+			left.emptyState("No matching sessions")
+		}
 	}
 	railReserve := 0
 	if totalLines > bodyH {
@@ -331,10 +538,7 @@ func (m harborModel) sessionsLayout() uiPage {
 	}
 	bandPage := newUIPage(max(3, leftW+2-railReserve), 10)
 	for _, entry := range entries {
-		h := g.row
-		if entry.isHeader {
-			h = 1
-		}
+		h := entry.height(g.row)
 		if entry.top+h <= scrollTop || entry.top >= scrollTop+bodyH {
 			continue
 		}
@@ -346,6 +550,17 @@ func (m harborModel) sessionsLayout() uiPage {
 				bandPage.Lines = nil
 				bandPage.groupBand(entry.title, entry.meta)
 				left.line(bandPage.Lines[0])
+			}
+			continue
+		}
+		if entry.isToggle {
+			if entry.top >= scrollTop && len(left.Lines) < bodyH {
+				id := "toggle:" + entry.groupID
+				row := m.rowStyle(id, m.sessionCursorAt(entry.index), false)
+				y := len(left.Lines)
+				lineW := max(1, leftW-railReserve)
+				left.line(m.renderSessionToggleLine(entry, row, lineW))
+				left.hit(id, 1, y, lineW, 1)
 			}
 			continue
 		}
@@ -383,8 +598,12 @@ func (m harborModel) sessionsLayout() uiPage {
 	}
 	var right []string
 	if split {
-		if s, ok := m.selected(); ok {
-			right = m.previewPane(s, g)
+		if row, ok := m.selectedRow(); ok {
+			if row.Kind == sessionRowToggle {
+				right = m.renderTogglePreview(row, g.right)
+			} else {
+				right = m.previewPane(row.View, g)
+			}
 		}
 	}
 	for i := 0; i < bodyH; i++ {
@@ -444,6 +663,7 @@ func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 	}
 	if strings.HasPrefix(id, "nav:") {
 		nav := strings.TrimPrefix(id, "nav:")
+		m.archivedView = false
 		m.profileReturn = ""
 		m.scroll = 0
 		if nav == "settings" {
@@ -483,7 +703,7 @@ func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 	}
 	if id == "search" {
 		m.searchFocus = "sessions"
-		m.input.SetValue(m.filter)
+		m.input.SetValue(m.searchQuery())
 		m.input.CursorEnd()
 		m.input.Focus()
 		return m, nil
@@ -496,7 +716,6 @@ func (m harborModel) activateSessions(id string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
-
 	if m.screen != "sessions" && m.screen != "sessions-more" {
 		return m, nil, false
 	}
@@ -531,31 +750,188 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			}
 			for _, a := range m.sessionActions(true) {
 				if a.Key == k {
+					if a.Disabled != "" {
+						m.screen = "sessions"
+						m.notice = a.Disabled
+						return m, nil, true
+					}
 					next, cmd := m.activateSessions(a.ID)
 					return next, cmd, true
 				}
 			}
 			return m, nil, true
 		}
-		if k == "o" && m.searchFocus != "sessions" {
-			if view, ok := m.selected(); ok {
-				geometry := m.sessionGeometry()
-				if m.previewExpanded {
-					m.previewExpanded = false
+		if m.searchFocus != "sessions" {
+			switch k {
+			case "z":
+				if !m.archivedView && m.collapseCurrentGroup() {
 					return m, nil, true
 				}
-				if geometry.split && m.previewContextFits(view, geometry) {
-					m.previewExpanded = !m.previewExpanded
+				return m, nil, true
+			case "g":
+				if !m.archivedView {
+					m.sessionsReturnID = m.searchSelectedID()
+					m.archivedView = true
+					m.archivedFilter = ""
+					m.cursor = 0
+					m.keepSelectedID = ""
+					m.selectionMissing = false
+					m.mouseListScreen = ""
+					m.notice = ""
 					return m, nil, true
 				}
-				next, cmd := m.activateSessions("action:i")
+				return m, nil, true
+			case "P":
+				if m.archivedView {
+					return m, nil, true
+				}
+				s, ok := m.selected()
+				if !ok {
+					return m, nil, true
+				}
+				if s.External {
+					m.notice = "External sessions cannot be pinned."
+					return m, nil, true
+				}
+				nextPinned := !s.Pinned
+				var updated *sessionView
+				return m.serviceTask(func() error {
+					if err := m.service.SetPinned(s, nextPinned); err != nil {
+						return err
+					}
+					if v, err := m.service.GetContext(m.refreshContext, s.ID); err == nil {
+						updated = &v
+					}
+					return nil
+				}, func(n *harborModel, err error) tea.Cmd {
+					if err != nil {
+						n.notice = err.Error()
+						return nil
+					}
+					for i := range n.sessions {
+						if n.sessions[i].ID == s.ID {
+							if updated != nil {
+								n.sessions[i] = *updated
+							} else {
+								n.sessions[i].Pinned = nextPinned
+							}
+							break
+						}
+					}
+					n.selectionMissing = false
+					n.focusSessionRowID(s.ID)
+					if nextPinned {
+						n.notice = "Pinned " + cleanUI(s.Name)
+					} else {
+						n.notice = "Unpinned " + cleanUI(s.Name)
+					}
+					_, cmd := n.requestRefresh()
+					return cmd
+				})
+			case "A":
+				if m.archivedView {
+					return m, nil, true
+				}
+				s, ok := m.selected()
+				if !ok {
+					return m, nil, true
+				}
+				if reason := archiveBlockReason(s); reason != "" {
+					m.notice = reason
+					return m, nil, true
+				}
+				nextID := m.neighborRowIDAfterRemoval(s.ID)
+				var updated *sessionView
+				return m.serviceTask(func() error {
+					if err := m.service.Archive(s); err != nil {
+						return err
+					}
+					if v, err := m.service.GetContext(m.refreshContext, s.ID); err == nil {
+						updated = &v
+					}
+					return nil
+				}, func(n *harborModel, err error) tea.Cmd {
+					if err != nil {
+						n.notice = err.Error()
+						_, cmd := n.requestRefresh()
+						return cmd
+					}
+					for i := range n.sessions {
+						if n.sessions[i].ID == s.ID {
+							if updated != nil {
+								n.sessions[i] = *updated
+							} else {
+								n.sessions[i].Archived = true
+							}
+							break
+						}
+					}
+					n.selectionMissing = false
+					n.focusSessionRowID(nextID)
+					n.notice = "Archived " + cleanUI(s.Name)
+					_, cmd := n.requestRefresh()
+					return cmd
+				})
+			case "u":
+				if !m.archivedView {
+					return m, nil, true
+				}
+				s, ok := m.selected()
+				if !ok {
+					return m, nil, true
+				}
+				nextID := m.neighborRowIDAfterRemoval(s.ID)
+				var updated *sessionView
+				return m.serviceTask(func() error {
+					if err := m.service.Unarchive(s); err != nil {
+						return err
+					}
+					if v, err := m.service.GetContext(m.refreshContext, s.ID); err == nil {
+						updated = &v
+					}
+					return nil
+				}, func(n *harborModel, err error) tea.Cmd {
+					if err != nil {
+						n.notice = err.Error()
+						_, cmd := n.requestRefresh()
+						return cmd
+					}
+					for i := range n.sessions {
+						if n.sessions[i].ID == s.ID {
+							if updated != nil {
+								n.sessions[i] = *updated
+							} else {
+								n.sessions[i].Archived = false
+								n.sessions[i].ArchivedAt = nil
+							}
+							break
+						}
+					}
+					n.selectionMissing = false
+					n.focusSessionRowID(nextID)
+					n.notice = "Unarchived " + cleanUI(s.Name)
+					_, cmd := n.requestRefresh()
+					return cmd
+				})
+			case "o":
+				if view, ok := m.selected(); ok {
+					geometry := m.sessionGeometry()
+					if m.previewExpanded {
+						m.previewExpanded = false
+						return m, nil, true
+					}
+					if geometry.split && m.previewContextFits(view, geometry) {
+						m.previewExpanded = !m.previewExpanded
+						return m, nil, true
+					}
+					next, cmd := m.activateSessions("action:i")
+					return next, cmd, true
+				}
+				return m, nil, true
+			case ".":
+				next, cmd := m.activateSessions("more")
 				return next, cmd, true
 			}
-			return m, nil, true
-		}
-		if k == "." && m.searchFocus != "sessions" {
-			next, cmd := m.activateSessions("more")
-			return next, cmd, true
 		}
 		return m, nil, false
 	}
@@ -585,25 +961,23 @@ func (m harborModel) updateSessionsUI(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			}
 			return m, nil, true
 		}
-		m.cursor = max(0, min(len(m.visible())-1, m.cursor+delta))
+		m.moveSessionCursor(delta)
 		m.mouseListScreen = ""
-		m.selectionMissing = false
 		return m, nil, true
 	}
 	if mouse.Action != tea.MouseActionPress || mouse.Button != tea.MouseButtonLeft {
 		return m, nil, true
 	}
-	if strings.HasPrefix(target, "session:") {
-		id := strings.TrimPrefix(target, "session:")
-		for i, s := range m.visible() {
-			if s.ID == id {
+	if strings.HasPrefix(target, "session:") || strings.HasPrefix(target, "toggle:") {
+		for i, r := range m.visibleRows() {
+			if r.HitID() == target {
 				if m.sessionCursorAt(i) {
 					next, cmd := m.activateSessions("action:enter")
 					return next, cmd, true
 				}
 				_, _, m.mouseListStart = m.sessionListPlan(m.sessionGeometry())
 				m.mouseListScreen = "sessions"
-				m.cursor = i
+				m.focusSessionRowID(r.RowID())
 				m.selectionMissing = false
 				m.searchFocus = ""
 				m.input.Blur()
@@ -626,8 +1000,17 @@ func (m harborModel) sessionsHelp() string {
 	lines := []string{"🚢 Sessions", "", "↑↓/jk select · ←→/hl tabs · / search", ""}
 	seen := map[string]bool{}
 	actions := append(m.sessionActions(false), m.sessionActions(true)...)
-	actions = append(actions, uiAction{ID: "settings", Key: ",", Label: "Settings"}, uiAction{ID: "connections", Key: "m", Label: "Connections"})
-	actions = append(actions, uiAction{ID: "accounts", Key: "a", Label: "Accounts"})
+	if !m.archivedView {
+		actions = append(actions,
+			uiAction{ID: "pin", Key: "P", Label: "Pin / Unpin"},
+			uiAction{ID: "archive", Key: "A", Label: "Archive"},
+			uiAction{ID: "archived", Key: "g", Label: "Archived view"},
+			uiAction{ID: "collapse", Key: "z", Label: "Collapse group"},
+			uiAction{ID: "settings", Key: ",", Label: "Settings"},
+			uiAction{ID: "connections", Key: "m", Label: "Connections"},
+			uiAction{ID: "accounts", Key: "a", Label: "Accounts"},
+		)
+	}
 	for _, a := range actions {
 		if seen[a.ID] {
 			continue
@@ -645,6 +1028,9 @@ func (m harborModel) sessionsHelp() string {
 func (m harborModel) sessionsHint() string {
 	if m.searchFocus == "sessions" {
 		return "Type search · ↵ list · Esc clear/back"
+	}
+	if m.archivedView {
+		return "↑↓/jk select · / search · ? help"
 	}
 	return "↑↓/jk select · " + tabHint + " · / search · ? help"
 }

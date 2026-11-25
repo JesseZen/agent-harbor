@@ -1,5 +1,18 @@
 # Product acceptance gates
 
+## Sessions Pin, Archive and group folding
+
+`python3 -B bridge/tests/sessions_organize_popup.py --binary HARBOR --herdr HERDR`
+runs an isolated Herdr/tmux popup with 110+ sessions (9 verified live Active runs,
+100 Stopped records, and an External agent) under a disposable Profile and synthetic
+client history file. It verifies pure-keyboard `j`/`k` crossing across collapsed groups,
+live resurfacing when a folded `Idle` session transitions to `working` (with Herdr
+process group unchanged), in-place `▸ Show N more` / `▾ Show less` expand and column
+alignment across outer `160×45`, `100×30`, `80×24`, and `60×24`, deep collapse via `z`
+returning focus to the action row, search matching folded records, Pin persistence,
+Archive refusal on `Idle` sessions, Archive/Unarchive preserving Conversation/Profile/Magpie
+connection and Pin, and Remove record from Archived without modifying client history.
+
 ## Sessions preview prerequisite
 
 Run `python3 -B bridge/tests/pane_read_probe.py --herdr BUNDLED_HERDR --codex NATIVE_CODEX`

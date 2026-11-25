@@ -29,7 +29,7 @@ func (m *harborModel) syncMotion(visible bool) tea.Cmd {
 		geometry := m.sessionGeometry()
 		entries, _, start := m.sessionListPlan(geometry)
 		for _, entry := range entries {
-			if !entry.isHeader && entry.top >= start && entry.top+geometry.row <= start+geometry.body && sessionWord(entry.view) == "Working" {
+			if !entry.isHeader && !entry.isToggle && entry.top >= start && entry.top+geometry.row <= start+geometry.body && sessionWord(entry.view) == "Working" {
 				active = true
 				break
 			}
@@ -162,7 +162,7 @@ func (m harborModel) sessionIndicator(s sessionView, row uiRowStyle, showWord bo
 func (m harborModel) sessionSuffixes(entries []sessionListEntry) map[string]string {
 	groups := make(map[string][]sessionView)
 	for _, entry := range entries {
-		if !entry.isHeader {
+		if !entry.isHeader && !entry.isToggle {
 			name := cleanUI(entry.view.Name)
 			groups[name] = append(groups[name], entry.view)
 		}

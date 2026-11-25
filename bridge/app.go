@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -114,6 +115,11 @@ type harborModel struct {
 	width, height       int
 	sessions            []sessionView
 	cursor              int
+	archivedView        bool
+	archivedFilter      string
+	expandedGroups      map[string]bool
+	keepSelectedID      string
+	sessionsReturnID    string
 	searchFocus         string
 	filter              string
 	input               textinput.Model
@@ -238,31 +244,188 @@ func (m harborModel) sessionGrouper() sessionGrouper {
 	}
 	return statusGrouper{}
 }
+func (m harborModel) archivedCount() int {
+	count := 0
+	for _, s := range m.sessions {
+		if !s.External && s.Archived {
+			count++
+		}
+	}
+	return count
+}
 func (m harborModel) sessionGroups() []sessionGroup {
-	filtered := make([]sessionView, 0, len(m.sessions))
-	texts := make([]string, len(m.sessions))
-	for i, s := range m.sessions {
+	scoped := make([]sessionView, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		if m.archivedView {
+			if !s.External && s.Archived {
+				scoped = append(scoped, s)
+			}
+		} else if !s.Archived {
+			scoped = append(scoped, s)
+		}
+	}
+	filtered := make([]sessionView, 0, len(scoped))
+	texts := make([]string, len(scoped))
+	for i, s := range scoped {
 		texts[i] = s.Name + " " + s.WorkingDirectory + " " + s.MagpieModel
 	}
-	for _, hit := range searchMatches(m.filter, texts) {
-		filtered = append(filtered, m.sessions[hit.Index])
+	query := m.filter
+	if m.archivedView {
+		query = m.archivedFilter
+	}
+	for _, hit := range searchMatches(query, texts) {
+		filtered = append(filtered, scoped[hit.Index])
+	}
+	if m.archivedView {
+		if len(filtered) == 0 {
+			return nil
+		}
+		return []sessionGroup{{
+			ID:       "archived",
+			Title:    "Archived",
+			Meta:     strconv.Itoa(len(filtered)),
+			Sessions: pinFirst(filtered),
+		}}
 	}
 	return m.sessionGrouper().Group(filtered)
 }
-func (m harborModel) visible() []sessionView {
+func (m harborModel) sessionDisplayGroups() []sessionDisplayGroup {
 	groups := m.sessionGroups()
-	out := make([]sessionView, 0, len(m.sessions))
+	if len(groups) == 0 {
+		return nil
+	}
+	filtering := m.filter != ""
+	if m.archivedView {
+		filtering = m.archivedFilter != ""
+	}
+	out := make([]sessionDisplayGroup, 0, len(groups))
 	for _, g := range groups {
-		out = append(out, g.Sessions...)
+		expanded := !m.archivedView && m.expandedGroups[g.ID]
+		out = append(out, foldSessionGroup(g, expanded, filtering, m.keepSelectedID))
 	}
 	return out
 }
-func (m harborModel) selected() (sessionView, bool) {
-	rows := m.visible()
+func (m harborModel) visibleRows() []sessionRow {
+	groups := m.sessionDisplayGroups()
+	out := make([]sessionRow, 0, len(m.sessions))
+	for _, g := range groups {
+		out = append(out, g.Rows...)
+	}
+	return out
+}
+func (m harborModel) visible() []sessionView {
+	rows := m.visibleRows()
+	out := make([]sessionView, 0, len(rows))
+	for _, r := range rows {
+		if r.Kind == sessionRowItem {
+			out = append(out, r.View)
+		}
+	}
+	return out
+}
+func (m harborModel) selectedRow() (sessionRow, bool) {
+	rows := m.visibleRows()
 	if m.selectionMissing || len(rows) == 0 {
+		return sessionRow{}, false
+	}
+	return rows[min(max(0, m.cursor), len(rows)-1)], true
+}
+func (m harborModel) selected() (sessionView, bool) {
+	row, ok := m.selectedRow()
+	if !ok || row.Kind != sessionRowItem {
 		return sessionView{}, false
 	}
-	return rows[min(m.cursor, len(rows)-1)], true
+	return row.View, true
+}
+func (m harborModel) currentGroupExpanded() (string, bool) {
+	if m.archivedView || m.filter != "" {
+		return "", false
+	}
+	row, ok := m.selectedRow()
+	if !ok || !m.expandedGroups[row.GroupID] {
+		return "", false
+	}
+	for _, g := range m.sessionDisplayGroups() {
+		if g.ID == row.GroupID && g.Expanded {
+			return row.GroupID, true
+		}
+	}
+	return "", false
+}
+func (m *harborModel) focusSessionRowID(id string) {
+	if id != "" && !strings.HasPrefix(id, "toggle:") {
+		m.keepSelectedID = id
+	} else {
+		m.keepSelectedID = ""
+	}
+	rows := m.visibleRows()
+	if len(rows) == 0 {
+		m.cursor = 0
+		return
+	}
+	for i, r := range rows {
+		if r.RowID() == id {
+			m.cursor = i
+			return
+		}
+	}
+	m.cursor = min(max(0, m.cursor), len(rows)-1)
+}
+func (m *harborModel) moveSessionCursor(delta int) {
+	rows := m.visibleRows()
+	if len(rows) == 0 {
+		m.cursor = 0
+		m.keepSelectedID = ""
+		m.route = observedRoute{}
+		return
+	}
+	cur := min(max(0, m.cursor), len(rows)-1)
+	nextIdx := min(max(0, cur+delta), len(rows)-1)
+	target := rows[nextIdx]
+	m.focusSessionRowID(target.RowID())
+	m.selectionMissing = false
+	m.route = observedRoute{}
+}
+func (m *harborModel) toggleSessionGroup(groupID string) {
+	if m.expandedGroups == nil {
+		m.expandedGroups = map[string]bool{}
+	}
+	if m.expandedGroups[groupID] {
+		delete(m.expandedGroups, groupID)
+	} else {
+		m.expandedGroups[groupID] = true
+	}
+	m.mouseListScreen = ""
+	m.selectionMissing = false
+	m.route = observedRoute{}
+	m.focusSessionRowID("toggle:" + groupID)
+}
+func (m *harborModel) collapseCurrentGroup() bool {
+	groupID, ok := m.currentGroupExpanded()
+	if !ok {
+		return false
+	}
+	delete(m.expandedGroups, groupID)
+	m.mouseListScreen = ""
+	m.selectionMissing = false
+	m.route = observedRoute{}
+	m.focusSessionRowID("toggle:" + groupID)
+	return true
+}
+func (m harborModel) neighborRowIDAfterRemoval(targetID string) string {
+	rows := m.visibleRows()
+	for i, r := range rows {
+		if r.RowID() == targetID {
+			if i+1 < len(rows) {
+				return rows[i+1].RowID()
+			}
+			if i-1 >= 0 {
+				return rows[i-1].RowID()
+			}
+			return ""
+		}
+	}
+	return ""
 }
 func (m harborModel) openSettingsModel() settingsModel {
 	settings := newSettingsModel()
@@ -424,7 +587,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
-			m.cursor = min(m.cursor, max(0, len(m.visible())-1))
+			m.cursor = min(m.cursor, max(0, len(m.visibleRows())-1))
 		}
 		if m.discoveryNotice != "" {
 			m.notice = m.discoveryNotice
@@ -485,6 +648,16 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.notice = msg.err.Error()
 			m.screen = "error"
+		} else if m.action == "remove" {
+			nextID := m.neighborRowIDAfterRemoval(m.reviewed.ID)
+			for i := range m.sessions {
+				if m.sessions[i].ID == m.reviewed.ID {
+					m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
+					break
+				}
+			}
+			m.selectionMissing = false
+			m.focusSessionRowID(nextID)
 		}
 		return m.requestRefresh()
 	case appNewInstances:
@@ -928,6 +1101,15 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		if key == "esc" {
+			if m.screen == "sessions" && m.archivedView {
+				m.archivedView = false
+				m.archivedFilter = ""
+				m.selectionMissing = false
+				m.mouseListScreen = ""
+				m.restoreSearchSelection(m.sessionsReturnID)
+				m.notice = ""
+				return m, nil
+			}
 			m.screen = "sessions"
 			if m.isEnterRecovery() {
 				m.restoreSearchSelection(m.reviewed.ID)
@@ -1026,22 +1208,26 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch key {
 		case "j", "down":
-			m.cursor = min(m.cursor+1, max(0, len(m.visible())-1))
-			m.route = observedRoute{}
+			m.moveSessionCursor(1)
 		case "k", "up":
-			m.cursor = max(0, m.cursor-1)
-			m.route = observedRoute{}
+			m.moveSessionCursor(-1)
 		case "/":
 			m.screen = "filter"
-			m.input.SetValue(m.filter)
+			m.input.SetValue(m.searchQuery())
 			m.input.Focus()
 		case ",":
+			if m.archivedView {
+				return m, nil
+			}
 			settings := newSettingsModel()
 			settings.width = m.width
 			settings.height = m.height
 			m.settings = &settings
 			return m, nil
 		case "m":
+			if m.archivedView {
+				return m, nil
+			}
 			m.contextInstance = ""
 			if s, ok := m.selected(); ok && s.Mode == "magpie" {
 				m.contextInstance = s.InstanceID
@@ -1052,10 +1238,16 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = "magpie"
 			return m, m.loadInstances()
 		case "p":
+			if m.archivedView {
+				return m, nil
+			}
 			m.screen = "profile-list"
 			m.notice = ""
 			return m, m.loadProfiles()
 		case "a":
+			if m.archivedView {
+				return m, nil
+			}
 			m.screen = "accounts"
 			m.accountRow = ""
 			m.scroll = 0
@@ -1074,11 +1266,30 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 		case "n":
+			if m.archivedView {
+				return m, nil
+			}
 			cmd := m.prepareNewSession()
 			return m, cmd
 		case "r":
 			return m.requestRefresh()
 		case "enter", "s", "x", "e", "i", "c", "d", "v":
+			if key == "enter" {
+				row, ok := m.selectedRow()
+				if !ok {
+					return m, nil
+				}
+				if row.Kind == sessionRowToggle {
+					m.toggleSessionGroup(row.GroupID)
+					return m, nil
+				}
+				if m.archivedView {
+					key = "i"
+				}
+			}
+			if m.archivedView && key != "i" && key != "x" {
+				return m, nil
+			}
 			s, ok := m.selected()
 			if !ok {
 				return m, nil

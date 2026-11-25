@@ -138,6 +138,9 @@ func (h harborService) Open(a sessionApproval) (err error) {
 	if !a.Confirmed {
 		return errors.New("launch cancelled")
 	}
+	if a.Session.Archived {
+		return errors.New("session is archived; unarchive it before starting or resuming")
+	}
 	if a.DevelopmentQuery && !a.QueryUncertaintyAccepted {
 		return errors.New("query proves syntax only; explicitly accept conversation, login and external writer uncertainty")
 	}

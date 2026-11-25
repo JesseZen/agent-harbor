@@ -132,6 +132,14 @@ func (m harborModel) updatePage(msg tea.Msg) (tea.Model, tea.Cmd) {
 			n.noticeID++
 		}
 	}
+	if n.notice != m.notice && n.noticeID == m.noticeID {
+		n.noticeID = m.noticeID + 1
+		n.noticeTransient = ordinaryNotice(n.notice)
+		if n.noticeTransient {
+			id := n.noticeID
+			cmd = tea.Batch(cmd, tea.Tick(3*time.Second, func(time.Time) tea.Msg { return appNoticeExpired{id} }))
+		}
+	}
 	if page, ok := n.additionalPage(); ok && n.settings == nil {
 		n.scroll = max(0, min(n.scroll, page.MaxScroll))
 	}
@@ -156,7 +164,7 @@ func (m harborModel) updateFrame(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok && (key.Type == tea.KeyCtrlC || key.Type == tea.KeyCtrlG) {
 		return m.update(msg)
 	}
-	if key, ok := msg.(tea.KeyMsg); ok && !m.editingText() {
+	if key, ok := msg.(tea.KeyMsg); ok && !m.editingText() && !m.archivedView {
 		tab := m.screen
 		if next := adjacentTab(tab, key.String()); next != "" {
 			return m.activateSessions("nav:" + next)
@@ -210,11 +218,12 @@ func (m harborModel) updateFrame(msg tea.Msg) (tea.Model, tea.Cmd) {
 	n := next.(harborModel)
 	switch msg.(type) {
 	case appLoaded:
-		if oldID != "" && !strings.HasPrefix(m.screen, "magpie") && m.screen != "new-instance" && m.screen != "new-catalog" {
+		if oldID != "" && !strings.HasPrefix(oldID, "toggle:") && !strings.HasPrefix(m.screen, "magpie") && m.screen != "new-instance" && m.screen != "new-catalog" {
 			found := false
 			for _, v := range n.sessions {
-				if v.ID == oldID {
+				if v.ID == oldID && v.Archived == n.archivedView {
 					found = true
+					break
 				}
 			}
 			if !found {
@@ -278,7 +287,7 @@ func (m harborModel) feedbackLine() string {
 }
 
 func ordinaryNotice(s string) bool {
-	return s == "Directory selected" || s == "Directory selected. Enter continues." || strings.HasPrefix(s, "Original environment binding recorded;") || s == "Action completed" || s == "Magpie action completed" || s == "Directory ready. Enter continues." || s == "Profile saved" || strings.HasPrefix(s, "Profile selected:") || strings.HasPrefix(s, "Default saved;") || s == codexOptionsSaved
+	return s == "Directory selected" || s == "Directory selected. Enter continues." || strings.HasPrefix(s, "Original environment binding recorded;") || s == "Action completed" || s == "Magpie action completed" || s == "Directory ready. Enter continues." || s == "Profile saved" || strings.HasPrefix(s, "Profile selected:") || strings.HasPrefix(s, "Default saved;") || s == codexOptionsSaved || strings.HasPrefix(s, "Pinned ") || strings.HasPrefix(s, "Unpinned ") || strings.HasPrefix(s, "Archived ") || strings.HasPrefix(s, "Unarchived ")
 }
 
 // Evidence belongs to the action that produced it. Documents are temporary

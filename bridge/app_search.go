@@ -53,6 +53,9 @@ func (m harborModel) searchQuery() string {
 	case "new-catalog":
 		return m.catalogFilter
 	}
+	if m.archivedView {
+		return m.archivedFilter
+	}
 	return m.filter
 }
 func (m *harborModel) setSearchQuery(s string) {
@@ -62,7 +65,11 @@ func (m *harborModel) setSearchQuery(s string) {
 	case "new-catalog":
 		m.catalogFilter = s
 	default:
-		m.filter = s
+		if m.archivedView {
+			m.archivedFilter = s
+		} else {
+			m.filter = s
+		}
 	}
 }
 func (m harborModel) searchIDs() ([]string, int) {
@@ -79,8 +86,8 @@ func (m harborModel) searchIDs() ([]string, int) {
 		}
 		return ids, m.catalogCursor
 	default:
-		for _, r := range m.visible() {
-			ids = append(ids, r.ID)
+		for _, r := range m.visibleRows() {
+			ids = append(ids, r.RowID())
 		}
 		return ids, m.cursor
 	}
@@ -93,6 +100,13 @@ func (m harborModel) searchSelectedID() string {
 	return ""
 }
 func (m *harborModel) restoreSearchSelection(id string) {
+	if m.screen != "magpie" && m.screen != "new-instance" && m.screen != "new-catalog" {
+		if id != "" && !strings.HasPrefix(id, "toggle:") {
+			m.keepSelectedID = id
+		} else {
+			m.keepSelectedID = ""
+		}
+	}
 	ids, c := m.searchIDs()
 	c = min(c, max(0, len(ids)-1))
 	for i, s := range ids {
@@ -161,6 +175,7 @@ func (m harborModel) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			m.catalogCursor = 0
 		default:
 			m.cursor = 0
+			m.keepSelectedID = ""
 		}
 	}
 	return m, cmd, true

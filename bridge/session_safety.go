@@ -71,6 +71,9 @@ func beginRun(expected session, kind launchKind, plan runPlan) error {
 			if !sameSession(*s, expected) {
 				return nil, errors.New("session changed; review its details again")
 			}
+			if s.Archived {
+				return nil, errors.New("session is archived; unarchive it before starting or resuming")
+			}
 			if processGroupActive(s.ProcessGroup) {
 				return nil, errors.New("a previous session process is still running or closing")
 			}
@@ -151,6 +154,9 @@ func verifySession(expected session, codexID, dir string) error {
 			s := &all[i]
 			if !sameSession(*s, expected) {
 				return nil, errors.New("session changed; review its details again")
+			}
+			if s.Archived {
+				return nil, errors.New("session is archived; unarchive it before starting or resuming")
 			}
 			if processGroupActive(s.ProcessGroup) {
 				return nil, errors.New("a previous session process is still running or closing")

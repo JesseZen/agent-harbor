@@ -1,5 +1,19 @@
 # UI 实机走查 — 2026-11-17
 
+## Sessions Pin、Archive 与组内折叠（2026-11-25）
+
+已实现：
+- Pin / Unpin（`P`）：持久化保存并在所属组（`Active` / `Stopped`）顶部显示 `📌`，不设全局 Pinned 组、不重复列出，状态变化时跟随移动，筛选照常生效；External 不提供 Pin。
+- Archive / Unarchive（`A` 归档、`g` 打开独立 Archived 视图、`u` 取消归档）：执行归档时持有会话锁并重新核验当前 Herdr 运行态，仅允许 `not_started` / `historical_exit` / `confirmed_exit`，拒绝 `Idle`、`Done`、运行中及暂时观察不到/离线记录。不停止进程、不调用客户端归档、不改对话、Profile、连接或 Pin。Archived 视图中 `Enter` 打开 Details（不启动/恢复），必须先显式 Unarchive 才能走启动或恢复流程。
+- Remove record（`x`）：普通列表与 Archived 视图共用确认页与运行保护，只删 Harbor 记录，不删客户端历史、终端或项目文件。
+- 组内折叠：`Active` 仅折叠明确观测为 `Idle`/`Done` 的未置顶普通记录；`Stopped` 仅折叠 `historical_exit`/`confirmed_exit`/`not_started` 的未置顶普通记录；每组默认展示 5 条可折叠记录，超出显示 `▸ Show N more`。Pin、需要关注记录与当前选中项不被自动收起；`External` 和 `Archived` 不折叠。`j`/`k` 仅走可见行；`Enter` 在操作行原位展开为 `▾ Show less`；深处可用底栏 `z Collapse group` 收起并回焦操作行；搜索匹配所有折叠项；刷新不重置展开状态或悄悄换焦。
+
+验证结果（macOS arm64）：
+- Go `go vet ./...` 与 `-race` 回归（含 `app_sessions_organize_test.go` 持久化、重新核验、118 条纯键盘跨组/展开/深处收起/搜索/刷新、宽窄列对齐及 ASCII 降级）全部通过。
+- 隔离真实 Herdr `0.9.5` / tmux 实机门禁 `bridge/tests/sessions_organize_popup.py` 通过（110 条记录，覆盖外层 `160×45`、`100×30`、`80×24`、`60×24` 弹窗），12 帧带色 ANSI 均经仓库 Unicode 15 渲染器生成 PNG 并逐帧核对：验证纯键盘跨组、折叠 Idle 会话切 `working` 后重新露出且 Herdr 进程组未动、展开前后宽窄列对齐、深处 `z` 收起回操作行、搜索折叠项、Pin 持久化、Idle 拒归档、Archive/Unarchive 保留原对话/Profile/Magpie 连接与 Pin，以及 Archived 中 Remove 不删客户端历史文件。
+
+未验证项：Linux/远端工作区实机、原生终端像素截图。
+
 ## Codex Options 双栏编辑
 
 新建会话、停止会话的启动选项和 Profile Codex defaults 共用编辑器。宽屏左侧按

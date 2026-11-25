@@ -191,7 +191,7 @@ func verifiedForegroundRun(ctx context.Context, socket, identity string, agent h
 	candidates := []int{}
 	for i := range views {
 		s := views[i].session
-		if s.HerdrSocket != socket || s.HerdrSocketIdentity != identity || s.HerdrPane != agent.Pane || s.HerdrTab == "" || s.HerdrTab != agent.Tab || s.CLI != agent.Client || s.RunToken == "" || s.ProcessGroup <= 1 {
+		if s.Archived || s.HerdrSocket != socket || s.HerdrSocketIdentity != identity || s.HerdrPane != agent.Pane || s.HerdrTab == "" || s.HerdrTab != agent.Tab || s.CLI != agent.Client || s.RunToken == "" || s.ProcessGroup <= 1 {
 			continue
 		}
 		candidates = append(candidates, i)
@@ -285,6 +285,9 @@ func mergeHerdrAgents(ctx context.Context, views []sessionView) ([]sessionView, 
 		owned := false
 		for i := range views {
 			v := &views[i]
+			if v.Archived {
+				continue
+			}
 			// A pane number alone can be reused. Fresh official conversation evidence
 			// must agree with this run before attaching its connection intent.
 			c := v.Conversation

@@ -46,6 +46,16 @@ func (m harborModel) details(s sessionView) string {
 	if s.Reason != "" {
 		lines = append(lines, "Needs attention: "+s.Reason)
 	}
+	if s.Pinned {
+		lines = append(lines, kv("Pinned", "yes"))
+	}
+	if s.Archived {
+		archivedValue := "yes"
+		if s.ArchivedAt != nil {
+			archivedValue = s.ArchivedAt.Local().Format("2006-01-02 15:04")
+		}
+		lines = append(lines, kv("Archived", archivedValue), note("Unarchive this session before starting or resuming."))
+	}
 	lines = append(lines, "", "📂 WORKSPACE", kv("Project", s.WorkingDirectory), kv("CLI", strings.TrimSpace(s.CLI+" "+s.CLIVersion)))
 	if s.CLI == "codex" && s.CodexOptions != nil {
 		lines = append(lines, "", "SAVED CODEX OVERRIDES")

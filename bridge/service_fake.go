@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"time"
 )
 
 // UI tests can seed results and inspect calls without starting any process.
@@ -94,6 +95,64 @@ func (f *fakeApplicationService) Remove(a sessionApproval) error {
 	for i, s := range f.Sessions {
 		if s.ID == a.Session.ID {
 			f.Sessions = append(f.Sessions[:i], f.Sessions[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("session not found")
+}
+func (f *fakeApplicationService) SetPinned(expected sessionView, pinned bool) error {
+	verb := "unpin "
+	if pinned {
+		verb = "pin "
+	}
+	if err := f.call(verb + expected.ID); err != nil {
+		return err
+	}
+	if expected.External {
+		return errors.New("external sessions cannot be pinned")
+	}
+	for i := range f.Sessions {
+		if f.Sessions[i].ID == expected.ID {
+			f.Sessions[i].Pinned = pinned
+			return nil
+		}
+	}
+	return errors.New("session not found")
+}
+func (f *fakeApplicationService) Archive(expected sessionView) error {
+	if err := f.call("archive " + expected.ID); err != nil {
+		return err
+	}
+	if expected.External {
+		return errors.New("external sessions cannot be archived")
+	}
+	for i := range f.Sessions {
+		if f.Sessions[i].ID == expected.ID {
+			if reason := archiveBlockReason(f.Sessions[i]); reason != "" {
+				return errors.New(reason)
+			}
+			now := time.Now().UTC()
+			f.Sessions[i].Archived = true
+			f.Sessions[i].ArchivedAt = &now
+			return nil
+		}
+	}
+	return errors.New("session not found")
+}
+func (f *fakeApplicationService) Unarchive(expected sessionView) error {
+	if err := f.call("unarchive " + expected.ID); err != nil {
+		return err
+	}
+	if expected.External {
+		return errors.New("external sessions cannot be unarchived")
+	}
+	for i := range f.Sessions {
+		if f.Sessions[i].ID == expected.ID {
+			if !f.Sessions[i].Archived {
+				return errors.New("session is not archived")
+			}
+			f.Sessions[i].Archived = false
+			f.Sessions[i].ArchivedAt = nil
 			return nil
 		}
 	}

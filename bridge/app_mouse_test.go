@@ -262,7 +262,8 @@ func TestMouseScrolledSelectionStaysUnderPointer(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		m.sessions = append(m.sessions, sessionView{session: session{ID: fmt.Sprint(i), Name: fmt.Sprintf("Row %02d", i)}, Runtime: runtimeObservation{Presence: "not_started", Activity: "unknown"}})
 	}
-	m.cursor = 10
+	m.expandedGroups = map[string]bool{"stopped": true}
+	m.cursor = 11
 	lines := strings.Split(m.View(), "\n")
 	y := -1
 	for i, line := range lines {

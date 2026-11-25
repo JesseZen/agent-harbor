@@ -26,6 +26,8 @@ type previewTarget struct {
 func targetForPreview(view sessionView) (previewTarget, string) {
 	runtime := view.Runtime
 	switch {
+	case view.Archived:
+		return previewTarget{}, "Session is archived · Unarchive to start or resume."
 	case view.DiscoveryWarning != "" || runtime.Presence == "stale":
 		return previewTarget{}, "Herdr connection unavailable"
 	case runtime.Presence == "historical_exit" || runtime.Presence == "confirmed_exit":

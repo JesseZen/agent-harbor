@@ -90,6 +90,9 @@ type applicationService interface {
 	Stop(sessionApproval) error
 	Rename(string, string) error
 	Remove(sessionApproval) error
+	SetPinned(sessionView, bool) error
+	Archive(sessionView) error
+	Unarchive(sessionView) error
 	DeleteHistory(sessionApproval, string) error
 	Focus(string) error
 	FocusObserved(sessionView) error
@@ -326,6 +329,9 @@ func (harborService) Start(a sessionApproval) error {
 	if !a.Confirmed {
 		return errors.New("start cancelled")
 	}
+	if a.Session.Archived {
+		return errors.New("session is archived; unarchive it before starting or resuming")
+	}
 	if err := validateApprovalRuntime(a); err != nil {
 		return err
 	}
@@ -337,6 +343,9 @@ func (harborService) Start(a sessionApproval) error {
 func (harborService) Resume(a sessionApproval) error {
 	if !a.Confirmed {
 		return errors.New("recovery cancelled")
+	}
+	if a.Session.Archived {
+		return errors.New("session is archived; unarchive it before starting or resuming")
 	}
 	if err := validateApprovalRuntime(a); err != nil {
 		return err

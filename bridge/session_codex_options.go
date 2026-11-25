@@ -7,7 +7,7 @@ import (
 )
 
 func canEditCodexOptions(v sessionView) bool {
-	return !v.External && v.CLI == "codex" && v.Profile != nil && !v.Running && (v.Runtime.Presence == "not_started" || v.Runtime.Presence == "confirmed_exit" || v.Runtime.Presence == "historical_exit")
+	return !v.External && !v.Archived && v.CLI == "codex" && v.Profile != nil && !v.Running && (v.Runtime.Presence == "not_started" || v.Runtime.Presence == "confirmed_exit" || v.Runtime.Presence == "historical_exit")
 }
 
 func (h harborService) SaveSessionCodexOptions(expected sessionView, options codexOptions) error {

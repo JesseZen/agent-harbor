@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -95,6 +96,106 @@ func removeSession(expected session) error {
 			return nil, errors.New("session is still running; stop it before removing its record")
 		}
 		return nil, nil
+	})
+}
+
+func archiveBlockReason(v sessionView) string {
+	if v.External {
+		return "external sessions cannot be archived"
+	}
+	if v.Archived {
+		return "session is already archived"
+	}
+	if v.DiscoveryWarning != "" {
+		return v.DiscoveryWarning
+	}
+	if v.Running || v.Runtime.Presence == "observed" || processGroupActive(v.ProcessGroup) || sessionLaunchPending(v.session) {
+		return "Cannot archive active, Idle, or Done sessions."
+	}
+	switch v.Runtime.Presence {
+	case "not_started", "historical_exit", "confirmed_exit":
+		return ""
+	default:
+		return "Cannot archive: session exit is not confirmed."
+	}
+}
+
+func (harborService) SetPinned(expected sessionView, pinned bool) error {
+	if expected.External {
+		return errors.New("external sessions cannot be pinned")
+	}
+	if !validID(expected.ID) {
+		return errors.New("invalid bridge session ID")
+	}
+	return withSessions(func(all []session) ([]session, error) {
+		for i := range all {
+			if all[i].ID == expected.ID {
+				all[i].Pinned = pinned
+				return all, nil
+			}
+		}
+		return nil, errors.New("session not found")
+	})
+}
+
+// Archive re-verifies live runtime state under the session lock without
+// stopping processes, touching client history, or altering conversation/route bindings.
+func (harborService) Archive(expected sessionView) error {
+	if expected.External {
+		return errors.New("external sessions cannot be archived")
+	}
+	if !validID(expected.ID) {
+		return errors.New("invalid bridge session ID")
+	}
+	lock, err := lockSession(expected.ID)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	current, _, err := currentRuntime(expected.ID)
+	if err != nil {
+		return err
+	}
+	if !sameSession(current.session, expected.session) {
+		return errors.New("session changed; refresh and try again")
+	}
+	if reason := archiveBlockReason(current); reason != "" {
+		return errors.New(reason)
+	}
+	now := time.Now().UTC()
+	return withSessions(func(all []session) ([]session, error) {
+		for i := range all {
+			if all[i].ID != expected.ID {
+				continue
+			}
+			if !sameSession(all[i], expected.session) {
+				return nil, errors.New("session changed; refresh and try again")
+			}
+			if processGroupActive(all[i].ProcessGroup) {
+				return nil, errors.New("session is still running; stop it before archiving")
+			}
+			all[i].Archived = true
+			all[i].ArchivedAt = &now
+			return all, nil
+		}
+		return nil, errors.New("session not found")
+	})
+}
+
+func (harborService) Unarchive(expected sessionView) error {
+	if expected.External {
+		return errors.New("external sessions cannot be unarchived")
+	}
+	return changeSessionRecord(expected.ID, func(s session) (*session, error) {
+		if !sameSession(s, expected.session) {
+			return nil, errors.New("session changed; refresh and try again")
+		}
+		if !s.Archived {
+			return nil, errors.New("session is not archived")
+		}
+		s.Archived = false
+		s.ArchivedAt = nil
+		return &s, nil
 	})
 }
 

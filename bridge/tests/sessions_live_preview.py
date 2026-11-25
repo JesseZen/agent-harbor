@@ -252,17 +252,20 @@ def run_fixture(args, root, env, harbor, source_socket, proxy_socket, project):
         until(lambda: 'MAGPIE-FRAME' in capture(), 'managed Magpie preview')
         assert 'NATIVE-FRAME' not in capture()
         save('magpie', 160)
-        until(lambda: 'fixture-context' in capture() and 'codex · Magpie' in capture(), 'compact project, branch and connection')
-        assert 'Magpie · test-model' not in capture()
+        collapsed = until(lambda: (frame if 'fixture-context' in (frame := capture()) and
+                                    'codex · Magpie · test-model' in frame else None), 'compact project, branch and model')
+        assert 'lab/relay/' not in collapsed and 'Unbound' not in collapsed
         assert str(project) not in capture()
         save('context-collapsed', 160)
         key('o')
         expanded = until(lambda: (frame if '/preview-fixture' in (frame := capture()) and
-                                   'Route: lab/relay/test-model' in frame else None), 'expanded project and model route')
+                                   'codex · Magpie · lab/relay/test-model · Unbound' in frame else None), 'expanded route and Profile on one line')
         assert 'MAGPIE-FRAME' in expanded and expanded.count('fixture-context') == 1
+        assert 'Route:' not in expanded and 'Profile:' not in expanded
+        assert expanded.index('Conversation identity pending') > expanded.index('lab/relay/test-model · Unbound')
         save('context-expanded', 160)
         key('o')
-        until(lambda: 'Route: ' not in capture(), 'context collapsed again')
+        until(lambda: 'codex · Magpie · test-model' in capture(), 'context collapsed again')
         key('Up', 'Down', 'Up')
         until(lambda: 'NATIVE-FRAME' in capture(), 'rapid A/B/A ends on Native')
         assert 'MAGPIE-FRAME' not in capture()

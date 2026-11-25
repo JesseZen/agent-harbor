@@ -218,39 +218,15 @@ func (m harborModel) previewHeaderContext(view sessionView, width int, expanded 
 	name := ansi.Truncate(cleanUI(view.Name), max(1, width-ansi.StringWidth(status)-1), "…")
 	lines := []string{paint(fg("text").Bold(true), name) + strings.Repeat(" ", max(1, width-ansi.StringWidth(status)-ansi.StringWidth(name))) + status}
 	lines = append(lines, m.previewProjectLine(view, width, expanded))
-	metadataLines := []string{m.previewConnectionLine(view, width)}
-	if expanded && view.Mode == "magpie" && !view.External {
-		route := strings.Trim(strings.Join([]string{view.InstanceID, view.MagpieModel}, "/"), "/")
-		if route != "" {
-			prefix := m.previewConnectionBase(view) + " · "
-			routeWidth := max(1, 2*width-ansi.StringWidth(prefix)-ansi.StringWidth("Route: "))
-			metadata := prefix + paint(fg("value"), "Route: "+middleTruncate(cleanUI(route), routeWidth))
-			wrapped := strings.Split(ansi.Hardwrap(metadata, width, true), "\n")
-			metadataLines = wrapped[:min(2, len(wrapped))]
-		}
-	}
-	lines = append(lines, metadataLines...)
-	if expanded && len(lines) < 4 && !view.External && (len(m.profiles) > 1 || view.Profile == nil) {
-		lines = append(lines, paint(fg("value"), "Profile: "+cleanUI(m.profileShortLabel(view.Profile))))
-	}
+	lines = append(lines, m.previewMetadata(view, width, expanded)...)
 	if badge, role := sessionStatusBadge(view); badge != "" && badge != "Offline" {
 		diagnosis := sessionAttention(view)
 		if diagnosis == "" {
 			diagnosis = badge
 		}
-		line := paint(fg(role), ansi.Truncate(cleanUI(diagnosis), width, "…"))
-		if len(lines) < 4 {
-			lines = append(lines, line)
-		} else if len(metadataLines) == 1 {
-			lines[3] = line
-		}
+		lines = append(lines, paint(fg(role), ansi.Truncate(cleanUI(diagnosis), width, "…")))
 	} else if view.Runtime.LaunchPending && !view.Runtime.InteractiveReady {
-		line := paint(fg("muted"), "Waiting for interactive readiness")
-		if len(lines) < 4 {
-			lines = append(lines, line)
-		} else if len(metadataLines) == 1 {
-			lines[3] = line
-		}
+		lines = append(lines, paint(fg("muted"), ansi.Truncate("Waiting for interactive readiness", width, "…")))
 	}
 	return lines
 }
@@ -291,23 +267,84 @@ func (m harborModel) previewProjectLine(view sessionView, width int, expanded bo
 	return ansi.Truncate(left, width, "")
 }
 
-func (m harborModel) previewConnectionLine(view sessionView, width int) string {
-	base := m.previewConnectionBase(view)
-	return ansi.Truncate(base, width, "…")
-}
-
-func (m harborModel) previewConnectionBase(view sessionView) string {
-	connection := previewConnection(view)
-	parts := []string{}
+func (m harborModel) previewMetadata(view sessionView, width int, expanded bool) []string {
+	separator := paint(fg("muted"), " · ")
+	parts := make([]string, 0, 4)
 	if cli := cleanUI(view.CLI); cli != "" {
-		parts = append(parts, paint(fg("value"), cli))
+		parts = append(parts, paint(fg("key"), cli))
 	}
-	parts = append(parts, paint(fg("key"), connection))
-	return strings.Join(parts, " · ")
+	parts = append(parts, paint(fg("value"), previewConnection(view)))
+	var routePrefix, model string
+	if !view.External && view.Mode == "magpie" {
+		route := strings.Trim(cleanUI(view.MagpieModel), "/")
+		lastSlash := strings.LastIndexByte(route, '/') + 1
+		model = route[lastSlash:]
+		if expanded {
+			routePrefix = route[:lastSlash]
+			if instance := strings.Trim(cleanUI(view.InstanceID), "/"); instance != "" {
+				routePrefix = instance + "/" + routePrefix
+				if model == "" {
+					routePrefix = instance
+				}
+			}
+		}
+	}
+	if !expanded {
+		line := strings.Join(parts, separator)
+		if available := width - ansi.StringWidth(line) - ansi.StringWidth(separator); model != "" && available > 0 {
+			line += separator + paint(fg("key"), previewModelSuffix(model, available))
+		}
+		return []string{ansi.Truncate(line, width, "…")}
+	}
+	if routePrefix != "" || model != "" {
+		parts = append(parts, paint(fg("value"), routePrefix)+paint(fg("key"), model))
+	}
+	if !view.External && (len(m.profiles) > 1 || view.Profile == nil) {
+		if label := cleanUI(m.profileShortLabel(view.Profile)); label != "" {
+			parts = append(parts, paint(fg("value"), label))
+		}
+	}
+	return wrapPreviewMetadata(parts, separator, width)
 }
 
-func (m harborModel) expandedPreviewContext(view sessionView, width int) []string {
-	return m.previewHeaderContext(view, width, true)
+func previewModelSuffix(model string, width int) string {
+	overflow := ansi.StringWidth(model) - width
+	if overflow <= 0 {
+		return model
+	}
+	for remaining := overflow + 1; remaining > 0 && model != ""; {
+		cluster, cells := ansi.FirstGraphemeCluster(model, ansi.GraphemeWidth)
+		model = model[len(cluster):]
+		remaining -= cells
+	}
+	return "…" + model
+}
+
+func wrapPreviewMetadata(parts []string, separator string, width int) []string {
+	var lines []string
+	line := ""
+	for _, part := range parts {
+		if line != "" {
+			if ansi.StringWidth(line)+ansi.StringWidth(separator)+ansi.StringWidth(part) <= width {
+				line += separator + part
+				continue
+			}
+			lines = append(lines, line)
+		}
+		line = part
+		if ansi.StringWidth(part) > width {
+			offset := 0
+			for _, chunk := range strings.Split(ansi.Hardwrap(ansi.Strip(part), width, true), "\n") {
+				if offset != 0 {
+					lines = append(lines, line)
+				}
+				end := offset + ansi.StringWidth(chunk)
+				line = ansi.Cut(part, offset, end)
+				offset = end
+			}
+		}
+	}
+	return append(lines, line)
 }
 
 func (m harborModel) previewPaneHeader(view sessionView, geometry sessionGeometry) []string {
@@ -354,11 +391,11 @@ func middleTruncate(value string, width int) string {
 }
 
 func (m harborModel) previewContextFits(view sessionView, geometry sessionGeometry) bool {
-	return previewContextHasRoom(geometry.body, len(m.expandedPreviewContext(view, geometry.right)))
+	return previewContextHasRoom(geometry.body, len(m.previewHeaderContext(view, geometry.right, true)))
 }
 
 func previewContextHasRoom(body, lines int) bool {
-	return lines > 0 && lines <= 4 && body-lines-1 >= 8
+	return body-lines-1 >= 8
 }
 
 func (m harborModel) previewPane(view sessionView, g sessionGeometry) []string {

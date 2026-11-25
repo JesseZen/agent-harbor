@@ -60,8 +60,9 @@ save sanitized ANSI frames for `render_terminal.cjs`; the current macOS run prod
 Unicode 15 evidence and measured popup interiors as `160×45→104×33`, `100×30→56×21`,
 `80×24→40×16`, `60×24→45×15`, and a short `160×20→104×13`.
 The popup fixture also checks `o` against a disposable Git project: the collapsed
-summary keeps the project, branch, CLI and connection without a model label; the full
-path and route appear when expanded, and the same pane remains in the preview.
+summary keeps the project, branch, CLI, connection and final model segment; the full
+path and route appear when expanded, with Profile on the same row when it fits and
+the diagnosis last. The same pane remains in the preview.
 
 ## Live popup upgrade
 

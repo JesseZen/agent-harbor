@@ -99,7 +99,7 @@ func TestSessionsContextToggleAndSearch(t *testing.T) {
 	model.sessions = []sessionView{view}
 	model.projectBranch = sessionBranchState{session: view.ID, directory: view.WorkingDirectory, branch: "fixture-topic"}
 	collapsed := model.previewHeader(view, 65)
-	if !strings.Contains(collapsed[1], "project fixture-topic") || strings.Contains(collapsed[1], "/fixture/nested") || !strings.Contains(collapsed[2], "codex · Magpie") || strings.Contains(collapsed[2], "model-name") {
+	if collapsed[1] != "project fixture-topic" || collapsed[2] != "codex · Magpie · model-name" {
 		t.Fatal(collapsed)
 	}
 	view.WorkingDirectory = "/this/is/a/very/long/worktree/path/nested/project-with-a-very-long-name"
@@ -116,20 +116,11 @@ func TestSessionsContextToggleAndSearch(t *testing.T) {
 		model = next.(harborModel)
 	}
 	step("o")
-	if !model.previewExpanded || model.screen != "sessions" || !strings.Contains(model.View(), "/fixture/nested/project") || !strings.Contains(model.View(), "Route: fixture-instance/provider/model-name") || strings.Contains(model.View(), "codex · Magpie · model-name") || strings.Count(model.View(), "fixture-topic") != 1 {
+	if !model.previewExpanded || model.screen != "sessions" || !strings.Contains(model.View(), "/fixture/nested/project") || !strings.Contains(model.View(), "codex · Magpie · fixture-instance/provider/model-name · Unbound") || strings.Count(model.View(), "fixture-topic") != 1 {
 		t.Fatal(model.View())
 	}
-	if header := model.previewHeaderContext(view, 65, true); len(header) > 4 || !strings.Contains(header[1], "/fixture/nested/project") || !strings.Contains(header[2], "Route: fixture-instance/provider/model-name") {
-		t.Fatal("expanded context lost its anchor or exceeded four rows", header)
-	}
-	view.MagpieModel = "provider/" + strings.Repeat("long-model-segment-", 5)
-	longHeader := model.previewHeaderContext(view, 65, true)
-	plainRoute := strings.Join(strings.Fields(ansi.Strip(strings.Join(longHeader[2:], "\n"))), "")
-	if len(longHeader) != 4 || !strings.HasPrefix(plainRoute, "codex·Magpie·Route:fixture-instance/") || !strings.HasSuffix(plainRoute, "long-model-segment-") || !strings.Contains(plainRoute, "…") {
-		t.Fatal("long route was cut off before the four-row limit", longHeader)
-	}
 	step("o")
-	if model.previewExpanded || strings.Contains(model.View(), "Path: ") {
+	if model.previewExpanded || strings.Contains(model.View(), "fixture-instance/provider/") || !strings.Contains(model.View(), "codex · Magpie · model-name") {
 		t.Fatal("did not collapse")
 	}
 	step("/")
@@ -143,5 +134,44 @@ func TestSessionsContextToggleAndSearch(t *testing.T) {
 	step("o")
 	if model.screen != "detail" {
 		t.Fatal("narrow context did not open Details", model.screen)
+	}
+}
+
+func TestSessionsContextWrapsOnlyWhenNeeded(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	model := harborModel{profiles: []profile{{ID: "a", Name: "Studio"}, {ID: "b", Name: "Personal"}}}
+	view := previewFixture("fixture")
+	view.Profile = &profileBinding{ProfileID: "a"}
+	view.Mode, view.InstanceID, view.MagpieModel = "magpie", "fixture", "relay/model-name"
+	const metadata = "codex · Magpie · fixture/relay/model-name"
+	width := ansi.StringWidth(metadata + " · Studio")
+	fitting := model.previewHeaderContext(view, width, true)
+	overflow := model.previewHeaderContext(view, width-1, true)
+	if len(fitting) != 4 || fitting[2] != metadata+" · Studio" || len(overflow) != 5 || overflow[2] != metadata || overflow[3] != "Studio" || !strings.HasPrefix(overflow[4], "Conversation identity pending") {
+		t.Fatalf("expected Profile to wrap before the final diagnostic only when needed: %q / %q", fitting, overflow)
+	}
+	view.MagpieModel = strings.Repeat("路由/", 40) + "model-name"
+	longHeader := model.previewHeaderContext(view, width, true)
+	if len(longHeader) <= 5 || longHeader[2] != "codex · Magpie" || !strings.Contains(strings.Join(longHeader[3:len(longHeader)-1], ""), "fixture/"+view.MagpieModel) || !strings.HasPrefix(longHeader[len(longHeader)-1], "Conversation identity pending") {
+		t.Fatal("long route or trailing diagnosis lost", longHeader)
+	}
+	for _, line := range longHeader {
+		if ansi.StringWidth(line) > width {
+			t.Fatal("continued line exceeds cell budget", line)
+		}
+	}
+	view.MagpieModel = "relay/" + strings.Repeat("界", 50) + "-model-name"
+	compact := model.previewHeader(view, width)
+	if !strings.HasPrefix(compact[2], "codex · Magpie · …") || !strings.HasSuffix(compact[2], "-model-name") || ansi.StringWidth(compact[2]) > width {
+		t.Fatal("compact model should truncate from the left", compact)
+	}
+	geometry := sessionGeometry{body: len(longHeader) + 9, right: width}
+	view.MagpieModel = strings.Repeat("路由/", 40) + "model-name"
+	if !model.previewContextFits(view, geometry) {
+		t.Fatal("long header fits when eight preview lines remain")
+	}
+	geometry.body--
+	if model.previewContextFits(view, geometry) {
+		t.Fatal("expanded context would take space reserved for the preview")
 	}
 }

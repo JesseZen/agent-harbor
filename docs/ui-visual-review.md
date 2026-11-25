@@ -14,7 +14,7 @@
 
 ## Sessions 彩色只读终端预览（2026-11-23）
 
-摘要第二行仿终端提示符：收起时只留灰蓝项目末级目录名和淡紫分支；第三行只显示 CLI 与连接，不显示模型。`o` 原位替换摘要：名称/Working 固定在第一行，完整 Home 缩写路径与分支保持在第二行，第三行展开完整路由，第四行按需显示 Profile 或诊断。长路径中间截断，上下文最多四行并保留预览空间；窄屏列表不额外占行。彩色 Active 状态用同尺寸实心圆，Working 保留明暗呼吸；无色或 ASCII 下继续用可区分的字形。
+摘要第二行仿终端提示符：收起时只留灰蓝项目末级目录名和淡紫分支，展开显示完整 Home 缩写路径，路径过长中间截断。第一行名称/Working 不动。第三行用低对比度的 `·` 串起各项，CLI 和模型末段用柔和亮色；展开补全次级色路由前缀，适用的 Profile 也用次级色。不加 `Route:` / `Profile:` 标签，放不下才续行，诊断单独放末行。展开保留预览空间；窄屏列表不额外占行。彩色 Active 状态用同尺寸实心圆，Working 保留明暗呼吸；无色或 ASCII 下继续用可区分的字形。
 
 宽屏在 `W >= 90` 且正文至少 12 行时使用 35%/65% 左右栏；右栏展示当前 pane 的保留
 ANSI 颜色、项目/CLI/Native 或 Magpie 元数据和短诊断。窄屏折叠右栏，列表保留名称、
@@ -23,9 +23,9 @@ Working 的图标呼吸与文字扫光不依赖 RPC；`NO_COLOR`、`TERM=dumb`�
 均退化为静态可辨状态。
 
 已通过真实 macOS Herdr/tmux 弹窗与 Unicode 15 重渲染：160/100/80/60 列和 160×20 矮窗，
-含 Native、Magpie、External、Stopped、断连、快速 A→B→A 和多帧 Working。未通过范围是
-Linux/远端实机、真实线上账号/provider 和原生像素截图；ANSI 证据均为脱敏终端重渲染，不冒充
-原生截图。
+含 Native、Magpie、External、Stopped、断连、快速 A→B→A 和多帧 Working。新版摘要在同一套
+隔离弹窗保留收起和展开的 Unicode 15 重渲染：实际 `104×33` 时 Profile 与路由同行，诊断在其下。
+Linux/远端实机、真实线上账号/provider 和原生像素截图未验证；ANSI 证据均为脱敏终端重渲染。
 
 ## 5-Tab 导航、omp 风格双栏 Settings 与 Extensions（Milestone B，2026-11-23）
 

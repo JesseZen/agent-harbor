@@ -1,5 +1,18 @@
 # UI 实机走查 — 2026-11-17
 
+## Codex Responses 格式（2026-11-25）
+
+新建 Codex 会话选中支持 Lite 的 Magpie 模型后，会出现 Responses format。
+方向键或鼠标选择 Automatic、Responses 或 Responses Lite，Enter 应用，Esc
+返回原字段。格式随当前模型选择，换线路后回到 Automatic。Details 和恢复确认页
+显示已保存的格式。网关不再支持已保存的 Lite 线路时，恢复会提示修复。
+
+隔离 macOS arm64 使用 Herdr 0.9.5、Codex 0.172.0 与 Magpie 0.1.4783 候选。
+真实 aihub 验收覆盖三个格式选项、Lite shell 工具调用和原对话恢复。恢复请求带回
+旧推理，Codex 记录的用量继续标记为包含推理。模拟 OAuth 验收使用真实 Codex
+检查登录态目录及 Lite 转发。Linux、远端工作区和发布包待验证。
+[验收步骤](../bridge/tests/README.md#responses-lite)
+
 ## Sessions Pin、Archive 与组内折叠（2026-11-25）
 
 已实现：

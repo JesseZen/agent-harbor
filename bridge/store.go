@@ -79,6 +79,8 @@ type session struct {
 	CodexConnection      string              `json:"codex_connection,omitempty"`
 	CodexOptions         *codexOptions       `json:"codex_options,omitempty"`
 	MagpieURL            string              `json:"magpie_url,omitempty"`
+	ResponsesFormat      responsesFormat     `json:"responses_format,omitempty"`
+	ResponsesLiteModel   string              `json:"responses_lite_model,omitempty"`
 	MagpieModel          string              `json:"magpie_model,omitempty"`
 	CodexSessionID       string              `json:"codex_session_id,omitempty"`
 	ReportedCodexID      string              `json:"reported_codex_session_id,omitempty"`
@@ -324,6 +326,7 @@ func createSessionIntent(d sessionDraft, address string, selected *magpieInstanc
 	s.AutoNamePending = strings.TrimSpace(d.Name) == "" && d.Client == "codex"
 	s.AutoNameSync = s.AutoNamePending
 	if mode == "magpie" && d.Client == "codex" {
+		s.ResponsesFormat, s.ResponsesLiteModel = d.ResponsesFormat, d.ResponsesLiteModel
 		s.CodexConnection = "caller"
 		if d.CodexConnection != "" {
 			s.CodexConnection = d.CodexConnection

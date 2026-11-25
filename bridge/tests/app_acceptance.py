@@ -27,6 +27,8 @@ def main():
     p.add_argument('--session-names',action='store_true',help='exercise Codex title synchronization and manual Herdr display names')
     p.add_argument('--model-picker',action='store_true',help='exercise Magpie models, Codex effort and profile recovery')
     p.add_argument('--codex-options',action='store_true',help='exercise Profile defaults, remembered launch options and native/Codex-format Magpie recovery')
+    p.add_argument('--responses-lite',action='store_true',help='exercise the Codex Responses format picker, usage and Lite recovery')
+    p.add_argument('--responses-lite-provider-config',type=pathlib.Path,help='use the aihub route from this Magpie providers.json during the Lite gate')
     p.add_argument('--synthetic-api-login',action='store_true',help='seed a fixture API login instead of starting signed out')
     p.add_argument('--owned-server-recovery',choices=['native','magpie'],help='exercise same-conversation recovery with the owned App Server')
     for name in ('binary','herdr','magpie','codex'): p.add_argument('--'+name,required=True)
@@ -38,7 +40,7 @@ def main():
     root.chmod(0o700)
     print('diagnostics',root,flush=True)
     env={'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','TERM':'xterm-256color','SHELL':'/bin/sh','LANG':'C.UTF-8','NO_COLOR':'1','MAGPIE_NO_ACCOUNTS':'1'}
-    if a.session_names or a.codex_options or a.sessions_preview:
+    if a.session_names or a.codex_options or a.sessions_preview or a.responses_lite:
         env.pop('NO_COLOR');env['COLORTERM']='truecolor'
     for key,leaf in [('HOME','home'),('XDG_CONFIG_HOME','config'),('XDG_DATA_HOME','data'),('XDG_STATE_HOME','state'),('XDG_CACHE_HOME','cache'),('XDG_RUNTIME_DIR','runtime'),('TMPDIR','tmp'),('CODEX_HOME','codex'),('CODEX_SQLITE_HOME','sqlite')]:
         (root/leaf).mkdir(mode=0o700);env[key]=str(root/leaf)
@@ -79,12 +81,13 @@ def main():
         # Search placeholders disappear while a query is present. Detect the
         # Sessions heading so a retained popup is not mistaken for a closed one.
         wait(lambda: 'Harbor › Working' not in capture(), 'prior popup action settled')
-        def on_sessions():
-            return any(label in capture() for label in ('Harbor · Profile:', 'Search sessions, projects or connections'))
-        if not on_sessions():key('C-b','a')
-        wait(lambda: on_sessions() or 'Harbor · Accounts' in capture(), 'management popup visible')
-        if not on_sessions():click('Sessions')
-        wait(on_sessions, 'Sessions')
+        def sessions_visible():
+            frame=capture()
+            return 'New session' in frame and 'Refresh' in frame
+        if not sessions_visible():key('C-b','a')
+        wait(lambda: sessions_visible() or 'Harbor · Accounts' in capture(), 'management popup visible')
+        if not sessions_visible():click('Sessions')
+        wait(sessions_visible,'Sessions visible')
     def click(label,whole=False):
         import unicodedata
         lines=capture().splitlines()
@@ -123,7 +126,7 @@ def main():
     discovery=None;started=False;external=None
     try:
         # Never probe the user's standard discovery service.
-        dynamic_discovery=a.dynamic_discovery or a.codex_options
+        dynamic_discovery=a.dynamic_discovery or a.codex_options or a.responses_lite
         try:discovery=http.server.ThreadingHTTPServer(('127.0.0.1',0 if dynamic_discovery else 3425),NoGateway)
         except OSError as err:print('SKIP discovery socket unavailable:',err,flush=True);return 77
         if dynamic_discovery:
@@ -145,6 +148,8 @@ def main():
                 '[projects.'+json.dumps(str(root/'project'))+']\ntrust_level = "trusted"\n')
         if a.codex_options:
             config=config.replace('model = "test-model"','model = "gpt-5.5"')
+        if a.responses_lite:
+            config='model_reasoning_effort = "high"\n'+config
         if a.replacement and not a.session_names:
             config+='[features]\nhooks = true\n'
             run([root/'bin/herdr','integration','install','codex'])
@@ -192,6 +197,19 @@ def main():
             run([managed,'provider','add','relay-'+label,'url=http://127.0.0.1:'+str(relay.server_port)+'/v1','key=fixture-only','models=test-model'])
             if a.model_picker or a.codex_options:run([managed,'model','spec','relay-'+label+'/test-model','--reasoning','low-high'])
             if a.codex_options:run([managed,'model','context','relay-'+label+'/test-model','32000' if label=='a' else '64000'])
+        lite_relay=None
+        if a.responses_lite:
+            from fixture_responses_lite import LiteRelay, configure, MODEL
+            if a.responses_lite_provider_config is None:
+                lite_relay=http.server.ThreadingHTTPServer(('127.0.0.1',0),LiteRelay)
+                lite_relay.journal=[];lite_relay.observed=[]
+                threading.Thread(target=lite_relay.serve_forever,daemon=True).start();servers.append(lite_relay)
+            configure(managed,run,root,a.responses_lite_provider_config,
+                      'http://127.0.0.1:'+str(lite_relay.server_port)+'/v1' if lite_relay else '')
+            def lite_available():
+                catalog=json.loads(run([binary,'models','--instance','managed','--json']).stdout)
+                return any(row['id']==MODEL and row.get('magpie_codex_responses_lite') for row in catalog)
+            wait(lite_available,'aihub Responses Lite model')
         members='relay-a/test-model,relay-b/test-model' if a.codex_options else 'relay-a/test-model'
         run([managed,'group','add','ui-group','models='+members,'routing=rotate','stays=off'])
         if a.model_picker or a.codex_options:run([managed,'group','set','ui-group','levels=low,medium,high'])
@@ -221,7 +239,7 @@ def main():
                 ready_since=None
                 return False
             wait(ready,'Codex prompt after fixture setup')
-        def create(name,model=None):
+        def create(name,model=None,responses_format=None):
             expected_name=name or ('project · magpie' if model else 'project · local')
             popup();key('n');screen('New session')
             click('Connection')
@@ -243,17 +261,37 @@ def main():
             click('Name')
             if 'Session name' not in capture():key('Enter')
             screen('Session name');text(name);key('Enter');screen('New session')
+            if responses_format:
+                click('Responses format');key('Enter')
+                screen('Automatic');screen('Responses Lite')
+                if responses_format=='Automatic':
+                    visuals=root/'responses-format-ansi';visuals.mkdir()
+                    for width,height in ((160,45),(100,30),(80,24),(60,24)):
+                        tm('resize-window','-t','app:0','-x',str(width),'-y',str(height))
+                        time.sleep(.45)
+                        screen('Automatic');screen('Responses Lite');screen('Apply');screen('Cancel')
+                        frame=tm('capture-pane','-e','-p','-t','app:0.0').replace(str(root),'fixture')
+                        for private in (socket.gethostname().split('.')[0],os.environ.get('USER','')):
+                            if private:frame=re.sub(re.escape(private),'fixture',frame,flags=re.IGNORECASE)
+                        (visuals/f'format-{width}.ansi').write_text(frame)
+                    tm('resize-window','-t','app:0','-x','160','-y','45')
+                    time.sleep(.45)
+                    key('Down','Escape')
+                    screen('New session')
+                    key('Enter');screen('Responses Lite')
+                for _ in range(('Automatic','Responses','Responses Lite').index(responses_format)):key('Down')
+                key('Enter');screen('New session')
             key('C-s')
             def startup_screen(*labels):
                 frame=capture()
                 return frame if any(label in frame for label in labels) else None
             startup=('Ask Codex','Hooks need review')
-            if a.codex_options or a.sessions_preview:startup+=('Use existing model',)
+            if a.codex_options or a.sessions_preview or a.responses_lite:startup+=('Use existing model',)
             frame=wait(lambda:startup_screen(*startup,'Conversation recovery'), 'Codex prompt or identity setup')
             if 'Conversation recovery' in frame:
                 key('s' if a.session_names else 'y')
                 frame=wait(lambda:startup_screen(*startup), 'Codex prompt or hook review')
-            if a.codex_options or a.sessions_preview:
+            if a.codex_options or a.sessions_preview or a.responses_lite:
                 options_prompt();time.sleep(1);options_prompt()
             else:
                 if 'Hooks need review' in frame:
@@ -315,6 +353,10 @@ def main():
             for other in servers:
                 if other not in relays:
                     assert not any(marker in e['current'] for e in other.journal), 'main marker reached wrong upstream'
+        if a.responses_lite:
+            from fixture_responses_lite import exercise
+            exercise(root,a.responses_lite_provider_config is not None,lite_relay,create,popup,key,text,screen,records,wait,options_prompt,reviewed_confirm)
+            return 0
         if a.sessions_preview:
             wrapper=root/'harbor/herdr/bin/herdr'
             original=json.loads(run([wrapper,'pane','current']).stdout)['result']['pane']

@@ -105,6 +105,9 @@ func (m harborModel) reviewLayout() uiPage {
 		}
 		p.field("", "🧠", "Model", cleanUI(model), false, false)
 	}
+	if m.reviewed.ResponsesFormat != "" {
+		p.field("", "", "Responses format", m.reviewed.responsesFormatLabel(), false, false)
+	}
 	conversation := m.reviewed.CodexSessionID
 	if m.reviewed.Conversation != nil {
 		conversation = m.reviewed.Conversation.Reference.Value

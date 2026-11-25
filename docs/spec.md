@@ -99,6 +99,15 @@ directory, `PATH`, or `npx skills`.
 placeholder. Plugin and Marketplace management are pending. See the
 [Extensions handoff](extensions-handoff.md) for past implementation and runtime findings.
 
+New session shows **Responses format** when the selected Magpie model
+advertises Lite support. **Automatic** uses the declared format,
+**Responses** uses the regular format, and **Responses Lite** requires Lite.
+The first supported route is the direct `aihub/gpt-6.2-sol` model.
+Harbor records the choice and the resolved Lite route with the session.
+Recovery reuses them and stops if the Lite route is unavailable.
+The model ID and Codex's `responses` wire API stay the same.
+See [Magpie caller-only integration](magpie-caller-integration.md).
+
 New session → Options sets Codex-only launch overrides: Sandbox, Approval,
 Reasoning, configured context window, automatic compaction token limit,
 post-turn compaction percent, and additional writable directories. Unset means

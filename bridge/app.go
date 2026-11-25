@@ -41,6 +41,7 @@ type appLoaded struct {
 type appNewReady struct {
 	generation  uint64
 	environment appEnvironment
+	models      []catalogModel
 	err         error
 }
 type appCreated struct {
@@ -155,6 +156,7 @@ type harborModel struct {
 	selectionFallback   bool
 	formActive          bool
 	formFocus           int
+	responsesCursor     int
 	formSaved           sessionDraft
 	creationConnections map[profileBinding]string
 	codexEditor         codexOptionEditor
@@ -167,6 +169,7 @@ type harborModel struct {
 	newInstances        []instanceReport
 	instanceFilter      string
 	models              []catalogModel
+	modelsInstance      string
 	catalogFilter       string
 	catalogCursor       int
 	connectionCursor    int
@@ -721,7 +724,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = "new-instance"
 			return m, nil
 		}
-		m.models = msg.models
+		m.models, m.modelsInstance = msg.models, msg.instance
 		m.catalogCursor = 0
 		m.catalogFilter = ""
 		m.screen = "new-catalog"
@@ -835,6 +838,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Instance: msg.environment.LastMagpieInstance, Model: msg.environment.LastMagpieModel,
 			CodexOptions: msg.environment.CodexOptions.saved(),
 		}
+		m.models, m.modelsInstance = msg.models, m.draft.Instance
 		m.newInstances = nil
 		m.formActive = true
 		m.formFocus = 0
@@ -848,7 +852,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.creating = false
-		m.formFocus = min(formName, msg.focus)
+		m.formFocus = min(formResponses, msg.focus)
 		m.screen = msg.page
 		m.notice = ""
 		if msg.err != nil {
@@ -1007,7 +1011,7 @@ func (m harborModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if m.formActive && (key != "?" || m.screen == "new-name") && (m.screen == "new-form" || m.screen == "new-name" || m.screen == "new-cli" || m.screen == "new-connection" || m.screen == "new-notice") {
+		if m.formActive && (key != "?" || m.screen == "new-name") && (m.screen == "new-form" || m.screen == "new-name" || m.screen == "new-cli" || m.screen == "new-connection" || m.screen == "new-notice" || m.screen == "new-responses-format") {
 			return m.updateNew(msg)
 		}
 		if m.screen == "new-directory" {

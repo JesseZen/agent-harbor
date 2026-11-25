@@ -90,6 +90,13 @@ sessions require the Profile discovery/write isolation candidate; an old or
 unverified gateway is refused. Explicitly update your dedicated candidate rather
 than replacing or stopping a user-managed service.
 
+With a Responses Lite-capable Magpie route, New session offers **Responses
+format**. Automatic follows the route's advertised format. Responses forces
+regular requests, and Responses Lite requires the gateway's Lite capability.
+The session keeps its choice on restart and recovery. The first supported
+route is direct `aihub/gpt-6.2-sol` with `codex=as-sent` enabled in Magpie.
+See [candidate setup](../docs/magpie-caller-integration.md#responses-lite-candidate).
+
 ### Codex accounts
 
 The Accounts page (`a`) automatically refreshes Codex usage and reset-card

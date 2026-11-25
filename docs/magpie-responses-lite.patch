@@ -1,0 +1,426 @@
+diff --git a/internal/catalog/catalog.go b/internal/catalog/catalog.go
+index d50212b..6ff0803 100644
+--- a/internal/catalog/catalog.go
++++ b/internal/catalog/catalog.go
+@@ -130,6 +130,8 @@ type Model struct {
+ 	// (gateway Request.Tier): Codex offers it the tiers of its own entry
+ 	// for the same model, Fast on another GPT model.
+ 	OwnTier bool `json:",omitempty"`
++	// SupportsResponsesLite is a local, single-provider capability.
++	SupportsResponsesLite bool `json:"-"`
+ 	// CodexFast is set on a GPT model a ChatGPT account serves itself, not
+ 	// through a routing group: one Codex's /fast (service_tier "priority")
+ 	// is asked of, which OpenCode is offered as fast variants (#2379).
+diff --git a/internal/codexcat/codexcat.go b/internal/codexcat/codexcat.go
+index 34c2881..1d75ff8 100644
+--- a/internal/codexcat/codexcat.go
++++ b/internal/codexcat/codexcat.go
+@@ -215,7 +215,7 @@ func CatalogAt(ms []catalog.Model, effort string) []byte { return CatalogUsed(ms
+ // and a ChatGPT account's own (ChatGPTOwn), kept where the Codex app reads
+ // them (FitOwn).
+ func CatalogUsed(ms []catalog.Model, effort string, used []string) []byte {
+-	entries := entriesAt(ms, 0, effort)
++	entries := entriesAt(ms, 0, effort, false)
+ 	FitOwn(entries, used, OwnIn(ms))
+ 	out := struct {
+ 		Models []any `json:"models"`
+@@ -330,12 +330,11 @@ type model struct {
+ 	// tokens before the first word (#258); with it, they are named in
+ 	// tool_search's description and handed over when searched for,
+ 	// as Codex does for its own models. Magpie serves the search to
+-	// any model as a function (gateway/toolsearch.go). Code mode and
+-	// Responses Lite stay off: the one has the model write JavaScript
+-	// against Codex's tools, the other moves the tools and
+-	// instructions into the input, neither for a model not trained on
+-	// them.
+-	SearchTool bool `json:"supports_search_tool"`
++	// any model as a function (gateway/toolsearch.go). Code mode stays off for generic models. Responses Lite
++	// moves tools and instructions into the input and requires explicit
++	// route support.
++	SearchTool       bool `json:"supports_search_tool"`
++	UseResponsesLite bool `json:"use_responses_lite,omitempty"`
+ 	// Required from Codex 0.147 (#298: without it the whole catalog
+ 	// fails to load); later Codex ask for parallel calls whatever it
+ 	// says, so it says what they do.
+@@ -392,10 +391,15 @@ func deepSeek(id string) bool {
+ // rest take Codex's defaults. A model's default effort is ModelDefault's
+ // for the effort this machine's Codex starts new sessions at.
+ func Entries(ms []catalog.Model, after int) []any {
+-	return entriesAt(ms, after, NewSessionEffort())
++	return EntriesForFormat(ms, after, false)
+ }
+ 
+-func entriesAt(ms []catalog.Model, after int, effort string) []any {
++// EntriesForFormat enables Responses Lite on routes that explicitly support it.
++func EntriesForFormat(ms []catalog.Model, after int, responsesLite bool) []any {
++	return entriesAt(ms, after, NewSessionEffort(), responsesLite)
++}
++
++func entriesAt(ms []catalog.Model, after int, effort string, responsesLite bool) []any {
+ 	own := CacheEntries()
+ 	v1 := V1()
+ 	work := settings.Load().ForAgent("codex")
+@@ -428,6 +432,7 @@ func entriesAt(ms []catalog.Model, after int, effort string) []any {
+ 			ApplyPatch: "freeform", Tools: []string{}, Modalities: []string{"text"},
+ 			Tiers: []tier{}, SearchTool: true, Parallel: true,
+ 			AutoReview: autoReview, EffectivePct: effectivePct,
++			UseResponsesLite: responsesLite && m.SupportsResponsesLite,
+ 		}
+ 		if e.AutoReview == settings.CodexAutoReviewSession {
+ 			e.AutoReview = m.ID
+diff --git a/internal/gateway/codex_backend.go b/internal/gateway/codex_backend.go
+index 56d3934..eb0027f 100644
+--- a/internal/gateway/codex_backend.go
++++ b/internal/gateway/codex_backend.go
+@@ -111,6 +111,22 @@ Be concise, structured, and focused on helping the next LLM seamlessly continue
+ 
+ const codexSummaryPrefix = codexsummary.Prefix
+ 
++const harborCodexLitePath = CodexPath + "/harbor-responses-lite"
++
++type harborCodexLiteKey struct{}
++
++// Normalize the joined Lite base URL before the normal auth and routing
++// guards. Catalog and turn requests keep the caller's usual identity.
++func harborCodexFormat(r *http.Request) *http.Request {
++	rest, lite := strings.CutPrefix(r.URL.Path, harborCodexLitePath+"/")
++	if !lite || !settings.CodexCallerOnly() {
++		return r
++	}
++	r = r.Clone(context.WithValue(r.Context(), harborCodexLiteKey{}, true))
++	r.URL.Path, r.URL.RawPath = CodexPath+"/"+rest, ""
++	return r
++}
++
+ func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
+ 	if settings.CodexCallerOnly() {
+ 		r = r.WithContext(context.WithValue(r.Context(), callerOnlyKey{}, true))
+@@ -141,6 +157,11 @@ func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
+ 	if !ok {
+ 		return
+ 	}
++	if r.Context().Value(harborCodexLiteKey{}) == true && r.Method == http.MethodPost && rest == "/responses" &&
++		modelOf(body) == provider.HarborResponsesLiteModel && !strings.EqualFold(r.Header.Get("X-OpenAI-Internal-Codex-Responses-Lite"), "true") {
++		writeError(w, provider.Responses, 412, "Codex did not load the Responses Lite model catalog; reopen the session with a compatible Codex client")
++		return
++	}
+ 	if settings.CodexCallerOnly() && !(r.Method == http.MethodGet && rest == "/models") {
+ 		model := modelOf(body)
+ 		// Namespaced models and groups are magpie's. Everything else uses
+@@ -2536,6 +2557,15 @@ func (s *Server) codexModels(w http.ResponseWriter, r *http.Request) {
+ 			r.URL.RawQuery = q.Encode()
+ 		}
+ 	}
++	q := r.URL.Query()
++	lite := q.Get("responses_format") == "lite" || r.Context().Value(harborCodexLiteKey{}) == true
++	if lite {
++		// The format is a local catalog option, outside the caller's
++		// account request and the official list cache key.
++		r = r.Clone(r.Context())
++		q.Del("responses_format")
++		r.URL.RawQuery = q.Encode()
++	}
+ 	var own []any
+ 	body, etag, deny, denyBody := s.codexBackendList(r)
+ 	// A sign-in the backend calls revoked (401 token_revoked, "Encountered
+@@ -2579,10 +2609,15 @@ func (s *Server) codexModels(w http.ResponseWriter, r *http.Request) {
+ 			own = append(own, e)
+ 		}
+ 	}
+-	all := codexMerged(own, cached)
+-	// the list is the backend's and magpie's, and so is its ETag
+-	w.Header().Set("ETag", codexcat.WithTag(etag, codexListTag()))
+-	writeJSON(w, 200, map[string]any{"models": all})
++	response := map[string]any{"models": codexMergedFormat(own, cached, lite)}
++	if lite {
++		response["magpie_responses_format"] = "lite"
++		w.Header().Set("Cache-Control", "no-store")
++	} else {
++		// The default list and ETag are shared with regular Codex turns.
++		w.Header().Set("ETag", codexcat.WithTag(etag, codexListTag()))
++	}
++	writeJSON(w, 200, response)
+ }
+ 
+ // codexMerged is the list magpie hands a Codex beside its ChatGPT sign-in:
+@@ -2590,6 +2625,10 @@ func (s *Server) codexModels(w http.ResponseWriter, r *http.Request) {
+ // the backend's answer), as the user narrowed and set them on the codex
+ // provider, with magpie's models after them. The entries are written into.
+ func codexMerged(own []any, cached bool) []any {
++	return codexMergedFormat(own, cached, false)
++}
++
++func codexMergedFormat(own []any, cached, lite bool) []any {
+ 	defer provider.Hold()()
+ 	// the slugs the sign-in's list has, before the user's narrowing: a
+ 	// ChatGPT account's model it lacks is listed by magpie's id after it
+@@ -2721,7 +2760,7 @@ func codexMerged(own []any, cached bool) []any {
+ 			mine[m.ID] = true
+ 		}
+ 	}
+-	all := append(own, codexcat.Entries(ms, len(own)+100)...)
++	all := append(own, codexcat.EntriesForFormat(ms, len(own)+100, lite)...)
+ 	if at, ok := provider.CodexOrder(); ok {
+ 		codexcat.Order(all, at)
+ 	}
+diff --git a/internal/gateway/codex_catalog.go b/internal/gateway/codex_catalog.go
+index 0d374dd..1f4f474 100644
+--- a/internal/gateway/codex_catalog.go
++++ b/internal/gateway/codex_catalog.go
+@@ -55,7 +55,12 @@ func (s *Server) codexCatalog(w http.ResponseWriter, r *http.Request) {
+ 	defer provider.Hold()()
+ 	shown, _ := provider.CatalogFor("codex")
+ 	ms := provider.CodexCatalog(keyListed(r, shown, provider.ModelOff("codex")))
++	lite := r.URL.Query().Get("responses_format") == "lite"
+ 	head, tail := []byte(`{"models":[`), []byte("]}\n")
++	if lite {
++		head = []byte(`{"magpie_responses_format":"lite","models":[`)
++		w.Header().Set("Cache-Control", "no-store")
++	}
+ 	var b bytes.Buffer
+ 	b.Write(head)
+ 	n, out := 0, 0
+@@ -66,7 +71,7 @@ func (s *Server) codexCatalog(w http.ResponseWriter, r *http.Request) {
+ 	// the Codex app reads the first 100 alone (codexcat.AppList): a ChatGPT
+ 	// account's own models and the ones this key's Codex used are among
+ 	// them, and kept when the end is cut
+-	entries := codexcat.Entries(ms, 0)
++	entries := codexcat.EntriesForFormat(ms, 0, lite)
+ 	codexcat.FitOwn(entries, usage.CodexUsedBy(access.Caller(r.Context()).KeyID), codexcat.OwnIn(ms))
+ 	for _, e := range entries {
+ 		var one bytes.Buffer
+diff --git a/internal/gateway/codex_catalog_lite_test.go b/internal/gateway/codex_catalog_lite_test.go
+new file mode 100644
+index 0000000..a53066c
+--- /dev/null
++++ b/internal/gateway/codex_catalog_lite_test.go
+@@ -0,0 +1,74 @@
++package gateway
++
++import (
++	"encoding/json"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++
++	"github.com/yetone/magpie/internal/provider"
++)
++
++func TestHarborResponsesLiteCatalogs(t *testing.T) {
++	fresh(t)
++	t.Setenv("MAGPIE_CODEX_CALLER_ONLY", "1")
++	chatgpt(t, func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Query().Has("responses_format") {
++			t.Error("Harbor format reached the official catalog")
++		}
++		io.WriteString(w, `{"models":[{"slug":"gpt-official","priority":1,"use_responses_lite":true}]}`)
++	})
++	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		io.WriteString(w, `{"data":[{"id":"gpt-6.2-sol"},{"id":"another-model"}]}`)
++	}))
++	defer upstream.Close()
++	relay := provider.Provider{
++		ID: "aihub", Responses: upstream.URL + "/v1",
++		Key: "fixture", Models: []string{"gpt-6.2-sol", "another-model"}, CodexAsSent: true,
++	}
++	if err := provider.Save(relay); err != nil {
++		t.Fatal(err)
++	}
++	handler := lanGuard(New().Handler())
++	check := func(path string, liteRequested, wantLite bool) {
++		t.Helper()
++		requestURL := path + "?client_version=0.172.0"
++		if liteRequested && path != harborCodexLitePath+"/models" {
++			requestURL += "&responses_format=lite"
++		}
++		w := keysCall(handler, "GET", requestURL, fromHere, "client-oauth", "", "chatgpt-account-id", "client-account")
++		var list struct {
++			Format string `json:"magpie_responses_format"`
++			Models []struct {
++				Slug string `json:"slug"`
++				Lite bool   `json:"use_responses_lite"`
++			} `json:"models"`
++		}
++		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &list) != nil {
++			t.Fatalf("%s got HTTP %d or invalid JSON", requestURL, w.Code)
++		}
++		got := map[string]bool{}
++		for _, model := range list.Models {
++			got[model.Slug] = model.Lite
++		}
++		if advertised, found := got["aihub/gpt-6.2-sol"]; !found || advertised != wantLite || got["aihub/another-model"] {
++			t.Errorf("%s models %+v, want aihub Lite=%v", requestURL, got, wantLite)
++		}
++		if (list.Format == "lite") != liteRequested || (path != CodexCatalogPath && !got["gpt-official"]) {
++			t.Errorf("%s format %q, models %+v", requestURL, list.Format, got)
++		}
++	}
++	for _, path := range []string{CodexCatalogPath, CodexPath + "/models"} {
++		check(path, false, false)
++		check(path, true, true)
++	}
++	check(harborCodexLitePath+"/models", true, true)
++	relay.CodexAsSent = false
++	if err := provider.Save(relay); err != nil {
++		t.Fatal(err)
++	}
++	for _, path := range []string{CodexCatalogPath, CodexPath + "/models"} {
++		check(path, true, false)
++	}
++}
+diff --git a/internal/gateway/codex_lite_native_test.go b/internal/gateway/codex_lite_native_test.go
+new file mode 100644
+index 0000000..15cdeaa
+--- /dev/null
++++ b/internal/gateway/codex_lite_native_test.go
+@@ -0,0 +1,83 @@
++package gateway
++
++import (
++	"context"
++	"fmt"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/yetone/magpie/internal/provider"
++)
++
++func TestHarborResponsesLiteNativeJoined(t *testing.T) {
++	native := os.Getenv("HARBOR_TEST_CODEX_BIN")
++	if native == "" {
++		t.Skip("set HARBOR_TEST_CODEX_BIN to test a real Codex client")
++	}
++	fresh(t)
++	codexChatGPTAuth(t, "harbor-fixture@example.com")
++	t.Setenv("MAGPIE_CODEX_CALLER_ONLY", "1")
++	var officialLists, liteTurns atomic.Int32
++	chatgpt(t, func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Path == CodexPath+"/models" && r.Header.Get("chatgpt-account-id") == "acct-synthetic" {
++			officialLists.Add(1)
++			w.Header().Set("Content-Type", "application/json")
++			io.WriteString(w, `{"models":[]}`)
++			return
++		}
++		http.NotFound(w, r)
++	})
++	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.Method == http.MethodGet {
++			io.WriteString(w, `{"data":[{"id":"gpt-6.2-sol"}]}`)
++			return
++		}
++		if r.Header.Get("Authorization") != "Bearer provider-fixture" {
++			t.Error("upstream did not receive its provider credential")
++		}
++		if r.Header.Get("X-Openai-Internal-Codex-Responses-Lite") != "true" {
++			t.Error("upstream did not receive the Lite header")
++		}
++		liteTurns.Add(1)
++		const message = `{"id":"msg_test","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"HARBOR_JOINED_LITE_OK","annotations":[]}]}`
++		w.Header().Set("Content-Type", "text/event-stream")
++		for _, event := range []string{
++			`{"type":"response.created","response":{"id":"resp_test","object":"response","status":"in_progress","output":[]}}`,
++			`{"type":"response.output_item.done","output_index":0,"item":` + message + `}`,
++			`{"type":"response.completed","response":{"id":"resp_test","object":"response","status":"completed","output":[` + message + `],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}`,
++		} {
++			fmt.Fprintf(w, "data: %s\n\n", event)
++		}
++	}))
++	defer upstream.Close()
++	if err := provider.Save(provider.Provider{ID: "aihub", Responses: upstream.URL + "/v1", Key: "provider-fixture",
++		Models: []string{"gpt-6.2-sol"}, CodexAsSent: true}); err != nil {
++		t.Fatal(err)
++	}
++	gateway := httptest.NewServer(New().Front())
++	defer gateway.Close()
++	root, home := t.TempDir(), os.Getenv("CODEX_HOME")
++	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("check_for_update_on_startup = false\ncli_auth_credentials_store = \"file\"\n"), 0600); err != nil {
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithTimeout(context.Background(), 22*time.Second)
++	defer cancel()
++	cmd := exec.CommandContext(ctx, native, "exec", "--ephemeral", "--skip-git-repo-check", "--disable", "apps",
++		"-m", provider.HarborResponsesLiteModel, "-c", `openai_base_url="`+gateway.URL+harborCodexLitePath+`"`, "Say hello")
++	cmd.Dir = root
++	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + root, "CODEX_HOME=" + home, "XDG_CONFIG_HOME=" + root,
++		"XDG_CACHE_HOME=" + root, "TERM=dumb", "LANG=C.UTF-8", "HTTP_PROXY=http://127.0.0.1:9",
++		"HTTPS_PROXY=http://127.0.0.1:9", "ALL_PROXY=http://127.0.0.1:9", "NO_PROXY=127.0.0.1,localhost"}
++	out, err := cmd.CombinedOutput()
++	if err != nil || !strings.Contains(string(out), "HARBOR_JOINED_LITE_OK") || officialLists.Load() == 0 || liteTurns.Load() == 0 {
++		t.Fatalf("real Codex failed: %v; official lists %d, Lite turns %d\n%s", err, officialLists.Load(), liteTurns.Load(), out)
++	}
++}
+diff --git a/internal/gateway/gateway.go b/internal/gateway/gateway.go
+index 4e60867..c288845 100644
+--- a/internal/gateway/gateway.go
++++ b/internal/gateway/gateway.go
+@@ -1136,7 +1136,7 @@ func (s *Server) routes() *routeMux {
+ 	// Claude Desktop's third-party gateway looks for one here before it
+ 	// takes the address
+ 	mux.HandleFunc("GET /api/hello", func(w http.ResponseWriter, r *http.Request) {
+-		writeJSON(w, 200, map[string]any{"name": "magpie", "version": Version, "codex_caller_only": settings.CodexCallerOnly(), "codex_profile_isolation": settings.CodexCallerOnly()})
++		writeJSON(w, 200, map[string]any{"name": "magpie", "version": Version, "codex_caller_only": settings.CodexCallerOnly(), "codex_profile_isolation": settings.CodexCallerOnly(), "codex_responses_lite": true})
+ 	})
+ 	// the Ollama API's model routes, for a client that takes a custom
+ 	// endpoint only as an Ollama server (ollama.go)
+@@ -2040,6 +2040,9 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
+ 			discovers, who := !magpie && claudeCodeDiscovers(r), access.Caller(r.Context())
+ 			for i, e := range rows {
+ 				m := modelObject(e)
++				if provider.CodexResponsesLite(e) {
++					m["magpie_codex_responses_lite"] = true
++				}
+ 				toolsTold(m, e)
+ 				id, bare := ids[i]
+ 				if bare {
+diff --git a/internal/gateway/lan.go b/internal/gateway/lan.go
+index dd5ef49..4d7e723 100644
+--- a/internal/gateway/lan.go
++++ b/internal/gateway/lan.go
+@@ -556,6 +556,7 @@ func (s *Server) Relisten() error {
+ // including a stale named key.
+ func lanGuard(next http.Handler) http.Handler {
+ 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		r = harborCodexFormat(r)
+ 		// with mTLS on, another machine's request needs magpie's client
+ 		// certificate before anything else is looked at, a callback's
+ 		// token and a gateway key included (mtls.go)
+diff --git a/internal/provider/codex_models.go b/internal/provider/codex_models.go
+index 153bde7..1029c92 100644
+--- a/internal/provider/codex_models.go
++++ b/internal/provider/codex_models.go
+@@ -1034,6 +1034,7 @@ func codexListedIf(shown []Entry, members func(id string) []Member, listed func(
+ 			continue
+ 		}
+ 		m := catalog.Model{ID: e.ID, Name: labels[i], Efforts: CodexEfforts(e), Images: e.Images || seen, Context: e.Context, AgentsV2: e.AgentsV2, Codex: e.Codex, Apart: apart[i]}
++		m.SupportsResponsesLite = CodexResponsesLite(e)
+ 		m.Compact = CompactFor(s, e, find)
+ 		CodexTiersWith(&m, e, members, ultra)
+ 		CodexSeals(&m, e, members)
+@@ -1042,6 +1043,18 @@ func codexListedIf(shown []Entry, members func(id string) []Member, listed func(
+ 	return ms
+ }
+ 
++// HarborResponsesLiteModel is the single-provider route verified with
++// Codex's Responses Lite wire format.
++const HarborResponsesLiteModel = "aihub/gpt-6.2-sol"
++
++// CodexResponsesLite reports whether this configured route preserves
++// the original Codex request and serves the verified model.
++func CodexResponsesLite(e Entry) bool {
++	return e.ID == HarborResponsesLiteModel && e.Group == "" &&
++		e.Provider != nil && e.Provider.ID == "aihub" && e.Provider.Account == nil &&
++		e.Provider.CodexAsSent && e.Provider.Native(e.Model) == Responses && e.Model == "gpt-6.2-sol"
++}
++
+ // codexUnknownLevels are the levels Codex is offered on a model magpie
+ // has no word on (CodexEfforts): the three every API that takes a
+ // reasoning effort reads, OpenAI's Chat and Responses and the relays

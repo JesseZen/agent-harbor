@@ -341,6 +341,30 @@ and reasoning effort for one Harbor session, make a temporary choice in a second
 session, and check the saved choice and actual request after recovery. The
 fixture uses synthetic providers and separate Codex and Magpie homes.
 
+## Responses Lite
+
+Use Codex 0.172.0, the local Herdr query candidate and the patched Magpie
+0.1.4783 source build:
+
+```sh
+python3 bridge/tests/app_acceptance.py --replacement --responses-lite \
+  --binary HARBOR --herdr HERDR --magpie MAGPIE --codex NATIVE_CODEX --codex-auth CODEX_AUTH
+```
+
+This uses a loopback Responses provider and checks all three format choices,
+the request header, the Lite tools layout, persisted reasoning usage and
+same-Conversation recovery. Add `--responses-lite-provider-config /path/to/providers.json`
+to use an explicitly authorized aihub provider. The fixture copies only that
+route to its private Magpie home and checks a real shell call and retained
+encrypted reasoning across recovery. Its temporary data includes test
+credentials and conversation history. Remove the fixture directory after
+reviewing sanitized results.
+
+Magpie's `TestHarborResponsesLiteCatalogs` checks both catalog endpoints,
+caller OAuth isolation, and removal of Lite capability when `codex=as-sent`
+is disabled. `TestHarborResponsesLiteNativeJoined` verifies the live catalog
+and the Lite request with a real Codex executable and synthetic OAuth.
+
 ## Profile gates
 
 ### Codex options and defaults

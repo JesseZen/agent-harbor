@@ -66,10 +66,10 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 		if name == "" {
 			name = "Automatic · " + filepath.Base(m.draft.Directory)
 		}
-		values := []string{m.draft.Directory, m.selectedClient(), connection, model, codexOptionsValue(m.draft.CodexOptions).summary(), name}
-		icons := []string{"📂", "🤖", "🔌", "🧠", "🎛️", "💬"}
+		values := []string{m.draft.Directory, m.selectedClient(), connection, model, codexOptionsValue(m.draft.CodexOptions).summary(), name, m.draft.ResponsesFormat.label()}
+		icons := []string{"📂", "🤖", "🔌", "🧠", "🎛️", "💬", ""}
 		for i := range values {
-			if i == formOptions && m.selectedClient() != "codex" {
+			if !m.formFieldVisible(i) {
 				continue
 			}
 			p.field("new-field:"+formLabels[i], icons[i], formLabels[i], values[i], m.formFocus == i, i != formModel || m.draft.Connection == "magpie")
@@ -139,6 +139,19 @@ func (m harborModel) newSessionPage() (uiPage, bool) {
 		if m.notice != "" {
 			p.line(cleanUI(m.notice))
 		}
+	case "new-responses-format":
+		p.title("Responses format")
+		applied := m.draft.ResponsesFormat
+		if applied == "" {
+			applied = responsesAutomatic
+		}
+		for i, format := range responsesFormats {
+			id := "new-responses:" + string(format)
+			selected := applied == format
+			p.listRow(id, selectorMark(selected), format.label(), "", m.rowStyle(id, i == m.responsesCursor, selected))
+		}
+		p.Hint = "↑↓/jk select"
+		p.shortcuts([]uiAction{{ID: "new-responses-select", Label: "Apply", Key: "enter", Primary: true}, {ID: "new-back", Label: "Cancel", Key: "esc"}}, m.uiFocus)
 	case "new-name":
 		p.title("Session name")
 		placeholder := "Project and connection (optional)"
@@ -287,6 +300,13 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 				m.connectionCursor = index
 				return m, nil, true
 			}
+		case strings.HasPrefix(id, "new-responses:"):
+			for i, format := range responsesFormats {
+				if id == "new-responses:"+string(format) && m.responsesCursor != i {
+					m.responsesCursor = i
+					return m, nil, true
+				}
+			}
 		case id == "new-details":
 			n, c := m.update(uiKey("!"))
 			return n, c, true
@@ -297,7 +317,7 @@ func (m harborModel) newSessionPageInput(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 		case id == "new-back":
 			n, c := m.updateForm(uiKey("esc"))
 			return n, c, true
-		case id == "new-name-save" || id == "new-connection-select":
+		case id == "new-name-save" || id == "new-connection-select" || id == "new-responses-select":
 		default:
 			return m, nil, true
 		}

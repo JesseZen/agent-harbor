@@ -176,7 +176,7 @@ func (m harborModel) connectionSelectorInput(msg tea.Msg) (tea.Model, tea.Cmd, b
 					n.notice = err.Error()
 					return nil
 				}
-				n.draft.Model = model
+				n.setDraftModel(model)
 				n.rememberConnection()
 				n.screen = "new-form"
 				n.uiFocus = ""

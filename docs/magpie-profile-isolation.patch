@@ -12,7 +12,7 @@
 +
  	main := CodexHomeIn(home)
  	out := []string{main}
- 	seen := map[string]bool{sameDir(main): true}
+ 	seen := map[dirKey]bool{keyOf(main): true}
 --- a/internal/provider/codex_store.go
 +++ b/internal/provider/codex_store.go
 @@ -600,6 +600,9 @@

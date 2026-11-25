@@ -1,5 +1,14 @@
 # Harbor 视觉一致性检查
 
+## Codex Responses 格式（2026-11-25）
+
+新建页仅在已选线路支持 Lite 时显示 Responses format。格式页复用单列选择行、
+当前光标、已选勾号和固定底栏。宽窄窗口都可用方向键选择，Enter 应用，Esc 返回。
+现有模型选择页保留原有的搜索和应用动作。Go 回归覆盖 60、80 与 160 列的选择、
+取消及切换模型。隔离 macOS 的 Herdr/tmux 外层尺寸为 160×45、100×30、80×24 和
+60×24。四个捕获画面的格式行、选中标记与固定底栏均可见。
+[测试入口](../bridge/tests/README.md#responses-lite)
+
 ## Sessions Pin、Archive 与组内折叠（2026-11-25）
 
 Pin 在所属组顶部状态圆点后显示 `📌 `（ASCII 退化为等宽 `P `），并从名称可用宽度扣除相同格宽，保证窄屏右对齐状态列与未置顶行完全对齐。组内折叠操作行 `▸ Show N more` / `▾ Show less`（ASCII 为 `>` / `v`）复用同一光标与悬浮行样式，单行显示且指示符与状态点同列、文字与会话名同列；展开后 `▾ Show less` 原位保留，下方展开项沿用原行布局与列起点，无缩进漂移。宽屏选中操作行时右栏显示分组摘要且不触发 `pane.read` RPC。底栏在深处浏览展开组时显示 `z Collapse group`（窄屏 `z Collapse`），有归档项时显示 `g Archived (N)`，60×20 窄屏仍保留 `? help`。独立 Archived 视图采用子页标题 `⚓ Harbor › Archived` 与无折叠单组列表。

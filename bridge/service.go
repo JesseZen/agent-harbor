@@ -28,6 +28,8 @@ type sessionDraft struct {
 	RecoveryChoice                                       string
 	CodexConnection                                      string
 	CodexOptions                                         *codexOptions
+	ResponsesFormat                                      responsesFormat
+	ResponsesLiteModel                                   string
 }
 type sessionApproval struct {
 	Recovery                 *recoveryApproval
@@ -276,11 +278,18 @@ func (h harborService) Draft(d sessionDraft) (sessionDraft, error) {
 		for _, m := range models {
 			if m.ID == d.Model {
 				found = true
+				if err := d.resolveResponsesFormat(m.SupportsResponsesLite); err != nil {
+					return d, err
+				}
+				break
 			}
 		}
 		if !found {
 			return d, errors.New("selected Magpie model or routing group is unavailable")
 		}
+	}
+	if d.Connection != "magpie" {
+		d.ResponsesFormat, d.ResponsesLiteModel = "", ""
 	}
 	if err := h.validateDraftCodexOptions(d); err != nil {
 		return d, err
@@ -321,6 +330,11 @@ func (h harborService) Create(d sessionDraft) (session, error) {
 			return session{}, errors.New("Magpie instance not found")
 		}
 		address = instance.Address
+		if d.ResponsesLiteModel != "" {
+			if err := requireMagpieResponsesLite(address, d.ResponsesLiteModel); err != nil {
+				return session{}, err
+			}
+		}
 		selected = &instance
 	}
 	return createSessionIntent(d, address, selected)

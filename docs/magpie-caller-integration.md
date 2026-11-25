@@ -3,9 +3,9 @@
 The joined Codex connection uses a local Magpie patch in
 [`magpie-caller-only.patch`](magpie-caller-only.patch). It is a development
 candidate: it has not been submitted to, accepted by, or released by Magpie.
-The patch applies to Magpie 0.1.3528 and 0.1.4248. The current package uses
-0.1.3528 because that release includes the ZCode integration needed by the
-existing candidate; later releases moved it to a community plugin.
+The source-build candidate uses Magpie 0.1.4783. Published Harbor v1
+dependency assets still use Magpie 0.1.3528. ZCode's provider is a community
+plugin on both versions.
 
 With `MAGPIE_CODEX_CALLER_ONLY=1`, a Codex request for an official model is
 relayed using the initiating client's authorization and account ID. Magpie
@@ -16,7 +16,12 @@ third-party compaction or reasoning items when a conversation returns to an
 official model, or reject an incompatible checkpoint; the identity boundary
 is not a promise of byte-for-byte request transparency. An
 explicit operating-system or environment proxy may still affect network
-traffic. Magpie models and groups continue to use their configured providers.
+traffic. After handing an official request to the upstream transport, the
+gateway no longer applies its pre-route 30-second watchdog to the upstream
+response wait. It waits at most 10 minutes for response headers; that limit
+does not cap an SSE stream after headers arrive. Requests still held before
+upstream handoff retain the pre-route guard.
+Magpie models and groups continue to use their configured providers.
 
 For joined Codex sessions the gateway declines the Responses WebSocket upgrade
 and Codex uses its built-in HTTP fallback. This avoids reconstructing official
@@ -42,11 +47,14 @@ their recorded connection rather than being migrated automatically.
 To build a package dependency from a clean Magpie checkout:
 
 ```sh
-git checkout 5426c43cca9b90be809d51edebc5c926929e9f6c
+git checkout 83f061ed9bc6d27370b1dda154a9a2234cd76a1d
 git apply /path/to/agent-harbor/docs/magpie-caller-only.patch
-go test -tags nogui ./internal/gateway ./internal/provider -run '^TestCodexCallerOnly' -count=1
+git apply /path/to/agent-harbor/docs/magpie-profile-isolation.patch
+git apply /path/to/agent-harbor/docs/magpie-responses-lite.patch
+go test -tags nogui ./internal/appdir ./internal/provider ./internal/gateway \
+  -run '^(TestCallerOnly|TestCodexCallerOnly|TestCodexCallerTransport|TestCodexAsSent|TestHarborResponsesLite)' -count=1
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags nogui -trimpath \
-  -ldflags '-s -w -X main.version=0.1.3528-harbor-dev' \
+  -ldflags '-s -w -X main.version=0.1.4783-harbor-dev' \
   -o /path/to/dependencies/magpie/magpie-caller-candidate-linux-amd64 .
 ```
 
@@ -60,23 +68,34 @@ synthetic official endpoint. No real login is needed for that test.
 ## Profile discovery/write isolation candidate
 
 Isolated Profiles additionally require [magpie-profile-isolation.patch](magpie-profile-isolation.patch),
-applied **after** the caller-only patch at the pinned 0.1.3528 base above. The
-supplemental patch has not been verified against 0.1.4248. It disables enumeration
-of Codex homes/history and direct login writes/deletion while caller-only mode is
+applied after the caller-only patch. It disables enumeration of Codex
+homes/history and direct login writes/deletion while caller-only mode is
 active, and reports `codex_profile_isolation: true` from `/api/hello`.
+An isolated Profile requires both capability fields. Harbor management
+verifies its own environment before launching Magpie's TUI.
 
-Build/test the combined candidate with:
+## Responses Lite candidate
 
-```sh
-git apply /path/to/agent-harbor/docs/magpie-profile-isolation.patch
-go test -tags nogui ./internal/appdir ./internal/provider ./internal/gateway -run 'TestCallerOnly|TestCodexCallerOnly' -count=1
-```
+[magpie-responses-lite.patch](magpie-responses-lite.patch) adds
+`codex_responses_lite` to `/api/hello` and an opt-in
+`?responses_format=lite` variant of both `/v1/codex/models` and
+`/backend-api/codex/models`. The variant advertises
+`use_responses_lite: true` for the direct `aihub/gpt-6.2-sol` model when
+the provider is configured for Responses and `codex=as-sent`. Enable that
+transport in the intended Magpie instance with
+`magpie provider set aihub codex=as-sent`. Magpie retains the same provider,
+model ID and credential for both formats. The default catalogs keep their
+regular behavior.
 
-Set `HARBOR_TEST_CODEX_BIN` to a native Codex binary for the caller-only native
-client test. Package the newly built executable with its SHA-256/source files and
-an additional `.profiles-patch.sha256` containing the supplemental patch's hash.
-The package script rejects a missing or mismatched attestation. These are local
-operator attestations, not upstream signatures or releases. An isolated Profile
-requires both capability fields; caller-only forwarding alone does not establish
-safe background discovery or management writes. Harbor management also verifies
-its own environment before launching Magpie's TUI.
+Harbor uses a private copy of the variant catalog for independent API
+sessions. Joined sessions use the session's Lite base URL so Codex fetches
+its combined model catalog with the initiating login. Magpie passes the
+regular model list and request routes through their existing authentication
+checks. Harbor verifies the saved route's Lite capability before the session
+starts or recovers. If the capability is missing, launch stops with a repair
+message.
+
+Package the source build with the executable's `.source` and `.sha256`
+and both `.profiles-patch.sha256` and `.responses-lite-patch.sha256`
+attestations. The prebuilt path requires new fork assets and matching lock
+entries for all four platforms. See [release maintenance](../distribution/README.md).

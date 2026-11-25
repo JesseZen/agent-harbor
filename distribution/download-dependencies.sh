@@ -22,6 +22,7 @@ EOF
   case "$commit$checksum" in *[!0-9a-f]*) exit 1 ;; esac
   test "${#commit}" = 40 && test "${#checksum}" = 64 && test -z "$extra" || exit 1
   mkdir -p "$work/$dependency"
+  third_patch=
   case "$dependency" in
     herdr)
       candidate="$work/herdr/herdr-candidate-$target"
@@ -31,13 +32,19 @@ EOF
       attestation=remote-patch ;;
     magpie)
       candidate="$work/magpie/magpie-caller-candidate-$target"
-      source=5426c43cca9b90be809d51edebc5c926929e9f6c
+      source=83f061ed9bc6d27370b1dda154a9a2234cd76a1d
       first_patch="$root/docs/magpie-caller-only.patch"
       second_patch="$root/docs/magpie-profile-isolation.patch"
+      third_patch="$root/docs/magpie-responses-lite.patch"
       attestation=profiles-patch ;;
   esac
   patch_pair="$(digest "$first_patch"):$(digest "$second_patch")"
-  test "$patches" = "$patch_pair" || { printf 'Patch lock mismatch: %s\n' "$dependency" >&2; exit 1; }
+  expected_patches=$patch_pair
+  if [ -n "$third_patch" ]; then
+    lite_patch_sha=$(digest "$third_patch")
+    expected_patches="$patch_pair:$lite_patch_sha"
+  fi
+  test "$patches" = "$expected_patches" || { printf 'Patch lock mismatch: %s\n' "$dependency" >&2; exit 1; }
   base="https://github.com/JesseZen/$dependency/releases/download/$tag/$dependency-$target"
   download "$base.commit" "$candidate.commit"
   test "$(cat "$candidate.commit")" = "$commit" || { printf 'Fork commit mismatch: %s\n' "$dependency" >&2; exit 1; }
@@ -46,6 +53,9 @@ EOF
   printf '%s\n' "$source" > "$candidate.source"
   printf '%s\n' "$checksum" > "$candidate.sha256"
   printf '%s\n' "${patch_pair#*:}" > "$candidate.$attestation.sha256"
+  if [ -n "$third_patch" ]; then
+    printf '%s\n' "$lite_patch_sha" > "$candidate.responses-lite-patch.sha256"
+  fi
 done
 
 mkdir -p "$work/codex-auth"

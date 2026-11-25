@@ -11,7 +11,7 @@ available for local source builds with Rust 1.96.1, Zig 0.16.0 and Go 1.26.8.
 `fork-release.yml` is the workflow for `JesseZen/herdr` and `JesseZen/magpie`.
 Install it at `.github/workflows/harbor-dependency.yml` on each fork's
 Harbor-specific branch, based on the exact upstream commit in
-`build-dependencies.sh`, with the corresponding two patches applied in order.
+`build-dependencies.sh`, with the corresponding patches applied in order.
 Keep unrelated upstream workflows off the Harbor release branch if they would
 also trigger on the new tags. A push to `harbor-candidate` runs the Intel-only
 diagnostic on Herdr and all four builds on Magpie, without publishing. To run
@@ -28,12 +28,13 @@ when both releases are complete, with one space-separated row per dependency
 and target:
 
 ```text
-dependency target tag fork-commit binary-sha256 first-patch-sha256:second-patch-sha256
+dependency target tag fork-commit binary-sha256 first-patch-sha256:second-patch-sha256[:third-patch-sha256]
 ```
 
-The last column records the two patched inputs, in the same order as the
-source-build script. It must be updated when the reviewed fork source changes
-to match new patches. On Harbor, first dispatch the release workflow on an
+The last column records the patched inputs in source-build order. Magpie
+v0.1.4783 adds the Responses Lite patch as its third input. The existing Magpie
+lock rows refer to the published v1 assets. Record new fork assets that match all
+three patches before running the prebuilt release. On Harbor, first dispatch the release workflow on an
 untagged ref containing the lock and verify all four package/install jobs.
 Harbor does not compile dependencies during release builds. A missing lock or
 mismatched asset fails the run; it does not trigger a source rebuild.

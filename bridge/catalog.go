@@ -16,10 +16,11 @@ import (
 )
 
 type catalogModel struct {
-	MagpieLabel string `json:"magpie_label,omitempty"`
-	OwnedBy     string `json:"owned_by,omitempty"`
-	ID          string `json:"id"`
-	DisplayName string `json:"display_name,omitempty"`
+	MagpieLabel           string `json:"magpie_label,omitempty"`
+	OwnedBy               string `json:"owned_by,omitempty"`
+	ID                    string `json:"id"`
+	DisplayName           string `json:"display_name,omitempty"`
+	SupportsResponsesLite bool   `json:"magpie_codex_responses_lite,omitempty"`
 }
 
 func showModels(args []string) error {
@@ -72,8 +73,9 @@ func fetchCatalogWithOfficial(address string, official func() []catalogModel) ([
 		return nil, errors.New("cannot reach Magpie; check its address and make sure Magpie is running")
 	}
 	var identity struct {
-		Name       string `json:"name"`
-		CallerOnly bool   `json:"codex_caller_only"`
+		Name          string `json:"name"`
+		CallerOnly    bool   `json:"codex_caller_only"`
+		ResponsesLite bool   `json:"codex_responses_lite"`
 	}
 	decodeErr := json.NewDecoder(io.LimitReader(hello.Body, 4096)).Decode(&identity)
 	hello.Body.Close()
@@ -96,8 +98,9 @@ func fetchCatalogWithOfficial(address string, official func() []catalogModel) ([
 	if err != nil || len(body) > 2<<20 || !utf8.Valid(body) || json.NewDecoder(bytes.NewReader(body)).Decode(&data) != nil || data.Models == nil {
 		return nil, errors.New("Magpie returned an invalid model catalog")
 	}
-	for _, model := range data.Models {
-		if model.ID == "" {
+	for i := range data.Models {
+		data.Models[i].SupportsResponsesLite = identity.ResponsesLite && data.Models[i].SupportsResponsesLite
+		if data.Models[i].ID == "" {
 			return nil, errors.New("Magpie returned a model without an ID")
 		}
 	}

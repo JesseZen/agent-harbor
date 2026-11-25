@@ -16,13 +16,15 @@ printf '%s\n' 60a5316204b0c538229defb2628e50660a469b85 > "$herdr.source"
 shasum -a 256 "$root/docs/herdr-remote-executable.patch" | cut -d ' ' -f 1 > "$herdr.remote-patch.sha256"
 shasum -a 256 "$herdr" | cut -d ' ' -f 1 > "$herdr.sha256"
 git clone https://github.com/yetone/magpie.git "$work/magpie"
-git -C "$work/magpie" checkout 5426c43cca9b90be809d51edebc5c926929e9f6c
+git -C "$work/magpie" checkout 83f061ed9bc6d27370b1dda154a9a2234cd76a1d
 git -C "$work/magpie" apply "$root/docs/magpie-caller-only.patch"
 git -C "$work/magpie" apply "$root/docs/magpie-profile-isolation.patch"
+git -C "$work/magpie" apply "$root/docs/magpie-responses-lite.patch"
 magpie=$work/assets/magpie/magpie-caller-candidate-$target
-(cd "$work/magpie" && CGO_ENABLED=0 go build -tags nogui -trimpath -ldflags '-s -w -X main.version=0.1.3528-harbor-dev' -o "$magpie" .)
-printf '%s\n' 5426c43cca9b90be809d51edebc5c926929e9f6c > "$magpie.source"
+(cd "$work/magpie" && CGO_ENABLED=0 go build -tags nogui -trimpath -ldflags '-s -w -X main.version=0.1.4783-harbor-dev' -o "$magpie" .)
+printf '%s\n' 83f061ed9bc6d27370b1dda154a9a2234cd76a1d > "$magpie.source"
 shasum -a 256 "$root/docs/magpie-profile-isolation.patch" | cut -d ' ' -f 1 > "$magpie.profiles-patch.sha256"
+shasum -a 256 "$root/docs/magpie-responses-lite.patch" | cut -d ' ' -f 1 > "$magpie.responses-lite-patch.sha256"
 shasum -a 256 "$magpie" | cut -d ' ' -f 1 > "$magpie.sha256"
 auth=$(awk -v target="$target" '$1 == target {print $2}' "$root/bridge/codex-auth-assets.txt")
 curl -fL --retry 3 "https://github.com/Loongphy/codex-auth/releases/download/v0.4.0/$auth" -o "$work/assets/codex-auth/$auth"

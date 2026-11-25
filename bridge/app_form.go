@@ -13,11 +13,12 @@ const (
 	formModel
 	formOptions
 	formName
+	formResponses
 	formCreate
 	formCancel
 )
 
-var formLabels = []string{"Project", "Client", "Connection", "Model", "Options", "Name"}
+var formLabels = []string{"Project", "Client", "Connection", "Model", "Options", "Name", "Responses format"}
 
 type appFormCreated struct {
 	generation uint64
@@ -28,7 +29,7 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
 	back := func() (tea.Model, tea.Cmd) {
 		m.screen = "new-form"
-		m.formFocus = min(formName, m.formFocus)
+		m.formFocus = min(formResponses, m.formFocus)
 		m.scroll = 0
 		m.uiFocus = ""
 		m.input.Blur()
@@ -49,14 +50,16 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case "new-form":
 		switch k {
-		case "down", "up":
+		case "down", "up", "j", "k":
 			step := 1
-			if k == "up" {
+			if k == "up" || k == "k" {
 				step = -1
 			}
-			m.formFocus = (m.formFocus + len(formLabels) + step) % len(formLabels)
-			if m.formFocus == formOptions && m.selectedClient() != "codex" {
-				m.formFocus += step
+			for {
+				m.formFocus = (m.formFocus + len(formLabels) + step) % len(formLabels)
+				if m.formFieldVisible(m.formFocus) {
+					break
+				}
 			}
 		case "enter":
 			m.notice = ""
@@ -91,6 +94,14 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if m.selectedClient() == "codex" {
 					m.openCodexOptions(codexOptionEditor{returnScreen: "new-form", value: codexOptionsValue(m.draft.CodexOptions)})
 				}
+			case formResponses:
+				m.screen = "new-responses-format"
+				m.responsesCursor = 0
+				for i, format := range responsesFormats {
+					if m.draft.ResponsesFormat == format {
+						m.responsesCursor = i
+					}
+				}
 			case formName:
 				m.screen = "new-name"
 				m.uiFocus = ""
@@ -104,6 +115,7 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.creating = true
 				m.screen = "busy"
 				g, d, client, version := m.generation, m.draft, m.selectedClient(), m.environment.CodexVersion
+				canChooseResponses := m.formFieldVisible(formResponses)
 				return m, func() tea.Msg {
 					reject := func(focus int, page string, err error) tea.Msg { return appFormRejected{g, focus, page, err} }
 					if err := m.service.ValidateDirectory(d.Directory); err != nil {
@@ -135,6 +147,9 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						if d.Connection == "magpie" {
 							focus = formModel
 						}
+						if errors.Is(err, errMagpieResponsesLiteUnavailable) && canChooseResponses {
+							focus = formResponses
+						}
 						var option *codexOptionError
 						if errors.As(err, &option) {
 							focus = formOptions
@@ -153,6 +168,16 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.formActive = false
 				m.screen = "sessions"
 			}
+		}
+	case "new-responses-format":
+		switch k {
+		case "up", "k":
+			m.responsesCursor = max(0, m.responsesCursor-1)
+		case "down", "j":
+			m.responsesCursor = min(len(responsesFormats)-1, m.responsesCursor+1)
+		case "enter":
+			m.draft.ResponsesFormat = responsesFormats[m.responsesCursor]
+			return back()
 		}
 	case "new-name":
 		if k == "enter" {
@@ -211,6 +236,7 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if m.connectionCursor == 0 {
 				m.draft.Connection = "local"
+				m.draft.ResponsesFormat = ""
 				m.rememberConnection()
 				return back()
 			}
@@ -238,7 +264,7 @@ func (m harborModel) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.catalogCursor = min(max(0, len(rows)-1), m.catalogCursor+1)
 		}
 		if k == "enter" && len(rows) > 0 {
-			m.draft.Model = rows[m.catalogCursor].ID
+			m.setDraftModel(rows[m.catalogCursor].ID)
 			instance := m.draft.Instance
 			ack := false
 			n, c, _ := m.serviceTask(func() error { var err error; ack, err = m.service.AuxiliaryAcknowledged(instance); return err }, func(n *harborModel, err error) tea.Cmd {
@@ -299,7 +325,7 @@ func (m *harborModel) formInstances(chooseInstance bool) tea.Cmd {
 
 func (m *harborModel) formCatalog(id string) tea.Cmd {
 	if m.draft.Instance != id {
-		m.draft.Model = ""
+		m.setDraftModel("")
 	}
 	m.draft.Connection, m.draft.Instance = "magpie", id
 	m.generation++
@@ -327,4 +353,29 @@ type appPreparedDraft struct {
 	generation uint64
 	draft      sessionDraft
 	result     appCreated
+}
+
+func (m *harborModel) setDraftModel(id string) {
+	if m.draft.Model != id {
+		m.draft.ResponsesFormat = ""
+	}
+	m.draft.Model = id
+}
+
+func (m harborModel) formFieldVisible(field int) bool {
+	switch field {
+	case formOptions:
+		return m.selectedClient() == "codex"
+	case formResponses:
+		if m.selectedClient() == "codex" && m.draft.Connection == "magpie" && m.draft.Instance == m.modelsInstance {
+			for _, model := range m.models {
+				if model.ID == m.draft.Model && model.SupportsResponsesLite {
+					return true
+				}
+			}
+		}
+		return false
+	default:
+		return true
+	}
 }

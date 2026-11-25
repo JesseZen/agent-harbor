@@ -1,5 +1,4 @@
 diff --git a/internal/gateway/codex_backend.go b/internal/gateway/codex_backend.go
-index bcdd5ed..f76e013 100644
 --- a/internal/gateway/codex_backend.go
 +++ b/internal/gateway/codex_backend.go
 @@ -13,6 +13,8 @@ import (
@@ -11,7 +10,7 @@ index bcdd5ed..f76e013 100644
  	"slices"
  	"strings"
  	"sync"
-@@ -41,6 +43,38 @@ import (
+@@ -41,6 +43,49 @@
  // in /backend-api/codex keeps Codex treating it as that backend.
  const CodexPath = "/backend-api/codex"
  
@@ -38,19 +37,30 @@ index bcdd5ed..f76e013 100644
 +		out.Header["X-Forwarded-For"] = nil
 +	}
 +	// Do not pass official turns through Magpie's translating or retrying transport.
-+	proxy.Transport = http.DefaultTransport
++	proxy.Transport = codexCallerTransport
 +	proxy.FlushInterval = -1
 +	req := r.Clone(r.Context())
 +	req.URL.Path, req.URL.RawPath = rest, ""
 +	req.Body = io.NopCloser(bytes.NewReader(body))
 +	req.ContentLength = int64(len(body))
++	if !noteUpstream(r.Context()) {
++		return
++	}
 +	proxy.ServeHTTP(w, req)
++}
++
++var codexCallerTransport = newCodexCallerTransport(10 * time.Minute)
++
++func newCodexCallerTransport(responseHeaderTimeout time.Duration) *http.Transport {
++	transport := http.DefaultTransport.(*http.Transport).Clone()
++	transport.ResponseHeaderTimeout = responseHeaderTimeout
++	return transport
 +}
 +
  // codexAPIBase is where a Codex signed in with an API key sends its requests;
  // its model list still comes from the ChatGPT backend. A var so tests can
  // point it elsewhere.
-@@ -67,10 +101,19 @@ Be concise, structured, and focused on helping the next LLM seamlessly continue
+@@ -67,10 +112,19 @@ Be concise, structured, and focused on helping the next LLM seamlessly continue
  const codexSummaryPrefix = codexsummary.Prefix
  
  func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +80,7 @@ index bcdd5ed..f76e013 100644
  		if strings.TrimPrefix(r.URL.Path, CodexPath) == "/responses" && s.serveResponsesSocket(w, r) {
  			return
  		}
-@@ -87,6 +130,23 @@ func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
+@@ -87,6 +132,23 @@ func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
  	if !ok {
  		return
  	}
@@ -94,6 +104,75 @@ index bcdd5ed..f76e013 100644
  	var err error
  	switch {
  	case r.Method == http.MethodGet && rest == "/models":
+diff --git a/internal/gateway/unrouted.go b/internal/gateway/unrouted.go
+--- a/internal/gateway/unrouted.go
++++ b/internal/gateway/unrouted.go
+@@ -225,7 +225,8 @@ type unroutedHold struct {
+ 	asked  atomic.Value // string: the model it asked for, once read
+ 	shown  *Route       // under f.mu
+ 	ended  bool         // under f.mu: answered by magpie
+ 	over   bool         // under f.mu: its handler returned
++	forwarded bool      // under f.mu: handed to its upstream
+ 	// saved is closed once giveUp, having answered, has written its
+ 	// report: a test waits for it before its temp HOME goes
+ 	saved chan struct{}
+@@ -380,6 +381,32 @@ func noteWait(ctx context.Context, kind string) {
+ 	return u.wait(kind)
+ }
+ 
++// noteUpstream ends the pre-route hold once the request is handed upstream.
++func noteUpstream(ctx context.Context) bool {
++	f := inflightOf(ctx)
++	if f == nil {
++		return true
++	}
++	f.mu.Lock()
++	u := f.unrouted
++	if u == nil {
++		f.mu.Unlock()
++		return true
++	}
++	if u.ended || u.over {
++		f.mu.Unlock()
++		return false
++	}
++	u.forwarded = true
++	shown := u.shown
++	u.shown = nil
++	f.mu.Unlock()
++	if shown != nil {
++		u.s.trace.drop(shown)
++	}
++	return true
++}
++
+ // waitKind is the time a request spent in one kind of known wait: how
+ // many of it are under way, since when, and the time before that.
+ type waitKind struct {
+@@ -663,7 +690,7 @@ func (u *unroutedHold) show() {
+ 	f := u.f
+ 	f.mu.Lock()
+ 	defer f.mu.Unlock()
+-	if len(f.begun) > 0 || u.shown != nil || u.ended || u.over {
++	if len(f.begun) > 0 || u.forwarded || u.shown != nil || u.ended || u.over {
+ 		return
+ 	}
+ 	u.showLocked()
+@@ -701,6 +728,6 @@ func (u *unroutedHold) giveUp(unknown bool) {
+ 	f := u.f
+ 	f.mu.Lock()
+-	if len(f.begun) > 0 || u.ended || u.over {
++	if len(f.begun) > 0 || u.forwarded || u.ended || u.over {
+ 		f.mu.Unlock()
+ 		return
+ 	}
+@@ -736,5 +763,5 @@ func (u *unroutedHold) giveUp(unknown bool) {
+ 	f.mu.Lock()
+-	if len(f.begun) > 0 || u.ended || u.over || !u.w.claim() {
++	if len(f.begun) > 0 || u.forwarded || u.ended || u.over || !u.w.claim() {
+ 		// routed, answered or let go meanwhile, or the handler is
+ 		// answering: the report is of nothing stopped
+ 		f.mu.Unlock()
 diff --git a/internal/gateway/gateway.go b/internal/gateway/gateway.go
 index 4f2eccb..570b613 100644
 --- a/internal/gateway/gateway.go
@@ -208,16 +287,18 @@ new file mode 100644
 index 0000000..8203a5f
 --- /dev/null
 +++ b/internal/gateway/codex_caller_test.go
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,208 @@
 +package gateway
 +
 +import (
++	"context"
 +	"io"
 +	"net/http"
 +	"net/http/httptest"
 +	"strings"
 +	"sync"
 +	"testing"
++	"time"
 +
 +	"github.com/yetone/magpie/internal/provider"
 +)
@@ -342,6 +423,77 @@ index 0000000..8203a5f
 +	server.Handler().ServeHTTP(w, r)
 +	if w.Code != http.StatusOK || w.Body.String() != "data: official\n\n" {
 +		t.Fatalf("official response not relayed: %d %s", w.Code, w.Body.String())
++	}
++}
++
++func TestCodexCallerOnlySlowOfficialResponseIsNotUnrouted(t *testing.T) {
++	fresh(t)
++	t.Setenv("MAGPIE_CODEX_CALLER_ONLY", "1")
++	unroutedLimits(t, 20*time.Millisecond, 250*time.Millisecond)
++	unknownLimit(t, 125*time.Millisecond)
++
++	arrived := make(chan struct{}, 1)
++	official := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		arrived <- struct{}{}
++		select {
++		case <-r.Context().Done():
++			return
++		case <-time.After(500 * time.Millisecond):
++		}
++		w.Header().Set("Content-Type", "text/event-stream")
++		io.WriteString(w, "data: official\n\n")
++	}))
++	t.Cleanup(official.Close)
++	previousBase := provider.CodexBase
++	provider.CodexBase = official.URL + "/backend-api/codex"
++	t.Cleanup(func() { provider.CodexBase = previousBase })
++
++	request := httptest.NewRequest(http.MethodPost, CodexPath+"/responses", strings.NewReader(`{"model":"gpt-5.5","stream":true}`))
++	request.Header.Set("Authorization", "Bearer synthetic-caller")
++	request.Header.Set("chatgpt-account-id", "synthetic-account")
++	recorder := httptest.NewRecorder()
++	New().Handler().ServeHTTP(recorder, request)
++	select {
++	case <-arrived:
++	default:
++		t.Fatal("official backend did not receive the request")
++	}
++	if recorder.Code != http.StatusOK || recorder.Body.String() != "data: official\n\n" {
++		t.Fatalf("slow official response not relayed: %d %s", recorder.Code, recorder.Body.String())
++	}
++}
++
++func TestCodexCallerTransportBoundsResponseHeaderWait(t *testing.T) {
++	received := make(chan struct{}, 1)
++	official := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		received <- struct{}{}
++		select {
++		case <-r.Context().Done():
++		case <-time.After(2 * time.Second):
++		}
++	}))
++	defer official.Close()
++
++	transport := newCodexCallerTransport(50 * time.Millisecond)
++	defer transport.CloseIdleConnections()
++	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
++	defer cancel()
++	request, err := http.NewRequestWithContext(ctx, http.MethodGet, official.URL, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	started := time.Now()
++	_, err = transport.RoundTrip(request)
++	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "timeout") {
++		t.Fatalf("waiting for response headers returned %v, want timeout", err)
++	}
++	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
++		t.Fatalf("response header timeout took %s", elapsed)
++	}
++	select {
++	case <-received:
++	default:
++		t.Fatal("official backend did not receive the request")
 +	}
 +}
 diff --git a/internal/gateway/codex_caller_native_test.go b/internal/gateway/codex_caller_native_test.go

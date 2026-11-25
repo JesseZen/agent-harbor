@@ -40,6 +40,10 @@ func (m harborModel) filteredModels() []catalogModel {
 func (m *harborModel) prepareNewSession() tea.Cmd {
 	m.generation++
 	generation, profile, service := m.generation, m.activeProfile, m.service
+	preferred := ""
+	if profile != nil {
+		preferred = m.creationConnections[*profile]
+	}
 	m.screen = "new-project-loading"
 	return func() tea.Msg {
 		var env appEnvironment
@@ -49,7 +53,11 @@ func (m *harborModel) prepareNewSession() tea.Cmd {
 		} else {
 			env, err = service.Environment()
 		}
-		return appNewReady{environment: env, err: err, generation: generation}
+		var models []catalogModel
+		if err == nil && (preferred == "magpie" || preferred == "" && env.LastConnection == "magpie") && env.LastMagpieInstance != "" && env.LastMagpieModel != "" {
+			models, _ = catalogForDraft(service, sessionDraft{Profile: env.Profile}, env.LastMagpieInstance)
+		}
+		return appNewReady{environment: env, models: models, err: err, generation: generation}
 	}
 }
 

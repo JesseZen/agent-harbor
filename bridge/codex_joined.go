@@ -21,14 +21,17 @@ func joinedCodex(s session) bool {
 }
 
 func joinedCodexArgs(s session, kind launchKind) []string {
-	base := strings.TrimRight(s.MagpieURL, "/")
+	base := strings.TrimRight(s.MagpieURL, "/") + "/backend-api/codex"
+	if s.ResponsesLiteModel != "" {
+		base += "/harbor-responses-lite"
+	}
 	args := []string{}
 	if kind == newConversation {
 		args = append(args, "-c", `model_provider="openai"`)
 	}
 	// On resume the saved thread already owns its provider. Even repeating
 	// "openai" is an override that makes Codex discard the saved model/effort.
-	args = append(args, "-c", "openai_base_url="+strconv.Quote(base+"/backend-api/codex"))
+	args = append(args, "-c", "openai_base_url="+strconv.Quote(base))
 	if kind == newConversation && s.MagpieModel != codexDefaultModel {
 		args = append(args, "-c", "model="+strconv.Quote(s.MagpieModel))
 	}

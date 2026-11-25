@@ -19,7 +19,7 @@ func TestMagpieCodexCatalogUsesUpstreamContentAndRejectsOtherAddresses(t *testin
 		_, _ = w.Write([]byte(body))
 	}))
 	defer server.Close()
-	path, err := magpieCodexCatalog(server.URL, t.TempDir(), "group/a", "high")
+	path, err := magpieCodexCatalog(server.URL, t.TempDir(), "group/a", "high", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,13 +31,13 @@ func TestMagpieCodexCatalogUsesUpstreamContentAndRejectsOtherAddresses(t *testin
 	if err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("catalog is not private: %v %v", info, err)
 	}
-	if _, err := magpieCodexCatalog("http://example.com:80", t.TempDir(), "group/a", ""); err == nil {
+	if _, err := magpieCodexCatalog("http://example.com:80", t.TempDir(), "group/a", "", ""); err == nil {
 		t.Fatal("accepted a non-loopback catalog")
 	}
-	if _, err := magpieCodexCatalog(server.URL, t.TempDir(), "group/hidden", ""); !errors.Is(err, errMagpieCodexModelHidden) {
+	if _, err := magpieCodexCatalog(server.URL, t.TempDir(), "group/hidden", "", ""); !errors.Is(err, errMagpieCodexModelHidden) {
 		t.Fatalf("hidden selection accepted: %v", err)
 	}
-	if _, err := magpieCodexCatalog(server.URL, t.TempDir(), "group/a", "low"); !errors.Is(err, errMagpieCodexEffortHidden) {
+	if _, err := magpieCodexCatalog(server.URL, t.TempDir(), "group/a", "low", ""); !errors.Is(err, errMagpieCodexEffortHidden) {
 		t.Fatalf("unavailable effort accepted: %v", err)
 	}
 }
@@ -48,7 +48,7 @@ func TestMagpieCodexCatalogFailureDoesNotExposeServerBody(t *testing.T) {
 		_, _ = w.Write([]byte("private diagnostic"))
 	}))
 	defer server.Close()
-	_, err := magpieCodexCatalog(server.URL, t.TempDir(), "group/a", "")
+	_, err := magpieCodexCatalog(server.URL, t.TempDir(), "group/a", "", "")
 	if err == nil || !strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "private diagnostic") {
 		t.Fatalf("unexpected error: %v", err)
 	}

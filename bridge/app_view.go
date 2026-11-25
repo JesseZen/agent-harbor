@@ -88,6 +88,9 @@ func (m harborModel) details(s sessionView) string {
 			modelLabel = "Initial model"
 		}
 		lines = append(lines, kv(modelLabel, s.MagpieModel), kv("Instance", s.InstanceID), kv("Address", orUnknown(s.MagpieURL)))
+		if s.ResponsesFormat != "" {
+			lines = append(lines, kv("Responses format", s.responsesFormatLabel()))
+		}
 		if s.InstanceSnapshot != nil {
 			lines = append(lines, kv("Recorded config", s.InstanceSnapshot.ConfigDir))
 		} else {

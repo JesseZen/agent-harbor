@@ -114,12 +114,20 @@ func magpieCodexProfile(id, model string, env []string) (string, error) {
 // needed because a model_catalog_json in a native or project config otherwise
 // takes precedence over the provider's remote model_catalog_url.
 func fetchMagpieCodexCatalog(address string) ([]byte, []magpieCodexModel, error) {
+	return fetchMagpieCodexCatalogVariant(address, false)
+}
+
+func fetchMagpieCodexCatalogVariant(address string, lite bool) ([]byte, []magpieCodexModel, error) {
 	base, err := parseGatewayAddress(address)
 	if err != nil {
 		return nil, nil, errors.New("cannot use an unverified Magpie catalog address")
 	}
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	req, err := http.NewRequest(http.MethodGet, base+"/v1/codex/models", nil)
+	endpoint := base + "/v1/codex/models"
+	if lite {
+		endpoint += "?responses_format=lite"
+	}
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, nil, errors.New("cannot prepare the Magpie Codex catalog request")
 	}
@@ -138,26 +146,53 @@ func fetchMagpieCodexCatalog(address string) ([]byte, []magpieCodexModel, error)
 	}
 	var catalog struct {
 		Models []magpieCodexModel `json:"models"`
+		Format string             `json:"magpie_responses_format"`
 	}
 	if json.NewDecoder(bytes.NewReader(body)).Decode(&catalog) != nil || catalog.Models == nil || !json.Valid(body) {
 		return nil, nil, errors.New("Magpie returned an invalid Codex model catalog")
+	}
+	if lite && catalog.Format != "lite" {
+		return nil, nil, errMagpieResponsesLiteUnavailable
 	}
 	return body, catalog.Models, nil
 }
 
 type magpieCodexModel struct {
-	Slug   string `json:"slug"`
-	Levels []struct {
+	Slug             string `json:"slug"`
+	UseResponsesLite bool   `json:"use_responses_lite"`
+	Levels           []struct {
 		Effort string `json:"effort"`
 	} `json:"supported_reasoning_levels"`
 }
 
-func magpieCodexCatalog(address, directory, selected, effort string) (string, error) {
-	body, models, err := fetchMagpieCodexCatalog(address)
+func requireMagpieResponsesLite(address, model string) error {
+	_, models, err := fetchMagpieCodexCatalogVariant(address, true)
+	if err != nil {
+		return err
+	}
+	return checkMagpieResponsesLite(models, model)
+}
+
+func checkMagpieResponsesLite(models []magpieCodexModel, route string) error {
+	for _, model := range models {
+		if model.Slug == route && model.UseResponsesLite {
+			return nil
+		}
+	}
+	return errMagpieResponsesLiteUnavailable
+}
+
+func magpieCodexCatalog(address, directory, selected, effort, liteModel string) (string, error) {
+	body, models, err := fetchMagpieCodexCatalogVariant(address, liteModel != "")
 	if err != nil {
 		return "", err
 	}
-	found := false
+	if liteModel != "" {
+		if err := checkMagpieResponsesLite(models, liteModel); err != nil {
+			return "", err
+		}
+	}
+	found := selected == ""
 	for _, model := range models {
 		if model.Slug == selected {
 			found = true

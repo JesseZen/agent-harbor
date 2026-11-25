@@ -203,7 +203,7 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 		if s.CodexOptions != nil && s.CodexOptions.ReasoningEffort != "" {
 			effort = s.CodexOptions.ReasoningEffort
 		}
-		catalog, catalogErr := magpieCodexCatalog(s.MagpieURL, root, model, effort)
+		catalog, catalogErr := magpieCodexCatalog(s.MagpieURL, root, model, effort, s.ResponsesLiteModel)
 		if catalogErr == nil {
 			defer os.Remove(catalog)
 			settings = append(settings, "-c", "model_catalog_json="+strconv.Quote(catalog))
@@ -211,7 +211,7 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 			if errors.Is(catalogErr, errMagpieCodexModelHidden) || errors.Is(catalogErr, errMagpieCodexEffortHidden) {
 				return catalogErr
 			}
-			if resultPath != "" {
+			if s.ResponsesLiteModel != "" || resultPath != "" {
 				return fmt.Errorf("Magpie catalog unavailable for the confirmed model: %w", catalogErr)
 			}
 			fmt.Fprintln(os.Stderr, "Warning:", catalogErr, "; Codex's model picker may not show Magpie models. Review the instance before changing models.")
@@ -221,6 +221,10 @@ func launchWithSelection(s session, kind launchKind, overrideReason string, quer
 			}
 		}
 		cmd.Args = append(append([]string{cmd.Path}, settings...), cmd.Args[1:]...)
+	} else if joinedCodex(s) && s.ResponsesLiteModel != "" {
+		if err := requireMagpieResponsesLite(s.MagpieURL, s.ResponsesLiteModel); err != nil {
+			return err
+		}
 	}
 	if !neutral {
 		// Explicit per-launch configuration keeps native startup updates disabled.

@@ -63,7 +63,7 @@ jobs:
             cargo build --release --locked -vv
             cp target/release/herdr "$asset"
           else
-            CGO_ENABLED=0 go build -tags nogui -trimpath -ldflags '-s -w -X main.version=0.1.4783-harbor-dev' -o "$asset" .
+            CGO_ENABLED=0 go build -tags nogui -trimpath -ldflags '-s -w -X main.version=0.1.4786-harbor-dev' -o "$asset" .
           fi
           HOME="$RUNNER_TEMP/smoke-home" XDG_CONFIG_HOME="$RUNNER_TEMP/smoke-home/config" "$asset" --version
           file "$asset"

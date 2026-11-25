@@ -32,9 +32,9 @@ dependency target tag fork-commit binary-sha256 first-patch-sha256:second-patch-
 ```
 
 The last column records the patched inputs in source-build order. Magpie
-v0.1.4783 adds the Responses Lite patch as its third input. The existing Magpie
-lock rows refer to the published v1 assets. Record new fork assets that match all
-three patches before running the prebuilt release. On Harbor, first dispatch the release workflow on an
+`harbor-v2` uses upstream `v0.1.4786` with caller-only forwarding, Profile
+isolation and Responses Lite. Record new fork assets that match all three
+patches before running the prebuilt release. On Harbor, first dispatch the release workflow on an
 untagged ref containing the lock and verify all four package/install jobs.
 Harbor does not compile dependencies during release builds. A missing lock or
 mismatched asset fails the run; it does not trigger a source rebuild.

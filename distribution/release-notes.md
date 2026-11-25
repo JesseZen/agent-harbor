@@ -1,16 +1,15 @@
-Changes in v0.1.0-dev.11:
+Changes in v0.1.0-dev.15:
 
-- Enable live account refresh by default for new Native Codex and signed-in Magpie Codex windows, using a private official Codex App Server per window. No experimental environment variable or version allowlist is required. If the server cannot start, Codex opens with the same connection, model and launch options.
-- Check window activity through Herdr before changing accounts. A busy window shows a waiting screen with its name; Esc cancels the pending switch. Missing an App Server no longer makes an otherwise verified idle window block the saved login change.
-- Restore the selectable `Not signed in` row without deleting saved logins. Authorize added accounts in a private temporary home before changing the Profile login. Results show the saved login and whether each running window adopted it.
+- Update bundled Magpie to 0.1.4786 with caller-only forwarding and Profile isolation. Fix the pre-routing watchdog interrupting slow official Codex responses after they have been forwarded.
+- Offer Responses or Responses Lite per Codex session on a compatible Magpie route, and preserve the selected format during recovery.
+- Add a read-only live session preview, pinning and archiving, and a split Codex Options editor.
+- Keep Harbor's saved Conversation in sync with verified in-window Codex switches.
 
-Existing windows do not acquire an App Server after updating. New eligible windows use it automatically; results identify older windows whose live account change could not be confirmed. Live sign-out is not verified. The refresh uses an undocumented upstream side effect and verifies the resulting identity before reporting success.
-
-Validated with unmodified Codex 0.170.0 and isolated synthetic credentials/providers, including a second turn after switching Native and signed-in Magpie windows. Real account acceptance remains for this development candidate.
+After updating, let requests finish before stopping and starting Harbor's managed Magpie to load the new binary. The upgrade itself does not restart the gateway or alter saved Conversations.
 
 Native development candidate for macOS and Linux, arm64 and amd64.
 
-Includes Agent Harbor, patched Herdr 0.9.5, patched Magpie 0.1.3528 and upstream codex-auth 0.4.0. Install the Codex CLI separately; native and official npm installations are supported. Local dependency patches are not upstream releases.
+Includes Agent Harbor, patched Herdr 0.9.5, patched Magpie 0.1.4786 and upstream codex-auth 0.4.0. Install the Codex CLI separately; native and official npm installations are supported. Local dependency patches are not upstream releases.
 
 Install (no sudo):
 

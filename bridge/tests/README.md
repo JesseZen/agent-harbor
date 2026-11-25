@@ -344,7 +344,7 @@ fixture uses synthetic providers and separate Codex and Magpie homes.
 ## Responses Lite
 
 Use Codex 0.172.0, the local Herdr query candidate and the patched Magpie
-0.1.4783 source build:
+source build for the pinned version:
 
 ```sh
 python3 bridge/tests/app_acceptance.py --replacement --responses-lite \

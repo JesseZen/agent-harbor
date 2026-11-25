@@ -3,9 +3,8 @@
 The joined Codex connection uses a local Magpie patch in
 [`magpie-caller-only.patch`](magpie-caller-only.patch). It is a development
 candidate: it has not been submitted to, accepted by, or released by Magpie.
-The source-build candidate uses Magpie 0.1.4783. Published Harbor v1
-dependency assets still use Magpie 0.1.3528. ZCode's provider is a community
-plugin on both versions.
+The source-build candidate uses Magpie 0.1.4786. ZCode's provider is a
+community plugin on this version and on the previous 0.1.3528 package base.
 
 With `MAGPIE_CODEX_CALLER_ONLY=1`, a Codex request for an official model is
 relayed using the initiating client's authorization and account ID. Magpie
@@ -47,14 +46,14 @@ their recorded connection rather than being migrated automatically.
 To build a package dependency from a clean Magpie checkout:
 
 ```sh
-git checkout 83f061ed9bc6d27370b1dda154a9a2234cd76a1d
+git checkout 58cf2ad413d0175810629dd20127361e5277582c
 git apply /path/to/agent-harbor/docs/magpie-caller-only.patch
 git apply /path/to/agent-harbor/docs/magpie-profile-isolation.patch
 git apply /path/to/agent-harbor/docs/magpie-responses-lite.patch
 go test -tags nogui ./internal/appdir ./internal/provider ./internal/gateway \
   -run '^(TestCallerOnly|TestCodexCallerOnly|TestCodexCallerTransport|TestCodexAsSent|TestHarborResponsesLite)' -count=1
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags nogui -trimpath \
-  -ldflags '-s -w -X main.version=0.1.4783-harbor-dev' \
+  -ldflags '-s -w -X main.version=0.1.4786-harbor-dev' \
   -o /path/to/dependencies/magpie/magpie-caller-candidate-linux-amd64 .
 ```
 

@@ -152,7 +152,7 @@ The UI explains that an instance shared by Profiles has shared configuration/log
 Isolated sessions require both `codex_caller_only` and `codex_profile_isolation`
 in `/api/hello`. The latter comes from the supplemental local
 [`magpie-profile-isolation.patch`](magpie-profile-isolation.patch), applied after
-the caller-only patch to base `5426c43cca9b90be809d51edebc5c926929e9f6c`.
+the caller-only patch to the [pinned Magpie base](magpie-caller-integration.md).
 It disables Codex-home enumeration (including history scans), direct credential
 writes/deletion, and retains the caller-only read/refresh/request guards.
 This is a local development candidate, not an upstream release.

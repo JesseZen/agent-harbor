@@ -32,7 +32,7 @@ EOF
       attestation=remote-patch ;;
     magpie)
       candidate="$work/magpie/magpie-caller-candidate-$target"
-      source=83f061ed9bc6d27370b1dda154a9a2234cd76a1d
+      source=58cf2ad413d0175810629dd20127361e5277582c
       first_patch="$root/docs/magpie-caller-only.patch"
       second_patch="$root/docs/magpie-profile-isolation.patch"
       third_patch="$root/docs/magpie-responses-lite.patch"

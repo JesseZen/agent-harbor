@@ -1,26 +1,26 @@
 class AgentHarbor < Formula
   desc "AI CLI sessions with Profiles, conversation recovery and optional routing"
   homepage "https://github.com/JesseZen/agent-harbor"
-  version "0.1.0-dev.14"
+  version "0.1.0-dev.15"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.14/agent-harbor-v0.1.0-dev.14-darwin-arm64.tar.gz"
-      sha256 "138edeb10ffe41ac9c0246f844af77d82c14c577fd50fd8f79aa207a0ce8e2d4"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.15/agent-harbor-v0.1.0-dev.15-darwin-arm64.tar.gz"
+      sha256 "7ea178f0e448f8faba7ba4bd62b415d4fbd21d6955bd64cf41bbb6f914d9a312"
     else
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.14/agent-harbor-v0.1.0-dev.14-darwin-amd64.tar.gz"
-      sha256 "bd973596305e22361566010224df721d201265c890f726b292f6bfa758701f32"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.15/agent-harbor-v0.1.0-dev.15-darwin-amd64.tar.gz"
+      sha256 "584095b942f5732f9975517f1a49d6f59c1bf35e2aa40a391f9ac3533b4f549c"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.14/agent-harbor-v0.1.0-dev.14-linux-arm64.tar.gz"
-      sha256 "be2fb1100dd99bd2cd314b9bd16c3b2877ad7a9df278a899464c1249ac6e864a"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.15/agent-harbor-v0.1.0-dev.15-linux-arm64.tar.gz"
+      sha256 "48eaf4231e27e5174d7e7bf33d5a5ff6cdab7d2e34577b9ccd1a867420093a63"
     else
-      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.14/agent-harbor-v0.1.0-dev.14-linux-amd64.tar.gz"
-      sha256 "a520a452e2063731edd91ee31eade0d6e9378e5371bf500b3bf1692418aa4dc9"
+      url "https://github.com/JesseZen/agent-harbor/releases/download/v0.1.0-dev.15/agent-harbor-v0.1.0-dev.15-linux-amd64.tar.gz"
+      sha256 "fe4c9a06067bea1ba6249256670152c86bc3ad4a531d733132bd94ef763ffc95"
     end
   end
 
